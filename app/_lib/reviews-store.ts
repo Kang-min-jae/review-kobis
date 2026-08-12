@@ -11,6 +11,7 @@ export function subscribe(listener: () => void): () => void {
 
 function emitChange() {
   reviewsCache.clear();
+  cachedUserReviewedMovieIds = null;
   listeners.forEach((listener) => listener());
 }
 
@@ -70,6 +71,22 @@ export function getReviewsSnapshot(movieId: string, type: ReviewType): Review[] 
 
 export function getAverageRating(movieId: string, type: ReviewType): number | null {
   return average(getReviewsSnapshot(movieId, type));
+}
+
+// 현재 브라우저 사용자가 직접 평점을 남긴 영화 id 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).
+const EMPTY_IDS: string[] = [];
+let cachedUserReviewedMovieIds: string[] | null = null;
+
+export function getUserReviewedMovieIdsSnapshot(): string[] {
+  if (typeof window === "undefined") return EMPTY_IDS;
+  if (!cachedUserReviewedMovieIds) {
+    cachedUserReviewedMovieIds = Array.from(new Set(readUserReviews().map((r) => r.movieId)));
+  }
+  return cachedUserReviewedMovieIds;
+}
+
+export function getServerUserReviewedMovieIdsSnapshot(): string[] {
+  return EMPTY_IDS;
 }
 
 export function addReview(review: Omit<Review, "id" | "createdAt">): Review {
