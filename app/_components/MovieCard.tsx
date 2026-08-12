@@ -1,5 +1,5 @@
 import Link from "next/link";
-import StarRating from "./StarRating";
+import RatingSummary from "./RatingSummary";
 import type { Movie } from "../_lib/mock-movies";
 
 export default function MovieCard({ movie }: { movie: Movie }) {
@@ -16,14 +16,23 @@ export default function MovieCard({ movie }: { movie: Movie }) {
       </div>
 
       <div className="mt-2 space-y-1.5">
-        <StarRating rating={movie.rating} />
+        <RatingSummary movieId={movie.id} />
         <p className="line-clamp-2 text-sm font-medium text-text">{movie.title}</p>
-        <Link
-          href={`/theaters?movie=${movie.id}`}
-          className="block rounded-full border border-brand px-3 py-1.5 text-center text-xs font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
-        >
-          예매하러 가기
-        </Link>
+
+        <div className="flex gap-1.5">
+          <Link
+            href={`/theaters?movie=${movie.id}`}
+            className="flex-1 rounded-full border border-brand px-1.5 py-1.5 text-center text-[11px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+          >
+            예매하러 가기
+          </Link>
+          <Link
+            href={`/movies/${movie.id}/rate`}
+            className="flex-1 rounded-full border border-star px-1.5 py-1.5 text-center text-[11px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
+          >
+            평점 남기기
+          </Link>
+        </div>
       </div>
     </div>
   );
