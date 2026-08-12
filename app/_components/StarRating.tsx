@@ -6,7 +6,13 @@ function StarIcon({ className }: { className?: string }) {
   );
 }
 
-export default function StarRating({ rating }: { rating: number }) {
+export default function StarRating({
+  rating,
+  size = "h-3.5 w-3.5",
+}: {
+  rating: number;
+  size?: string;
+}) {
   const percent = Math.max(0, Math.min(100, (rating / 10) * 100));
 
   return (
@@ -14,7 +20,7 @@ export default function StarRating({ rating }: { rating: number }) {
       <div className="relative flex">
         <div className="flex gap-0.5 text-muted">
           {Array.from({ length: 5 }).map((_, i) => (
-            <StarIcon key={i} className="h-3.5 w-3.5" />
+            <StarIcon key={i} className={size} />
           ))}
         </div>
         <div
@@ -22,7 +28,7 @@ export default function StarRating({ rating }: { rating: number }) {
           style={{ width: `${percent}%` }}
         >
           {Array.from({ length: 5 }).map((_, i) => (
-            <StarIcon key={i} className="h-3.5 w-3.5 shrink-0" />
+            <StarIcon key={i} className={`${size} shrink-0`} />
           ))}
         </div>
       </div>
