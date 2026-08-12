@@ -19,11 +19,11 @@ type ViewsState = {
 const DEFAULT_SOCIAL: SocialState = {
   following: false,
   liked: false,
-  followerBase: 128,
-  likeBase: 342,
+  followerBase: 0,
+  likeBase: 0,
 };
 
-const DEFAULT_VIEWS_SNAPSHOT = { total: 4820, today: 0 };
+const DEFAULT_VIEWS_SNAPSHOT = { total: 0, today: 0 };
 
 const listeners = new Set<() => void>();
 export function subscribe(listener: () => void): () => void {
