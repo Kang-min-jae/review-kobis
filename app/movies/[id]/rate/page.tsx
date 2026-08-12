@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
-import { nowInTheaters } from "../../../_lib/mock-movies";
+import { allMovies } from "../../../_lib/mock-movies";
 import RateForm from "../../../_components/RateForm";
 
 export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/rate">) {
   const { id } = await params;
-  const movie = nowInTheaters.find((m) => m.id === id);
+  const movie = allMovies.find((m) => m.id === id);
 
   if (!movie) notFound();
 

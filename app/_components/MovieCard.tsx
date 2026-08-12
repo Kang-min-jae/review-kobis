@@ -20,12 +20,14 @@ export default function MovieCard({ movie }: { movie: Movie }) {
         <p className="line-clamp-2 text-sm font-medium text-text">{movie.title}</p>
 
         <div className="flex gap-1.5">
-          <Link
-            href={`/theaters?movie=${movie.id}`}
-            className="flex-1 rounded-full border border-brand px-1.5 py-1.5 text-center text-[11px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
-          >
-            예매하러 가기
-          </Link>
+          {movie.isNowShowing && (
+            <Link
+              href={`/theaters?movie=${movie.id}`}
+              className="flex-1 rounded-full border border-brand px-1.5 py-1.5 text-center text-[11px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+            >
+              예매하러 가기
+            </Link>
+          )}
           <Link
             href={`/movies/${movie.id}/rate`}
             className="flex-1 rounded-full border border-star px-1.5 py-1.5 text-center text-[11px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
