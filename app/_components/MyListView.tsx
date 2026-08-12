@@ -53,12 +53,8 @@ export default function MyListView() {
   const addableMovies = toMovies(reviewedIds.filter((id) => !myListIds.includes(id)));
 
   return (
-    <main className="px-5 py-6">
-      <Link href="/" className="text-sm text-muted hover:text-text">
-        ← 뒤로
-      </Link>
-
-      <div className="mt-3 flex items-start justify-between gap-4">
+    <div className="px-5 py-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-text">나만의 영화 리스트</h1>
           <p className="mt-1 text-xs text-muted">
@@ -160,6 +156,6 @@ export default function MyListView() {
           ))
         )}
       </div>
-    </main>
+    </div>
   );
 }
