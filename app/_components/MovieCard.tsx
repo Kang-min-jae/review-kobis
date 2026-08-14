@@ -19,6 +19,11 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
             ▶
           </span>
         </div>
+        {movie.badge && (
+          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-star">
+            {movie.badge}
+          </span>
+        )}
         <HoverRating movieId={movie.id} />
       </div>
 

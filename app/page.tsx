@@ -20,6 +20,7 @@ import {
   getBestOf5YearsRow,
   getAllTimeBestRow,
   getInternationalBestRow,
+  getWeeklyBoxOfficeRow,
   getGenreRow,
   type RowMovie,
 } from "./_lib/movie-rows";
@@ -49,8 +50,9 @@ async function NowShowingSection() {
 }
 
 async function MovieCategorySection() {
-  const [recent, monthly, yearly, best3, best5, allTime, international, nowShowingMap] =
+  const [weeklyBoxOffice, recent, monthly, yearly, best3, best5, allTime, international, nowShowingMap] =
     await Promise.all([
+      getWeeklyBoxOfficeRow(),
       getRecentMoviesRow(),
       getMonthlyBestRow(),
       getYearlyBestRow(),
@@ -66,6 +68,11 @@ async function MovieCategorySection() {
   return (
     <>
       <RecommendedSection />
+      <MovieRow
+        title="이번주 박스오피스 TOP 10"
+        subtitle="국내 실제 관객수 기준 (KOFIC 영화진흥위원회)"
+        movies={withBooking(weeklyBoxOffice)}
+      />
       <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={withBooking(recent)} />
       <MovieRow
         title="이 달의 Best"

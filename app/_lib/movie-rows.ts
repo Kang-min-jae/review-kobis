@@ -6,6 +6,7 @@ import {
   getMovieRecommendations,
   type TmdbMovieSummary,
 } from "./tmdb";
+import { getWeeklyBoxOffice } from "./kofic";
 
 export type RowMovie = {
   id: string;
@@ -13,6 +14,7 @@ export type RowMovie = {
   posterUrl: string | null;
   gradient: string;
   isNowShowing: boolean;
+  badge?: string;
 };
 
 // TMDB 카탈로그에서 온 영화는 로컬 그라디언트가 없으니 통일된 폴백을 쓴다.
@@ -78,6 +80,7 @@ export async function getLocalNowShowingByTmdbId(): Promise<Map<number, RowMovie
 }
 
 // tmdb-<id> 카드 중 실제로 우리 상영작 목록에 있는 영화는 로컬 카드(예매 버튼 포함)로 교체한다.
+// 원래 카드에 badge(순위 등)가 있었다면 교체된 카드에도 이어서 보여준다.
 export function applyNowShowingOverrides(
   movies: RowMovie[],
   nowShowingMap: Map<number, RowMovie>
@@ -86,8 +89,35 @@ export function applyNowShowingOverrides(
   return movies.map((movie) => {
     if (!movie.id.startsWith("tmdb-")) return movie;
     const tmdbId = Number(movie.id.slice("tmdb-".length));
-    return nowShowingMap.get(tmdbId) ?? movie;
+    const localMatch = nowShowingMap.get(tmdbId);
+    if (!localMatch) return movie;
+    return { ...localMatch, badge: movie.badge ?? localMatch.badge };
   });
+}
+
+// 이번 주 박스오피스 TOP N (실제 국내 관객수 기준, KOFIC 주간 박스오피스).
+// KOFIC은 포스터가 없어서 TMDB에서 제목으로 찾아 붙이고, 못 찾으면(평점 페이지로 연결할
+// 방법이 없어서) 그 항목은 건너뛴다.
+export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
+  const entries = await getWeeklyBoxOffice(10);
+  if (entries.length === 0) return [];
+
+  const infos = await Promise.all(entries.map((entry) => getTmdbMovieInfo({ title: entry.movieNm })));
+
+  const rows: RowMovie[] = [];
+  entries.forEach((entry, i) => {
+    const info = infos[i];
+    if (!info) return;
+    rows.push({
+      id: `tmdb-${info.id}`,
+      title: entry.movieNm,
+      posterUrl: info.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: false,
+      badge: `${entry.rank}위 · 누적 ${entry.audiAcc.toLocaleString("ko-KR")}명`,
+    });
+  });
+  return rows;
 }
 
 // "사용자 추천 영화" — 내가 높게 평가한 영화들을 시드로 TMDB recommendations 조회.
