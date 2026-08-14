@@ -5,6 +5,7 @@ import {
   getMovieDetailsByCd,
   getWeeklyBoxOffice,
   type KobisMovieSummary,
+  type CatalogSearchParams,
 } from "./kobis";
 
 export type RowMovie = {
@@ -24,8 +25,25 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function dateStamp(date: Date): string {
-  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+function isoDate(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+// KOBIS 개봉일 검색(openStartDt/openEndDt)은 연 단위(YYYY)까지만 지원한다. 정확한
+// 날짜 범위(월/일 단위)가 필요하면 연 단위로 넉넉히 가져온 뒤 openDate(일 단위 ISO
+// 문자열)로 다시 걸러낸다. KOBIS 응답 순서가 날짜순이라는 보장이 없어서, 정확한
+// 최신순을 얻으려면 해당 연도 범위의 후보를 충분히 가져와야 한다.
+async function fetchOpenedBetween(
+  gte: string, // ISO yyyy-mm-dd, inclusive
+  lte: string, // ISO yyyy-mm-dd, inclusive
+  limit: number,
+  extraParams: CatalogSearchParams = {}
+): Promise<KobisMovieSummary[]> {
+  const pool = await searchMovieCatalog(
+    { ...extraParams, openStartDt: gte.slice(0, 4), openEndDt: lte.slice(0, 4) },
+    Math.max(limit * 5, 300)
+  );
+  return pool.filter((m) => m.openDate && m.openDate >= gte && m.openDate <= lte).slice(0, limit);
 }
 
 export function toRowMovie(summary: KobisMovieSummary): RowMovie {
@@ -123,11 +141,12 @@ export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
 // 같은 장르를 가진 최근 개봉작을 추천으로 보여준다 (평가한 영화 자체는 제외).
 // 평가한 영화가 아직 없으면 최근 두 달 개봉작으로 대체.
 export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise<RowMovie[]> {
+  const today = isoDate(new Date());
+
   if (seedMovieCds.length === 0) {
-    const recent = await searchMovieCatalog(
-      { openStartDt: dateStamp(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)) },
-      8
-    );
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setDate(twoMonthsAgo.getDate() - 60);
+    const recent = await fetchOpenedBetween(isoDate(twoMonthsAgo), today, 8);
     return recent.map(toRowMovie);
   }
 
@@ -144,7 +163,7 @@ export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise
   const seedSet = new Set(seedMovieCds);
   const twoYearsAgo = new Date();
   twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const candidates = await searchMovieCatalog({ openStartDt: dateStamp(twoYearsAgo) }, 300);
+  const candidates = await fetchOpenedBetween(isoDate(twoYearsAgo), today, 300);
 
   const matched = candidates.filter((movie) => {
     if (seedSet.has(movie.movieCd)) return false;
@@ -158,10 +177,7 @@ export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise
 // 최근 영화: 올해 개봉작 중 최신순 20편.
 export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
-  const results = await searchMovieCatalog(
-    { openStartDt: `${year}0101`, openEndDt: dateStamp(new Date()) },
-    20
-  );
+  const results = await fetchOpenedBetween(`${year}-01-01`, isoDate(new Date()), 20);
   return results.map(toRowMovie);
 }
 
@@ -169,20 +185,17 @@ export async function getRecentMoviesRow(): Promise<RowMovie[]> {
 // (KOBIS엔 인기순 지표가 없어 "Best"는 최신 개봉순으로 대체한다.)
 export async function getMonthlyBestRow(): Promise<RowMovie[]> {
   const now = new Date();
-  const gte = `${now.getFullYear()}${pad2(now.getMonth() + 1)}01`;
+  const gte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const lte = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(lastDay)}`;
-  const results = await searchMovieCatalog({ openStartDt: gte, openEndDt: lte }, 5);
+  const lte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(lastDay)}`;
+  const results = await fetchOpenedBetween(gte, lte, 5);
   return results.map(toRowMovie);
 }
 
 // 올해의 Best: 올해 개봉작 중 최신순 10편.
 export async function getYearlyBestRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
-  const results = await searchMovieCatalog(
-    { openStartDt: `${year}0101`, openEndDt: dateStamp(new Date()) },
-    10
-  );
+  const results = await fetchOpenedBetween(`${year}-01-01`, isoDate(new Date()), 10);
   return results.map(toRowMovie);
 }
 
@@ -191,7 +204,7 @@ async function getRecentWithinYears(years: number, limit: number): Promise<RowMo
   const now = new Date();
   const gte = new Date(now);
   gte.setFullYear(now.getFullYear() - years);
-  const results = await searchMovieCatalog({ openStartDt: dateStamp(gte) }, limit);
+  const results = await fetchOpenedBetween(isoDate(gte), isoDate(now), limit);
   return results.map(toRowMovie);
 }
 
@@ -234,7 +247,7 @@ export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
 
   const threeYearsAgo = new Date();
   threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-  const candidates = await searchMovieCatalog({ openStartDt: dateStamp(threeYearsAgo) }, 300);
+  const candidates = await fetchOpenedBetween(isoDate(threeYearsAgo), isoDate(new Date()), 300);
 
   const matched = candidates.filter((movie) =>
     keywords.some((kw) => movie.genreAlt?.includes(kw))
