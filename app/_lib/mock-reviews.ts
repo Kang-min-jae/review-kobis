@@ -8,6 +8,9 @@ export type Review = {
   movieTitle: string;
   moviePosterUrl: string | null;
   movieGradient: string;
+  // TMDB 영화 id 스냅샷 — "사용자 추천 영화"가 내가 평가한 영화 기반으로 TMDB
+  // recommendations를 조회할 때 사용 (TMDB 키 없이 못 찾은 로컬 영화는 null).
+  movieTmdbId: number | null;
   type: ReviewType;
   rating: number; // 한줄평 0~10, 장문평 0~100
   content: string;
