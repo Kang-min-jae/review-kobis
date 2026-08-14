@@ -37,6 +37,7 @@ export type TmdbMovieSummary = {
   voteAverage: number;
   voteCount: number;
   releaseDate: string | null;
+  originalLanguage: string | null;
 };
 
 export type TmdbPersonRef = { id: number; name: string };
@@ -57,6 +58,7 @@ type RawTmdbResult = {
   vote_average?: number;
   vote_count?: number;
   release_date?: string | null;
+  original_language?: string | null;
 };
 
 function toSummary(raw: RawTmdbResult): TmdbMovieSummary {
@@ -69,6 +71,7 @@ function toSummary(raw: RawTmdbResult): TmdbMovieSummary {
     voteAverage: raw.vote_average ?? 0,
     voteCount: raw.vote_count ?? 0,
     releaseDate: raw.release_date || null,
+    originalLanguage: raw.original_language || null,
   };
 }
 
@@ -296,13 +299,38 @@ export async function getMovieRecommendations(
     .map((entry) => entry.summary);
 }
 
+export type TmdbTvSummary = {
+  id: number;
+  title: string;
+  posterUrl: string | null;
+  firstAirDate: string | null;
+};
+
+type RawTmdbTvResult = {
+  id: number;
+  name?: string;
+  original_name?: string;
+  poster_path?: string | null;
+  first_air_date?: string | null;
+};
+
+function toTvSummary(raw: RawTmdbTvResult): TmdbTvSummary {
+  return {
+    id: raw.id,
+    title: raw.name || raw.original_name || "제목 없음",
+    posterUrl: raw.poster_path ? `${TMDB_IMAGE_BASE}${raw.poster_path}` : null,
+    firstAirDate: raw.first_air_date || null,
+  };
+}
+
 export type TmdbPersonFilmography = {
   name: string;
   profileUrl: string | null;
   movies: TmdbMovieSummary[];
+  tvShows: TmdbTvSummary[];
 };
 
-// 감독/배우 상세 + 참여 작품 목록. 인물 프로필 페이지(/people/[id])에서 사용.
+// 감독/배우 상세 + 참여 작품 목록(영화/드라마). 인물 프로필 페이지(/people/[id])에서 사용.
 export async function getPersonFilmography(personId: number): Promise<TmdbPersonFilmography | null> {
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) return null;
@@ -310,7 +338,7 @@ export async function getPersonFilmography(personId: number): Promise<TmdbPerson
 
   const url = new URL(`${TMDB_API_BASE}/person/${personId}`);
   url.searchParams.set("language", "ko-KR");
-  url.searchParams.set("append_to_response", "movie_credits");
+  url.searchParams.set("append_to_response", "movie_credits,tv_credits");
   if (!isV4) url.searchParams.set("api_key", apiKey);
 
   try {
@@ -327,24 +355,36 @@ export async function getPersonFilmography(personId: number): Promise<TmdbPerson
       name?: string;
       profile_path?: string | null;
       movie_credits?: { cast?: RawTmdbResult[]; crew?: RawTmdbResult[] };
+      tv_credits?: { cast?: RawTmdbTvResult[]; crew?: RawTmdbTvResult[] };
     } = await res.json();
 
-    const byId = new Map<number, TmdbMovieSummary>();
+    const movieById = new Map<number, TmdbMovieSummary>();
     for (const item of data.movie_credits?.cast ?? []) {
-      if (!byId.has(item.id)) byId.set(item.id, toSummary(item));
+      if (!movieById.has(item.id)) movieById.set(item.id, toSummary(item));
     }
     for (const item of data.movie_credits?.crew ?? []) {
-      if (!byId.has(item.id)) byId.set(item.id, toSummary(item));
+      if (!movieById.has(item.id)) movieById.set(item.id, toSummary(item));
     }
-
-    const movies = Array.from(byId.values()).sort((a, b) =>
+    const movies = Array.from(movieById.values()).sort((a, b) =>
       (b.releaseDate ?? "").localeCompare(a.releaseDate ?? "")
+    );
+
+    const tvById = new Map<number, TmdbTvSummary>();
+    for (const item of data.tv_credits?.cast ?? []) {
+      if (!tvById.has(item.id)) tvById.set(item.id, toTvSummary(item));
+    }
+    for (const item of data.tv_credits?.crew ?? []) {
+      if (!tvById.has(item.id)) tvById.set(item.id, toTvSummary(item));
+    }
+    const tvShows = Array.from(tvById.values()).sort((a, b) =>
+      (b.firstAirDate ?? "").localeCompare(a.firstAirDate ?? "")
     );
 
     return {
       name: data.name ?? "이름 없음",
       profileUrl: data.profile_path ? `${TMDB_IMAGE_BASE}${data.profile_path}` : null,
       movies,
+      tvShows,
     };
   } catch (error) {
     console.warn(`[tmdb] person/${personId} 요청 중 오류:`, error);
