@@ -100,7 +100,15 @@ export default function RateForm({
     e.preventDefault();
     if (!canSubmit) return;
 
-    addReview({ movieId, type: activeTab, rating, content: content.trim() });
+    addReview({
+      movieId,
+      movieTitle,
+      moviePosterUrl: posterUrl,
+      movieGradient: gradient,
+      type: activeTab,
+      rating,
+      content: content.trim(),
+    });
     router.push("/");
   }
 
