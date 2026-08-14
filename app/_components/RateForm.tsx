@@ -143,7 +143,7 @@ export default function RateForm({
             {movieTitle}
             {(releaseDate || rereleaseDate) && (
               <span className="ml-2 text-sm font-normal text-muted">
-                {releaseDate}
+                {releaseDate && `| 개봉연도 ${releaseDate}`}
                 {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
               </span>
             )}

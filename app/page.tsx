@@ -11,13 +11,17 @@ import {
   getNowShowing,
   getRereleases,
   resolveLocalMovieCards,
+  getLocalNowShowingByTmdbId,
+  applyNowShowingOverrides,
   getRecentMoviesRow,
   getMonthlyBestRow,
   getYearlyBestRow,
   getBestOf3YearsRow,
   getBestOf5YearsRow,
   getAllTimeBestRow,
+  getInternationalBestRow,
   getGenreRow,
+  type RowMovie,
 } from "./_lib/movie-rows";
 
 function resolveCategory(value: string | undefined): TabCategory {
@@ -45,31 +49,62 @@ async function NowShowingSection() {
 }
 
 async function MovieCategorySection() {
-  const [recent, monthly, yearly, best3, best5, allTime] = await Promise.all([
-    getRecentMoviesRow(),
-    getMonthlyBestRow(),
-    getYearlyBestRow(),
-    getBestOf3YearsRow(),
-    getBestOf5YearsRow(),
-    getAllTimeBestRow(),
-  ]);
+  const [recent, monthly, yearly, best3, best5, allTime, international, nowShowingMap] =
+    await Promise.all([
+      getRecentMoviesRow(),
+      getMonthlyBestRow(),
+      getYearlyBestRow(),
+      getBestOf3YearsRow(),
+      getBestOf5YearsRow(),
+      getAllTimeBestRow(),
+      getInternationalBestRow(),
+      getLocalNowShowingByTmdbId(),
+    ]);
+
+  const withBooking = (movies: RowMovie[]) => applyNowShowingOverrides(movies, nowShowingMap);
 
   return (
     <>
       <RecommendedSection />
-      <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={recent} />
-      <MovieRow title="이 달의 Best" subtitle="이번 달 가장 인기 있는 영화" movies={monthly} />
-      <MovieRow title="올해의 Best" subtitle="올해 가장 인기 있었던 영화" movies={yearly} />
-      <MovieRow title="3년 Best" subtitle="최근 3년간 평가가 좋았던 영화" movies={best3} />
-      <MovieRow title="5년 Best" subtitle="최근 5년간 평가가 좋았던 영화" movies={best5} />
-      <MovieRow title="역대 Best" subtitle="역대 평가가 좋은 영화" movies={allTime} />
+      <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={withBooking(recent)} />
+      <MovieRow
+        title="이 달의 Best"
+        subtitle="이번 달 가장 인기 있는 영화"
+        movies={withBooking(monthly)}
+      />
+      <MovieRow
+        title="올해의 Best"
+        subtitle="올해 가장 인기 있었던 영화"
+        movies={withBooking(yearly)}
+      />
+      <MovieRow
+        title="3년 Best"
+        subtitle="최근 3년간 인기 있었던 영화"
+        movies={withBooking(best3)}
+      />
+      <MovieRow
+        title="5년 Best"
+        subtitle="최근 5년간 인기 있었던 영화"
+        movies={withBooking(best5)}
+      />
+      <MovieRow title="역대 Best" subtitle="역대 인기 있는 영화" movies={withBooking(allTime)} />
+      <MovieRow
+        title="해외 Best"
+        subtitle="해외에서 인기 있는 영화"
+        movies={withBooking(international)}
+      />
     </>
   );
 }
 
 async function GenreSection({ genre }: { genre: GenreLabel }) {
-  const movies = await getGenreRow(genre);
-  return <MovieRow title={`${genre} 영화`} movies={movies} />;
+  const [movies, nowShowingMap] = await Promise.all([
+    getGenreRow(genre),
+    getLocalNowShowingByTmdbId(),
+  ]);
+  return (
+    <MovieRow title={`${genre} 영화`} movies={applyNowShowingOverrides(movies, nowShowingMap)} />
+  );
 }
 
 export default async function Home({ searchParams }: PageProps<"/">) {
