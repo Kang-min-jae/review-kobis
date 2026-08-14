@@ -1,8 +1,8 @@
 export type Movie = {
   id: string;
   title: string;
-  englishTitle?: string; // TMDB 검색 폴백용 (원어 제목이 매칭률이 더 높다)
-  description: string; // TMDB 줄거리를 못 가져왔을 때 쓰는 목데이터 설명
+  englishTitle?: string; // KOBIS 검색 폴백용 (한글 제목으로 못 찾을 때 재시도)
+  description: string; // KOBIS엔 줄거리가 없어 못 가져왔을 때 쓰는 목데이터 설명
   gradient: string;
   releaseDate: string; // ISO yyyy-mm-dd
   isNowShowing: boolean;

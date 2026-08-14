@@ -1,12 +1,11 @@
 import { allMovies, type Movie } from "./mock-movies";
 import {
-  discoverMovies,
-  getTmdbMovieInfo,
-  getTrendingMoviesWeek,
-  getMovieRecommendations,
-  type TmdbMovieSummary,
-} from "./tmdb";
-import { getWeeklyBoxOffice } from "./kofic";
+  searchMovieCatalog,
+  findMovieCdByTitle,
+  getMovieDetailsByCd,
+  getWeeklyBoxOffice,
+  type KobisMovieSummary,
+} from "./kobis";
 
 export type RowMovie = {
   id: string;
@@ -17,20 +16,25 @@ export type RowMovie = {
   badge?: string;
 };
 
-// TMDB 카탈로그에서 온 영화는 로컬 그라디언트가 없으니 통일된 폴백을 쓴다.
+// KOBIS 카탈로그에서 온 영화는 로컬 그라디언트가 없고, KOBIS엔 포스터 이미지 자체가
+// 없어서 posterUrl은 항상 null이다 — 카드에는 통일된 폴백 그라디언트가 항상 뜬다.
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export function toRowMovie(summary: TmdbMovieSummary): RowMovie {
+function dateStamp(date: Date): string {
+  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+}
+
+export function toRowMovie(summary: KobisMovieSummary): RowMovie {
   return {
-    id: `tmdb-${summary.id}`,
+    id: `kobis-${summary.movieCd}`,
     title: summary.title,
-    posterUrl: summary.posterUrl,
+    posterUrl: null,
     gradient: FALLBACK_GRADIENT,
-    // TMDB 카탈로그 전체에 대한 실제 상영 시간표가 없어서 기본은 예매 버튼을 숨긴다.
+    // KOBIS 카탈로그 전체에 대한 실제 상영 시간표가 없어서 기본은 예매 버튼을 숨긴다.
     // 로컬 큐레이션 상영작과 같은 영화로 확인되면 applyNowShowingOverrides가 true로 바꿔준다.
     isNowShowing: false,
   };
@@ -46,181 +50,194 @@ export function getRereleases(): Movie[] {
 
 async function resolveLocalMovies(
   movies: Movie[]
-): Promise<{ row: RowMovie; tmdbId: number | null }[]> {
-  const infos = await Promise.all(
-    movies.map((m) => getTmdbMovieInfo({ title: m.title, englishTitle: m.englishTitle }))
+): Promise<{ row: RowMovie; movieCd: string | null }[]> {
+  const movieCds = await Promise.all(
+    movies.map((m) => findMovieCdByTitle(m.title, m.englishTitle))
   );
   return movies.map((movie, i) => ({
     row: {
       id: movie.id,
       title: movie.title,
-      posterUrl: infos[i]?.posterUrl ?? null,
+      // KOBIS엔 포스터가 없어 로컬 큐레이션 그라디언트를 그대로 쓴다.
+      posterUrl: null,
       gradient: movie.gradient,
       isNowShowing: movie.isNowShowing,
     },
-    tmdbId: infos[i]?.id ?? null,
+    movieCd: movieCds[i],
   }));
 }
 
-// 로컬 큐레이션 영화를 화면에 낼 때는 TMDB에서 포스터만 찾아 붙인다 (제목 검색, 한글→영문 폴백).
+// 로컬 큐레이션 영화를 화면에 낼 때 쓰는 카드 목록 (포스터가 없어 그라디언트만 사용).
 export async function resolveLocalMovieCards(movies: Movie[]): Promise<RowMovie[]> {
   const resolved = await resolveLocalMovies(movies);
   return resolved.map((r) => r.row);
 }
 
-// 현재 상영중인 로컬 영화의 TMDB id → 로컬 카드 매핑. TMDB 카탈로그 행(최근/이달/올해/…)에
-// 같은 영화가 섞여 나올 때, tmdb-<id> 카드 대신 예매 버튼이 붙은 로컬 카드로 바꿔치기하는 데 쓴다.
-export async function getLocalNowShowingByTmdbId(): Promise<Map<number, RowMovie>> {
+// 현재 상영중인 로컬 영화의 KOBIS movieCd → 로컬 카드 매핑. KOBIS 카탈로그 행(최근/이달/올해/…)에
+// 같은 영화가 섞여 나올 때, kobis-<movieCd> 카드 대신 예매 버튼이 붙은 로컬 카드로 바꿔치기하는 데 쓴다.
+export async function getLocalNowShowingByMovieCd(): Promise<Map<string, RowMovie>> {
   const resolved = await resolveLocalMovies(getNowShowing());
-  const map = new Map<number, RowMovie>();
-  for (const { row, tmdbId } of resolved) {
-    if (tmdbId != null) map.set(tmdbId, row);
+  const map = new Map<string, RowMovie>();
+  for (const { row, movieCd } of resolved) {
+    if (movieCd) map.set(movieCd, row);
   }
   return map;
 }
 
-// tmdb-<id> 카드 중 실제로 우리 상영작 목록에 있는 영화는 로컬 카드(예매 버튼 포함)로 교체한다.
+// kobis-<movieCd> 카드 중 실제로 우리 상영작 목록에 있는 영화는 로컬 카드(예매 버튼 포함)로 교체한다.
 // 원래 카드에 badge(순위 등)가 있었다면 교체된 카드에도 이어서 보여준다.
 export function applyNowShowingOverrides(
   movies: RowMovie[],
-  nowShowingMap: Map<number, RowMovie>
+  nowShowingMap: Map<string, RowMovie>
 ): RowMovie[] {
   if (nowShowingMap.size === 0) return movies;
   return movies.map((movie) => {
-    if (!movie.id.startsWith("tmdb-")) return movie;
-    const tmdbId = Number(movie.id.slice("tmdb-".length));
-    const localMatch = nowShowingMap.get(tmdbId);
+    if (!movie.id.startsWith("kobis-")) return movie;
+    const movieCd = movie.id.slice("kobis-".length);
+    const localMatch = nowShowingMap.get(movieCd);
     if (!localMatch) return movie;
     return { ...localMatch, badge: movie.badge ?? localMatch.badge };
   });
 }
 
 // 이번 주 박스오피스 TOP N (실제 국내 관객수 기준, KOFIC 주간 박스오피스).
-// KOFIC은 포스터가 없어서 TMDB에서 제목으로 찾아 붙이고, 못 찾으면(평점 페이지로 연결할
-// 방법이 없어서) 그 항목은 건너뛴다.
+// 박스오피스 항목엔 movieCd가 그대로 들어있어 별도 검색 없이 바로 카드로 연결한다.
 export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
   const entries = await getWeeklyBoxOffice(10);
-  if (entries.length === 0) return [];
-
-  const infos = await Promise.all(entries.map((entry) => getTmdbMovieInfo({ title: entry.movieNm })));
-
   const rows: RowMovie[] = [];
-  entries.forEach((entry, i) => {
-    const info = infos[i];
-    if (!info) return;
+  for (const entry of entries) {
+    if (!entry.movieCd) continue; // movieCd가 없으면(드묾) 평점 페이지로 연결할 방법이 없어 건너뛴다.
     rows.push({
-      id: `tmdb-${info.id}`,
+      id: `kobis-${entry.movieCd}`,
       title: entry.movieNm,
-      posterUrl: info.posterUrl,
+      posterUrl: null,
       gradient: FALLBACK_GRADIENT,
       isNowShowing: false,
       badge: `${entry.rank}위 · 누적 ${entry.audiAcc.toLocaleString("ko-KR")}명`,
     });
-  });
+  }
   return rows;
 }
 
-// "사용자 추천 영화" — 내가 높게 평가한 영화들을 시드로 TMDB recommendations 조회.
-// 평가한 영화가 아직 없으면 TMDB 주간 트렌딩으로 대체.
-export async function getRecommendedForRatedRow(seedTmdbIds: number[]): Promise<RowMovie[]> {
-  if (seedTmdbIds.length === 0) {
-    const trending = await getTrendingMoviesWeek(8);
-    return trending.map(toRowMovie);
+// "사용자 추천 영화" — KOBIS엔 추천 API가 없어서, 내가 높게 평가한 영화들의 장르를 모아
+// 같은 장르를 가진 최근 개봉작을 추천으로 보여준다 (평가한 영화 자체는 제외).
+// 평가한 영화가 아직 없으면 최근 두 달 개봉작으로 대체.
+export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise<RowMovie[]> {
+  if (seedMovieCds.length === 0) {
+    const recent = await searchMovieCatalog(
+      { openStartDt: dateStamp(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)) },
+      8
+    );
+    return recent.map(toRowMovie);
   }
-  const recommendations = await getMovieRecommendations(seedTmdbIds, 8);
-  return recommendations.map(toRowMovie);
+
+  const seedDetails = await Promise.all(seedMovieCds.map((cd) => getMovieDetailsByCd(cd)));
+  const seedGenres = new Set<string>();
+  for (const detail of seedDetails) {
+    for (const g of detail?.genreAlt?.split(",") ?? []) {
+      const trimmed = g.trim();
+      if (trimmed) seedGenres.add(trimmed);
+    }
+  }
+  if (seedGenres.size === 0) return [];
+
+  const seedSet = new Set(seedMovieCds);
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const candidates = await searchMovieCatalog({ openStartDt: dateStamp(twoYearsAgo) }, 300);
+
+  const matched = candidates.filter((movie) => {
+    if (seedSet.has(movie.movieCd)) return false;
+    const genres = movie.genreAlt?.split(",").map((g) => g.trim()) ?? [];
+    return genres.some((g) => seedGenres.has(g));
+  });
+
+  return matched.slice(0, 8).map(toRowMovie);
 }
 
-// 최근 영화: 올해 개봉작 중 인기(누적 관객 수 대신 TMDB 인기도 지표를 사용) 많은 20편.
-// region: "KR"로 한국 기준 개봉일을 사용해 국내 개봉 시점에 더 맞게 필터링한다.
+// 최근 영화: 올해 개봉작 중 최신순 20편.
 export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
-  const results = await discoverMovies(
-    { sort_by: "popularity.desc", primary_release_year: String(year), region: "KR" },
+  const results = await searchMovieCatalog(
+    { openStartDt: `${year}0101`, openEndDt: dateStamp(new Date()) },
     20
   );
   return results.map(toRowMovie);
 }
 
-// 이 달의 Best: 이번 달 개봉작 중 인기 많은 5편.
+// 이 달의 Best: 이번 달 개봉작 중 최신순 5편.
+// (KOBIS엔 인기순 지표가 없어 "Best"는 최신 개봉순으로 대체한다.)
 export async function getMonthlyBestRow(): Promise<RowMovie[]> {
   const now = new Date();
-  const gte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
+  const gte = `${now.getFullYear()}${pad2(now.getMonth() + 1)}01`;
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const lte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(lastDay)}`;
-  const results = await discoverMovies(
-    {
-      sort_by: "popularity.desc",
-      "primary_release_date.gte": gte,
-      "primary_release_date.lte": lte,
-      region: "KR",
-    },
-    5
-  );
+  const lte = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(lastDay)}`;
+  const results = await searchMovieCatalog({ openStartDt: gte, openEndDt: lte }, 5);
   return results.map(toRowMovie);
 }
 
-// 올해의 Best: 올해 개봉작 중 인기 많은 10편.
+// 올해의 Best: 올해 개봉작 중 최신순 10편.
 export async function getYearlyBestRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
-  const results = await discoverMovies(
-    { sort_by: "popularity.desc", primary_release_year: String(year), region: "KR" },
+  const results = await searchMovieCatalog(
+    { openStartDt: `${year}0101`, openEndDt: dateStamp(new Date()) },
     10
   );
   return results.map(toRowMovie);
 }
 
-// N년 이내 개봉작 중 인기 많은 순. 사이트 자체 평점 데이터가 아직 충분히 쌓이지 않아
-// TMDB 평점(vote_average) 대신 인기도(popularity, 누적 조회·관심도 지표)로 정렬한다.
-async function getPopularWithinYears(years: number, limit: number): Promise<RowMovie[]> {
+// N년 이내 개봉작 중 최신순. KOBIS엔 평점/인기도 지표가 없어 개봉일 최신순으로 정렬한다.
+async function getRecentWithinYears(years: number, limit: number): Promise<RowMovie[]> {
   const now = new Date();
-  const gte = `${now.getFullYear() - years}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-  const results = await discoverMovies(
-    { sort_by: "popularity.desc", "primary_release_date.gte": gte, region: "KR" },
-    limit
-  );
+  const gte = new Date(now);
+  gte.setFullYear(now.getFullYear() - years);
+  const results = await searchMovieCatalog({ openStartDt: dateStamp(gte) }, limit);
   return results.map(toRowMovie);
 }
 
 export async function getBestOf3YearsRow(): Promise<RowMovie[]> {
-  return getPopularWithinYears(3, 20);
+  return getRecentWithinYears(3, 20);
 }
 
 export async function getBestOf5YearsRow(): Promise<RowMovie[]> {
-  return getPopularWithinYears(5, 30);
+  return getRecentWithinYears(5, 30);
 }
 
 export async function getAllTimeBestRow(): Promise<RowMovie[]> {
-  const results = await discoverMovies({ sort_by: "popularity.desc", region: "KR" }, 30);
+  const results = await searchMovieCatalog({}, 30);
   return results.map(toRowMovie);
 }
 
-// 해외 Best: 원어가 한국어가 아닌 영화 중 인기 많은 10편. TMDB discover에는 "특정 언어 제외"
-// 파라미터가 없어서, 넉넉히 가져온 뒤 한국어(ko) 원작만 걸러낸다.
+// 해외 Best: 외국 영화(repNationCd=F) 중 최신순 10편.
 export async function getInternationalBestRow(): Promise<RowMovie[]> {
-  const results = await discoverMovies({ sort_by: "popularity.desc" }, 40);
-  const foreign = results.filter((m) => m.originalLanguage !== "ko").slice(0, 10);
-  return foreign.map(toRowMovie);
+  const results = await searchMovieCatalog({ repNationCd: "F" }, 10);
+  return results.map(toRowMovie);
 }
 
-// TMDB 공식 장르 id (https://api.themoviedb.org/3/genre/movie/list 기준, 안정적으로 고정된 값).
-export const GENRE_IDS: Record<string, number> = {
-  액션: 28,
-  스릴러: 53,
-  로맨스: 10749,
-  드라마: 18,
-  애니메이션: 16,
-  모험: 12,
-  SF: 878,
-  공포: 27,
+// KOBIS movieList의 genreAlt(콤마 구분 장르명)에 매칭할 키워드.
+// KOBIS 장르명이 우리 탭 라벨과 표기가 달라(로맨스→멜로/로맨스, 모험→어드벤처, 공포→공포(호러))
+// 후보 키워드 여러 개를 매칭한다.
+const GENRE_KEYWORDS: Record<string, string[]> = {
+  액션: ["액션"],
+  스릴러: ["스릴러"],
+  로맨스: ["멜로", "로맨스"],
+  드라마: ["드라마"],
+  애니메이션: ["애니메이션"],
+  모험: ["어드벤처", "모험"],
+  SF: ["SF"],
+  공포: ["공포", "호러"],
 };
 
 export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
-  const genreId = GENRE_IDS[genreLabel];
-  if (!genreId) return [];
-  const results = await discoverMovies(
-    { sort_by: "popularity.desc", with_genres: String(genreId), region: "KR" },
-    20
+  const keywords = GENRE_KEYWORDS[genreLabel];
+  if (!keywords) return [];
+
+  const threeYearsAgo = new Date();
+  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+  const candidates = await searchMovieCatalog({ openStartDt: dateStamp(threeYearsAgo) }, 300);
+
+  const matched = candidates.filter((movie) =>
+    keywords.some((kw) => movie.genreAlt?.includes(kw))
   );
-  return results.map(toRowMovie);
+  return matched.slice(0, 20).map(toRowMovie);
 }
