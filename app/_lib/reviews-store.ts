@@ -131,6 +131,29 @@ export function getServerReviewsByAuthorSnapshot(): Review[] {
   return EMPTY_REVIEWS;
 }
 
+// 내가 평가한 영화 중 TMDB id가 있는 것만, 높게 평가한 순으로 최대 5개.
+// "사용자 추천 영화"가 TMDB recommendations 조회 시드로 사용 (클라이언트 전용 —
+// 서버 컴포넌트는 이 브라우저의 localStorage에 접근할 수 없어서 API 라우트를 거쳐 호출한다).
+export function getUserRatedTmdbIdsSnapshot(): number[] {
+  if (typeof window === "undefined") return [];
+
+  const bestByMovie = new Map<string, { tmdbId: number; normalizedRating: number }>();
+  for (const review of readUserReviews()) {
+    if (review.movieTmdbId == null) continue;
+    const scale = review.type === "short" ? 10 : 100;
+    const normalizedRating = review.rating / scale;
+    const existing = bestByMovie.get(review.movieId);
+    if (!existing || normalizedRating > existing.normalizedRating) {
+      bestByMovie.set(review.movieId, { tmdbId: review.movieTmdbId, normalizedRating });
+    }
+  }
+
+  return Array.from(bestByMovie.values())
+    .sort((a, b) => b.normalizedRating - a.normalizedRating)
+    .slice(0, 5)
+    .map((entry) => entry.tmdbId);
+}
+
 export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" | "authorName">): Review {
   const identity = getGuestIdentity();
   const newReview: Review = {

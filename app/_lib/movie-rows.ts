@@ -3,6 +3,7 @@ import {
   discoverMovies,
   getTmdbMovieInfo,
   getTrendingMoviesWeek,
+  getMovieRecommendations,
   type TmdbMovieSummary,
 } from "./tmdb";
 
@@ -21,7 +22,7 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function toRowMovie(summary: TmdbMovieSummary): RowMovie {
+export function toRowMovie(summary: TmdbMovieSummary): RowMovie {
   return {
     id: `tmdb-${summary.id}`,
     title: summary.title,
@@ -55,13 +56,18 @@ export async function resolveLocalMovieCards(movies: Movie[]): Promise<RowMovie[
   }));
 }
 
-// "사용자 추천 영화" — 실제 개인화 추천 알고리즘 대신 TMDB 주간 트렌딩으로 대체.
-export async function getRecommendedRow(): Promise<RowMovie[]> {
-  const trending = await getTrendingMoviesWeek(8);
-  return trending.map(toRowMovie);
+// "사용자 추천 영화" — 내가 높게 평가한 영화들을 시드로 TMDB recommendations 조회.
+// 평가한 영화가 아직 없으면 TMDB 주간 트렌딩으로 대체.
+export async function getRecommendedForRatedRow(seedTmdbIds: number[]): Promise<RowMovie[]> {
+  if (seedTmdbIds.length === 0) {
+    const trending = await getTrendingMoviesWeek(8);
+    return trending.map(toRowMovie);
+  }
+  const recommendations = await getMovieRecommendations(seedTmdbIds, 8);
+  return recommendations.map(toRowMovie);
 }
 
-// 최근 영화: 올해 개봉작 중 인기 많은 20편.
+// 최근 영화: 올해 개봉작 중 인기(누적 관객 수 대신 TMDB 인기도 지표를 사용) 많은 20편.
 export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
   const results = await discoverMovies(
@@ -71,7 +77,7 @@ export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   return results.map(toRowMovie);
 }
 
-// 이 달의 Best: 이번 달 개봉작 중 인기 많은 순.
+// 이 달의 Best: 이번 달 개봉작 중 인기 많은 5편.
 export async function getMonthlyBestRow(): Promise<RowMovie[]> {
   const now = new Date();
   const gte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
@@ -83,7 +89,7 @@ export async function getMonthlyBestRow(): Promise<RowMovie[]> {
       "primary_release_date.gte": gte,
       "primary_release_date.lte": lte,
     },
-    10
+    5
   );
   return results.map(toRowMovie);
 }
@@ -98,53 +104,29 @@ export async function getYearlyBestRow(): Promise<RowMovie[]> {
   return results.map(toRowMovie);
 }
 
-// 평가(투표수) 데이터가 vote_count 기준을 못 채우는 구간은 인기 순으로 남은 자리를 채운다.
-async function getTopRatedWithinYears(
-  years: number,
-  limit: number,
-  minVoteCount: string
-): Promise<RowMovie[]> {
+// N년 이내 개봉작 중 인기 많은 순. 사이트 자체 평점 데이터가 아직 충분히 쌓이지 않아
+// TMDB 평점(vote_average) 대신 인기도(popularity, 누적 조회·관심도 지표)로 정렬한다.
+async function getPopularWithinYears(years: number, limit: number): Promise<RowMovie[]> {
   const now = new Date();
   const gte = `${now.getFullYear() - years}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-
-  const rated = await discoverMovies(
-    {
-      sort_by: "vote_average.desc",
-      "vote_count.gte": minVoteCount,
-      "primary_release_date.gte": gte,
-    },
-    limit
-  );
-  if (rated.length >= limit) return rated.map(toRowMovie);
-
-  const popular = await discoverMovies(
+  const results = await discoverMovies(
     { sort_by: "popularity.desc", "primary_release_date.gte": gte },
     limit
   );
-  const seen = new Set(rated.map((m) => m.id));
-  const filler = popular.filter((m) => !seen.has(m.id));
-  return [...rated, ...filler].slice(0, limit).map(toRowMovie);
+  return results.map(toRowMovie);
 }
 
 export async function getBestOf3YearsRow(): Promise<RowMovie[]> {
-  return getTopRatedWithinYears(3, 20, "200");
+  return getPopularWithinYears(3, 20);
 }
 
 export async function getBestOf5YearsRow(): Promise<RowMovie[]> {
-  return getTopRatedWithinYears(5, 20, "200");
+  return getPopularWithinYears(5, 30);
 }
 
 export async function getAllTimeBestRow(): Promise<RowMovie[]> {
-  const rated = await discoverMovies(
-    { sort_by: "vote_average.desc", "vote_count.gte": "1000" },
-    30
-  );
-  if (rated.length >= 30) return rated.map(toRowMovie);
-
-  const popular = await discoverMovies({ sort_by: "popularity.desc" }, 30);
-  const seen = new Set(rated.map((m) => m.id));
-  const filler = popular.filter((m) => !seen.has(m.id));
-  return [...rated, ...filler].slice(0, 30).map(toRowMovie);
+  const results = await discoverMovies({ sort_by: "popularity.desc" }, 30);
+  return results.map(toRowMovie);
 }
 
 // TMDB 공식 장르 id (https://api.themoviedb.org/3/genre/movie/list 기준, 안정적으로 고정된 값).

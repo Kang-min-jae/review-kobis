@@ -15,15 +15,23 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
       englishTitle: localMovie.englishTitle,
     });
 
+    // 재개봉작은 로컬 releaseDate가 "재개봉일"이라, 원 개봉일은 TMDB에서 따로 가져온다.
+    const releaseDate = localMovie.isRerelease
+      ? (tmdbInfo?.releaseDate ?? null)
+      : (tmdbInfo?.releaseDate ?? localMovie.releaseDate);
+    const rereleaseDate = localMovie.isRerelease ? localMovie.releaseDate : null;
+
     return (
       <main className="px-5 py-6">
         <RateForm
           movieId={localMovie.id}
+          movieTmdbId={tmdbInfo?.id ?? null}
           movieTitle={localMovie.title}
           description={tmdbInfo?.overview ?? localMovie.description}
           posterUrl={tmdbInfo?.posterUrl ?? null}
           gradient={localMovie.gradient}
-          releaseDate={tmdbInfo?.releaseDate ?? localMovie.releaseDate}
+          releaseDate={releaseDate}
+          rereleaseDate={rereleaseDate}
           director={tmdbInfo?.director ?? null}
           cast={tmdbInfo?.cast ?? []}
         />
@@ -39,11 +47,13 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
         <main className="px-5 py-6">
           <RateForm
             movieId={id}
+            movieTmdbId={info.id}
             movieTitle={info.title}
             description={info.overview ?? "아직 등록된 설명이 없어요."}
             posterUrl={info.posterUrl}
             gradient={FALLBACK_GRADIENT}
             releaseDate={info.releaseDate}
+            rereleaseDate={null}
             director={info.director}
             cast={info.cast}
           />

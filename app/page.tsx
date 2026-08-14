@@ -6,11 +6,11 @@ import CategoryNav, {
   type GenreLabel,
 } from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
+import RecommendedSection from "./_components/RecommendedSection";
 import {
   getNowShowing,
   getRereleases,
   resolveLocalMovieCards,
-  getRecommendedRow,
   getRecentMoviesRow,
   getMonthlyBestRow,
   getYearlyBestRow,
@@ -45,8 +45,7 @@ async function NowShowingSection() {
 }
 
 async function MovieCategorySection() {
-  const [recommended, recent, monthly, yearly, best3, best5, allTime] = await Promise.all([
-    getRecommendedRow(),
+  const [recent, monthly, yearly, best3, best5, allTime] = await Promise.all([
     getRecentMoviesRow(),
     getMonthlyBestRow(),
     getYearlyBestRow(),
@@ -57,7 +56,7 @@ async function MovieCategorySection() {
 
   return (
     <>
-      <MovieRow title="사용자 추천 영화" subtitle="지금 화제가 되고 있는 영화" movies={recommended} />
+      <RecommendedSection />
       <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={recent} />
       <MovieRow title="이 달의 Best" subtitle="이번 달 가장 인기 있는 영화" movies={monthly} />
       <MovieRow title="올해의 Best" subtitle="올해 가장 인기 있었던 영화" movies={yearly} />

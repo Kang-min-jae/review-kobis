@@ -223,7 +223,7 @@ export async function discoverMovies(
   return results.slice(0, maxResults);
 }
 
-// "사용자 추천 영화" 대체용 — 실제 개인화 추천 알고리즘 대신 TMDB 주간 트렌딩을 쓴다.
+// "사용자 추천 영화" 중 아직 평가한 영화가 없는 사용자를 위한 폴백 — TMDB 주간 트렌딩.
 export async function getTrendingMoviesWeek(limit: number): Promise<TmdbMovieSummary[]> {
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) return [];
@@ -248,6 +248,52 @@ export async function getTrendingMoviesWeek(limit: number): Promise<TmdbMovieSum
     console.warn(`[tmdb] trending 요청 중 오류:`, error);
     return [];
   }
+}
+
+// 내가 높게 평가한 영화들(seedIds)을 시드로 TMDB의 movie/{id}/recommendations를 모아
+// 여러 시드에서 겹쳐 추천되는 영화일수록 앞에 오도록 빈도순 정렬 (동률이면 인기도순).
+// 이미 평가한 영화는 추천에서 제외한다.
+export async function getMovieRecommendations(
+  seedIds: number[],
+  limit: number
+): Promise<TmdbMovieSummary[]> {
+  const apiKey = process.env.TMDB_API_KEY;
+  if (!apiKey || seedIds.length === 0) return [];
+  const isV4 = isV4ReadAccessToken(apiKey);
+
+  const seenSeeds = new Set(seedIds);
+  const scored = new Map<number, { summary: TmdbMovieSummary; count: number }>();
+
+  for (const seedId of seedIds) {
+    const url = new URL(`${TMDB_API_BASE}/movie/${seedId}/recommendations`);
+    url.searchParams.set("language", "ko-KR");
+    if (!isV4) url.searchParams.set("api_key", apiKey);
+
+    try {
+      const res = await fetch(url, {
+        headers: authHeaders(apiKey, isV4),
+        next: { revalidate: 60 * 60 * 6 },
+      });
+      if (!res.ok) {
+        console.warn(`[tmdb] movie/${seedId}/recommendations 실패: HTTP ${res.status}`);
+        continue;
+      }
+      const data: { results?: RawTmdbResult[] } = await res.json();
+      for (const raw of data.results ?? []) {
+        if (seenSeeds.has(raw.id)) continue;
+        const existing = scored.get(raw.id);
+        if (existing) existing.count += 1;
+        else scored.set(raw.id, { summary: toSummary(raw), count: 1 });
+      }
+    } catch (error) {
+      console.warn(`[tmdb] movie/${seedId}/recommendations 요청 중 오류:`, error);
+    }
+  }
+
+  return Array.from(scored.values())
+    .sort((a, b) => b.count - a.count || b.summary.popularity - a.summary.popularity)
+    .slice(0, limit)
+    .map((entry) => entry.summary);
 }
 
 export type TmdbPersonFilmography = {

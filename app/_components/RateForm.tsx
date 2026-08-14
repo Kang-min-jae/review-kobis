@@ -63,20 +63,24 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
 
 export default function RateForm({
   movieId,
+  movieTmdbId,
   movieTitle,
   description,
   posterUrl,
   gradient,
   releaseDate,
+  rereleaseDate,
   director,
   cast,
 }: {
   movieId: string;
+  movieTmdbId: number | null;
   movieTitle: string;
   description: string;
   posterUrl: string | null;
   gradient: string;
   releaseDate: string | null;
+  rereleaseDate: string | null;
   director: TmdbPersonRef | null;
   cast: TmdbCastMember[];
 }) {
@@ -109,6 +113,7 @@ export default function RateForm({
 
     addReview({
       movieId,
+      movieTmdbId,
       movieTitle,
       moviePosterUrl: posterUrl,
       movieGradient: gradient,
@@ -134,22 +139,30 @@ export default function RateForm({
           {posterUrl && <PosterImage src={posterUrl} alt={`${movieTitle} 포스터`} />}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-bold text-text">{movieTitle}</h1>
+          <h1 className="text-lg font-bold text-text">
+            {movieTitle}
+            {(releaseDate || rereleaseDate) && (
+              <span className="ml-2 text-sm font-normal text-muted">
+                {releaseDate}
+                {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
+              </span>
+            )}
+          </h1>
           <p className="mt-2 text-xs leading-relaxed text-muted">{description}</p>
 
-          {(releaseDate || director || cast.length > 0) && (
-            <div className="mt-3 space-y-1 text-xs text-muted">
-              {releaseDate && <p>개봉일 {releaseDate}</p>}
+          {(director || cast.length > 0) && (
+            <p className="mt-3 text-xs text-muted">
               {director && (
-                <p>
+                <>
                   감독{" "}
                   <Link href={`/people/${director.id}`} className="text-text hover:underline">
                     {director.name}
                   </Link>
-                </p>
+                </>
               )}
+              {director && cast.length > 0 && " | "}
               {cast.length > 0 && (
-                <p>
+                <>
                   출연{" "}
                   {cast.map((member, i) => (
                     <span key={member.id}>
@@ -159,9 +172,9 @@ export default function RateForm({
                       {i < cast.length - 1 ? ", " : ""}
                     </span>
                   ))}
-                </p>
+                </>
               )}
-            </div>
+            </p>
           )}
         </div>
       </div>
