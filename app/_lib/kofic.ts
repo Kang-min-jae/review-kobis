@@ -24,6 +24,14 @@ function normalizeTitle(title: string): string {
   return title.replace(/\s+/g, "").toLowerCase();
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toDateStamp(date: Date): string {
+  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+}
+
 async function fetchDailyBoxOffice(targetDt: string, apiKey: string): Promise<DailyBoxOfficeItem[]> {
   const url = new URL(`${KOFIC_API_BASE}/boxoffice/searchDailyBoxOfficeList.json`);
   url.searchParams.set("key", apiKey);
@@ -37,6 +45,50 @@ async function fetchDailyBoxOffice(targetDt: string, apiKey: string): Promise<Da
 
   const data: { boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[] } } = await res.json();
   return data.boxOfficeResult?.dailyBoxOfficeList ?? [];
+}
+
+export type KoficWeeklyEntry = {
+  rank: number;
+  movieNm: string;
+  audiAcc: number;
+  salesAcc: number;
+};
+
+// 이번 주 박스오피스 TOP N. KOFIC 주간 박스오피스는 "월~일" 한 주를 그 주의 월요일 날짜로
+// 조회한다. 이번 주는 아직 집계 중일 수 있어, 데이터가 확정된 지난 주 기준으로 가져온다.
+export async function getWeeklyBoxOffice(limit = 10): Promise<KoficWeeklyEntry[]> {
+  const apiKey = process.env.KOFIC_API_KEY;
+  if (!apiKey) return [];
+
+  const now = new Date();
+  const diffToMonday = (now.getDay() + 6) % 7; // 오늘이 월요일이면 0
+  const lastMonday = new Date(now);
+  lastMonday.setDate(now.getDate() - diffToMonday - 7);
+
+  const url = new URL(`${KOFIC_API_BASE}/boxoffice/searchWeeklyBoxOfficeList.json`);
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("targetDt", toDateStamp(lastMonday));
+  url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
+
+  try {
+    const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+    if (!res.ok) {
+      console.warn(`[kofic] 주간 박스오피스 조회 실패: HTTP ${res.status}`);
+      return [];
+    }
+    const data: { boxOfficeResult?: { weeklyBoxOfficeList?: DailyBoxOfficeItem[] } } =
+      await res.json();
+    const list = data.boxOfficeResult?.weeklyBoxOfficeList ?? [];
+    return list.slice(0, limit).map((item, index) => ({
+      rank: index + 1,
+      movieNm: item.movieNm ?? "제목 없음",
+      audiAcc: Number(item.audiAcc ?? 0),
+      salesAcc: Number(item.salesAcc ?? 0),
+    }));
+  } catch (error) {
+    console.warn(`[kofic] 주간 박스오피스 요청 중 오류:`, error);
+    return [];
+  }
 }
 
 // 최근 며칠간의 일별 박스오피스에서 제목이 일치하는 영화를 찾는다.
