@@ -123,6 +123,7 @@ export async function searchMovieCatalog(
         const summary = toMovieSummary(item);
         if (!summary || !summary.openDate) continue; // 아직 개봉 안 한 영화는 제외
         if (summary.openDate.replace(/-/g, "") > todayStamp) continue; // 개봉 예정작 제외
+        if (summary.genreAlt && /성인|에로/.test(summary.genreAlt)) continue; // 성인물 제외
         collected.push(summary);
       }
       if (items.length < pageSize) break;
