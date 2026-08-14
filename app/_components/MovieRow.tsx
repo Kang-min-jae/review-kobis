@@ -1,5 +1,5 @@
 import MovieCard from "./MovieCard";
-import type { Movie } from "../_lib/mock-movies";
+import type { RowMovie } from "../_lib/movie-rows";
 
 export default function MovieRow({
   title,
@@ -8,7 +8,7 @@ export default function MovieRow({
 }: {
   title: string;
   subtitle?: string;
-  movies: Movie[];
+  movies: RowMovie[];
 }) {
   if (movies.length === 0) return null;
 

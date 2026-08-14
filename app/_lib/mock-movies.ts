@@ -83,62 +83,6 @@ export const allMovies: Movie[] = [
     isNowShowing: true,
     isRerelease: true,
   },
-
-  // 백카탈로그 (Best 목록용, 현재 미상영)
-  {
-    id: "spring-in-seoul",
-    title: "봄, 서울에서",
-    description: "서울의 사계 속에서 잔잔하게 이어지는 두 사람의 재회 이야기.",
-    gradient: "from-pink-900 via-rose-700 to-orange-300",
-    releaseDate: "2026-03-15",
-    isNowShowing: false,
-    isRerelease: false,
-  },
-  {
-    id: "midnight-runner",
-    title: "미드나잇 러너",
-    description: "도심의 밤을 배경으로 펼쳐지는 추격 액션 스릴러.",
-    gradient: "from-slate-900 via-zinc-700 to-neutral-400",
-    releaseDate: "2025-11-20",
-    isNowShowing: false,
-    isRerelease: false,
-  },
-  {
-    id: "the-last-orchard",
-    title: "라스트 오차드",
-    description: "사라져가는 과수원을 지키려는 한 가족의 이야기를 그린 드라마.",
-    gradient: "from-lime-900 via-green-700 to-emerald-400",
-    releaseDate: "2024-06-02",
-    isNowShowing: false,
-    isRerelease: false,
-  },
-  {
-    id: "silent-harbor",
-    title: "사일런트 하버",
-    description: "작은 항구 마을에서 벌어진 실종 사건을 파헤치는 미스터리.",
-    gradient: "from-cyan-900 via-sky-700 to-blue-300",
-    releaseDate: "2022-09-14",
-    isNowShowing: false,
-    isRerelease: false,
-  },
-  {
-    id: "glass-garden",
-    title: "글라스 가든",
-    description: "온실 속에서 자란 한 예술가의 삶을 담은 클래식 드라마.",
-    gradient: "from-rose-900 via-pink-700 to-fuchsia-300",
-    releaseDate: "2019-04-20",
-    isNowShowing: false,
-    isRerelease: false,
-  },
-  {
-    id: "harbor-lights",
-    title: "하버 라이츠",
-    description: "항구 도시를 배경으로 한 잔잔한 로맨스 드라마.",
-    gradient: "from-orange-900 via-amber-700 to-yellow-300",
-    releaseDate: "2017-11-11",
-    isNowShowing: false,
-    isRerelease: false,
-  },
 ];
 
 export const nowInTheaters = allMovies.filter((m) => m.isNowShowing);
