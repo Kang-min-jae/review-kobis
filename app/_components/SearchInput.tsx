@@ -2,12 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import PosterImage from "./PosterImage";
 
 type Hit = {
-  id: number;
+  movieCd: string;
   title: string;
-  posterUrl: string | null;
   releaseDate: string | null;
 };
 
@@ -84,16 +82,12 @@ export default function SearchInput() {
               !error &&
               results.map((hit) => (
                 <Link
-                  key={hit.id}
-                  href={`/movies/tmdb-${hit.id}/rate`}
+                  key={hit.movieCd}
+                  href={`/movies/kobis-${hit.movieCd}/rate`}
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-3 p-2.5 hover:bg-black/30"
                 >
-                  <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded bg-black/40">
-                    {hit.posterUrl && (
-                      <PosterImage src={hit.posterUrl} alt={`${hit.title} 포스터`} sizes="40px" />
-                    )}
-                  </div>
+                  <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded bg-gradient-to-br from-neutral-800 via-neutral-600 to-neutral-400" />
                   <div className="min-w-0">
                     <p className="truncate text-sm text-text">{hit.title}</p>
                     <p className="text-[10px] text-muted">{hit.releaseDate?.slice(0, 4)}</p>

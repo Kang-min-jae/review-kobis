@@ -11,7 +11,7 @@ import {
   getNowShowing,
   getRereleases,
   resolveLocalMovieCards,
-  getLocalNowShowingByTmdbId,
+  getLocalNowShowingByMovieCd,
   applyNowShowingOverrides,
   getRecentMoviesRow,
   getMonthlyBestRow,
@@ -60,7 +60,7 @@ async function MovieCategorySection() {
       getBestOf5YearsRow(),
       getAllTimeBestRow(),
       getInternationalBestRow(),
-      getLocalNowShowingByTmdbId(),
+      getLocalNowShowingByMovieCd(),
     ]);
 
   const withBooking = (movies: RowMovie[]) => applyNowShowingOverrides(movies, nowShowingMap);
@@ -73,31 +73,31 @@ async function MovieCategorySection() {
         subtitle="국내 실제 관객수 기준 (KOFIC 영화진흥위원회)"
         movies={withBooking(weeklyBoxOffice)}
       />
-      <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={withBooking(recent)} />
+      <MovieRow title="최근 영화" subtitle="올해 국내 개봉한 최신 영화" movies={withBooking(recent)} />
       <MovieRow
         title="이 달의 Best"
-        subtitle="이번 달 가장 인기 있는 영화"
+        subtitle="이번 달 국내 개봉한 최신 영화"
         movies={withBooking(monthly)}
       />
       <MovieRow
         title="올해의 Best"
-        subtitle="올해 가장 인기 있었던 영화"
+        subtitle="올해 국내 개봉한 최신 영화"
         movies={withBooking(yearly)}
       />
       <MovieRow
         title="3년 Best"
-        subtitle="최근 3년간 인기 있었던 영화"
+        subtitle="최근 3년간 국내 개봉한 최신 영화"
         movies={withBooking(best3)}
       />
       <MovieRow
         title="5년 Best"
-        subtitle="최근 5년간 인기 있었던 영화"
+        subtitle="최근 5년간 국내 개봉한 최신 영화"
         movies={withBooking(best5)}
       />
-      <MovieRow title="역대 Best" subtitle="역대 인기 있는 영화" movies={withBooking(allTime)} />
+      <MovieRow title="역대 Best" subtitle="국내 개봉한 최신 영화" movies={withBooking(allTime)} />
       <MovieRow
         title="해외 Best"
-        subtitle="해외에서 인기 있는 영화"
+        subtitle="국내 개봉한 해외 영화 중 최신순"
         movies={withBooking(international)}
       />
     </>
@@ -107,7 +107,7 @@ async function MovieCategorySection() {
 async function GenreSection({ genre }: { genre: GenreLabel }) {
   const [movies, nowShowingMap] = await Promise.all([
     getGenreRow(genre),
-    getLocalNowShowingByTmdbId(),
+    getLocalNowShowingByMovieCd(),
   ]);
   return (
     <MovieRow title={`${genre} 영화`} movies={applyNowShowingOverrides(movies, nowShowingMap)} />

@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import {
   getRecommendedForRatedRow,
-  getLocalNowShowingByTmdbId,
+  getLocalNowShowingByMovieCd,
   applyNowShowingOverrides,
 } from "../../_lib/movie-rows";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const idsParam = searchParams.get("tmdbIds") ?? "";
-  const tmdbIds = idsParam
+  const idsParam = searchParams.get("movieCds") ?? "";
+  const movieCds = idsParam
     .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isInteger(n));
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const [results, nowShowingMap] = await Promise.all([
-    getRecommendedForRatedRow(tmdbIds),
-    getLocalNowShowingByTmdbId(),
+    getRecommendedForRatedRow(movieCds),
+    getLocalNowShowingByMovieCd(),
   ]);
 
   return NextResponse.json({ results: applyNowShowingOverrides(results, nowShowingMap) });

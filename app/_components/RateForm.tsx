@@ -20,8 +20,7 @@ import {
   toggleVote,
 } from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
-import type { TmdbPersonRef, TmdbCastMember } from "../_lib/tmdb";
-import type { KoficBoxOffice } from "../_lib/kofic";
+import type { KobisPersonRef, KobisCastMember, KoficBoxOffice } from "../_lib/kobis";
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -72,7 +71,7 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
 
 export default function RateForm({
   movieId,
-  movieTmdbId,
+  movieCd,
   movieTitle,
   description,
   posterUrl,
@@ -84,15 +83,15 @@ export default function RateForm({
   boxOffice,
 }: {
   movieId: string;
-  movieTmdbId: number | null;
+  movieCd: string | null;
   movieTitle: string;
   description: string;
   posterUrl: string | null;
   gradient: string;
   releaseDate: string | null;
   rereleaseDate: string | null;
-  director: TmdbPersonRef | null;
-  cast: TmdbCastMember[];
+  director: KobisPersonRef | null;
+  cast: KobisCastMember[];
   boxOffice: KoficBoxOffice | null;
 }) {
   const router = useRouter();
@@ -124,7 +123,7 @@ export default function RateForm({
 
     addReview({
       movieId,
-      movieTmdbId,
+      movieCd,
       movieTitle,
       moviePosterUrl: posterUrl,
       movieGradient: gradient,
@@ -168,7 +167,10 @@ export default function RateForm({
               {director && (
                 <>
                   감독{" "}
-                  <Link href={`/people/${director.id}`} className="text-text hover:underline">
+                  <Link
+                    href={`/people/${encodeURIComponent(director.name)}`}
+                    className="text-text hover:underline"
+                  >
                     {director.name}
                   </Link>
                 </>
@@ -178,8 +180,11 @@ export default function RateForm({
                 <>
                   출연{" "}
                   {cast.map((member, i) => (
-                    <span key={member.id}>
-                      <Link href={`/people/${member.id}`} className="text-text hover:underline">
+                    <span key={member.name}>
+                      <Link
+                        href={`/people/${encodeURIComponent(member.name)}`}
+                        className="text-text hover:underline"
+                      >
                         {member.name}
                       </Link>
                       {i < cast.length - 1 ? ", " : ""}

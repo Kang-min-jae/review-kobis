@@ -1,41 +1,23 @@
 import Link from "next/link";
 import MovieCard from "../../_components/MovieCard";
-import PosterImage from "../../_components/PosterImage";
-import { getPersonFilmography } from "../../_lib/tmdb";
-import { getLocalNowShowingByTmdbId, applyNowShowingOverrides } from "../../_lib/movie-rows";
+import { searchMovieCatalog } from "../../_lib/kobis";
+import { getLocalNowShowingByMovieCd, applyNowShowingOverrides, toRowMovie } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 
-const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
-
+// KOBIS 오픈API엔 인물 상세/필모그래피 API가 없다 — searchMovieList의 directorNm으로
+// 감독 이름을 재검색하는 방식만 가능하다 (배우 이름으로 필터링하는 파라미터는 없음).
+// 그래서 이 페이지는 실질적으로 "감독 페이지"로 동작하고, 배우 이름으로 들어오면
+// 결과가 비어있을 수 있다.
 export default async function PersonPage({ params }: PageProps<"/people/[id]">) {
   const { id } = await params;
-  const personId = Number(id);
-  const person = Number.isNaN(personId) ? null : await getPersonFilmography(personId);
+  const name = decodeURIComponent(id);
 
-  if (!person) {
-    return (
-      <main className="px-5 py-6">
-        <Link href="/" className="text-sm text-muted hover:text-text">
-          ← 뒤로
-        </Link>
-        <p className="mt-6 text-sm text-muted">
-          인물 정보를 찾을 수 없어요. TMDB API 키가 설정되어 있는지 확인해 주세요.
-        </p>
-      </main>
-    );
-  }
+  const [candidates, nowShowingMap] = await Promise.all([
+    searchMovieCatalog({ directorNm: name }, 30),
+    getLocalNowShowingByMovieCd(),
+  ]);
 
-  const nowShowingMap = await getLocalNowShowingByTmdbId();
-  const movies: RowMovie[] = applyNowShowingOverrides(
-    person.movies.map((m) => ({
-      id: `tmdb-${m.id}`,
-      title: m.title,
-      posterUrl: m.posterUrl,
-      gradient: FALLBACK_GRADIENT,
-      isNowShowing: false,
-    })),
-    nowShowingMap
-  );
+  const movies: RowMovie[] = applyNowShowingOverrides(candidates.map(toRowMovie), nowShowingMap);
 
   return (
     <main className="px-5 py-6">
@@ -43,44 +25,19 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
         ← 뒤로
       </Link>
 
-      <h1 className="mt-3 text-lg font-bold text-text">{person.name}</h1>
-      <p className="mt-1 text-xs text-muted">
-        영화 {movies.length}편 · 드라마 {person.tvShows.length}편
-      </p>
+      <h1 className="mt-3 text-lg font-bold text-text">{name}</h1>
+      <p className="mt-1 text-xs text-muted">감독 참여작 {movies.length}편</p>
 
       <section className="mt-6">
-        <h2 className="text-sm font-bold text-text">영화</h2>
         {movies.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">등록된 참여 영화가 없어요.</p>
+          <p className="mt-2 text-sm text-muted">
+            감독으로 등록된 영화를 찾을 수 없어요. KOBIS 오픈API는 배우 이름으로는 필모그래피
+            검색을 지원하지 않아요.
+          </p>
         ) : (
           <div className="mt-3 flex flex-wrap gap-4">
             {movies.map((movie) => (
               <MovieCard key={movie.id} movie={movie} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="text-sm font-bold text-text">드라마</h2>
-        {person.tvShows.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">등록된 참여 드라마가 없어요.</p>
-        ) : (
-          <div className="mt-3 flex flex-wrap gap-4">
-            {person.tvShows.map((tv) => (
-              <div key={tv.id} className="w-40 shrink-0 sm:w-48">
-                <div
-                  className={`relative aspect-2/3 overflow-hidden rounded-lg ${
-                    tv.posterUrl ? "bg-surface" : `bg-gradient-to-br ${FALLBACK_GRADIENT}`
-                  }`}
-                >
-                  {tv.posterUrl && <PosterImage src={tv.posterUrl} alt={`${tv.title} 포스터`} />}
-                </div>
-                <p className="mt-2 line-clamp-2 text-sm font-medium text-text">{tv.title}</p>
-                {tv.firstAirDate && (
-                  <p className="text-xs text-muted">{tv.firstAirDate.slice(0, 4)}</p>
-                )}
-              </div>
             ))}
           </div>
         )}
