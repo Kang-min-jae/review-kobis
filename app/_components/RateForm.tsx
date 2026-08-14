@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StarRating from "./StarRating";
+import { countSentences } from "../_lib/text";
 import {
   addReview,
   subscribe,
@@ -17,6 +18,12 @@ const tabs: { type: ReviewType; label: string }[] = [
   { type: "long", label: "장문평" },
 ];
 
+const SHORT_MAX_SENTENCES = 2;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export default function RateForm({
   movieId,
   movieTitle,
@@ -26,7 +33,8 @@ export default function RateForm({
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReviewType>("short");
-  const [rating, setRating] = useState(8);
+  const [shortRating, setShortRating] = useState(8);
+  const [longRating, setLongRating] = useState(80);
   const [content, setContent] = useState("");
 
   const reviews = useSyncExternalStore(
@@ -35,6 +43,12 @@ export default function RateForm({
     () => getSeedReviewsSnapshot(movieId, activeTab)
   );
 
+  const rating = activeTab === "short" ? shortRating : longRating;
+  const scale = activeTab === "short" ? 10 : 100;
+  const sentenceCount = activeTab === "short" ? countSentences(content) : 0;
+  const tooManySentences = activeTab === "short" && sentenceCount > SHORT_MAX_SENTENCES;
+  const canSubmit = content.trim().length > 0 && !tooManySentences;
+
   function handleTabChange(type: ReviewType) {
     setActiveTab(type);
     setContent("");
@@ -42,7 +56,7 @@ export default function RateForm({
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!content.trim()) return;
+    if (!canSubmit) return;
 
     addReview({ movieId, type: activeTab, rating, content: content.trim() });
     router.push("/");
@@ -75,28 +89,54 @@ export default function RateForm({
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
           <div className="flex items-center gap-3">
-            <StarRating rating={rating} size="h-5 w-5" />
+            <StarRating rating={rating} scale={scale} size="h-5 w-5" />
           </div>
-          <input
-            type="range"
-            min={0}
-            max={10}
-            step={0.5}
-            value={rating}
-            onChange={(e) => setRating(Number(e.target.value))}
-            className="mt-2 w-full accent-brand"
-          />
+
+          {activeTab === "short" ? (
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={0.5}
+              value={shortRating}
+              onChange={(e) => setShortRating(Number(e.target.value))}
+              className="mt-2 w-full accent-brand"
+            />
+          ) : (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={longRating}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isNaN(value)) return;
+                  setLongRating(Math.round(clamp(value, 0, 100) * 10) / 10);
+                }}
+                className="w-24 rounded-lg border border-neutral-700 bg-surface px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
+              />
+              <span className="text-xs text-muted">/ 100.0 (소수점 첫째 자리까지)</span>
+            </div>
+          )}
         </div>
 
         {activeTab === "short" ? (
-          <input
-            type="text"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            maxLength={80}
-            placeholder="한 줄로 남겨보세요"
-            className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
-          />
+          <div>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={2}
+              maxLength={200}
+              placeholder="한 줄로 남겨보세요 (최대 2문장)"
+              className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
+            />
+            <p className={`mt-1 text-xs ${tooManySentences ? "text-brand" : "text-muted"}`}>
+              {sentenceCount}/{SHORT_MAX_SENTENCES}문장
+              {tooManySentences && " · 한줄평은 2문장까지만 가능해요"}
+            </p>
+          </div>
         ) : (
           <textarea
             value={content}
@@ -109,7 +149,8 @@ export default function RateForm({
 
         <button
           type="submit"
-          className="w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
+          disabled={!canSubmit}
+          className="w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           등록하기
         </button>
@@ -122,7 +163,7 @@ export default function RateForm({
         <ul className="mt-3 space-y-3">
           {reviews.map((review) => (
             <li key={review.id} className="rounded-lg bg-surface p-3">
-              <StarRating rating={review.rating} size="h-3 w-3" />
+              <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
               <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
             </li>
           ))}

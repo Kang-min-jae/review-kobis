@@ -1,13 +1,15 @@
 import { allMovies, type Movie } from "./mock-movies";
 import { getSeedAverageRating } from "./reviews-store";
 
+// 한줄평(0~10)과 장문평(0~100)은 척도가 다르므로, 정렬용으로만 장문평을 0~10으로 환산해 합친다.
 function overallSeedRating(movie: Movie): number {
   const short = getSeedAverageRating(movie.id, "short");
   const long = getSeedAverageRating(movie.id, "long");
-  if (short === null && long === null) return 0;
-  if (short === null) return long as number;
-  if (long === null) return short;
-  return (short + long) / 2;
+  const longNormalized = long === null ? null : long / 10;
+  if (short === null && longNormalized === null) return 0;
+  if (short === null) return longNormalized as number;
+  if (longNormalized === null) return short;
+  return (short + longNormalized) / 2;
 }
 
 function sortByRatingDesc(movies: Movie[]): Movie[] {
