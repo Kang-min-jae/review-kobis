@@ -146,3 +146,25 @@ export async function getAllTimeBestRow(): Promise<RowMovie[]> {
   const filler = popular.filter((m) => !seen.has(m.id));
   return [...rated, ...filler].slice(0, 30).map(toRowMovie);
 }
+
+// TMDB 공식 장르 id (https://api.themoviedb.org/3/genre/movie/list 기준, 안정적으로 고정된 값).
+export const GENRE_IDS: Record<string, number> = {
+  액션: 28,
+  스릴러: 53,
+  로맨스: 10749,
+  드라마: 18,
+  애니메이션: 16,
+  모험: 12,
+  SF: 878,
+  공포: 27,
+};
+
+export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
+  const genreId = GENRE_IDS[genreLabel];
+  if (!genreId) return [];
+  const results = await discoverMovies(
+    { sort_by: "popularity.desc", with_genres: String(genreId) },
+    20
+  );
+  return results.map(toRowMovie);
+}

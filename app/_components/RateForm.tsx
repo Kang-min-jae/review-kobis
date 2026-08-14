@@ -20,6 +20,7 @@ import {
   toggleVote,
 } from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
+import type { TmdbPersonRef, TmdbCastMember } from "../_lib/tmdb";
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -66,12 +67,18 @@ export default function RateForm({
   description,
   posterUrl,
   gradient,
+  releaseDate,
+  director,
+  cast,
 }: {
   movieId: string;
   movieTitle: string;
   description: string;
   posterUrl: string | null;
   gradient: string;
+  releaseDate: string | null;
+  director: TmdbPersonRef | null;
+  cast: TmdbCastMember[];
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReviewType>("short");
@@ -129,6 +136,33 @@ export default function RateForm({
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold text-text">{movieTitle}</h1>
           <p className="mt-2 text-xs leading-relaxed text-muted">{description}</p>
+
+          {(releaseDate || director || cast.length > 0) && (
+            <div className="mt-3 space-y-1 text-xs text-muted">
+              {releaseDate && <p>개봉일 {releaseDate}</p>}
+              {director && (
+                <p>
+                  감독{" "}
+                  <Link href={`/people/${director.id}`} className="text-text hover:underline">
+                    {director.name}
+                  </Link>
+                </p>
+              )}
+              {cast.length > 0 && (
+                <p>
+                  출연{" "}
+                  {cast.map((member, i) => (
+                    <span key={member.id}>
+                      <Link href={`/people/${member.id}`} className="text-text hover:underline">
+                        {member.name}
+                      </Link>
+                      {i < cast.length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
