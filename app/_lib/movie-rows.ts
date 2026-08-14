@@ -28,8 +28,8 @@ export function toRowMovie(summary: TmdbMovieSummary): RowMovie {
     title: summary.title,
     posterUrl: summary.posterUrl,
     gradient: FALLBACK_GRADIENT,
-    // TMDB 카탈로그 전체에 대한 실제 상영 시간표가 없어서 예매 플로우는 로컬 큐레이션
-    // 영화(현재 상영중/재개봉)에만 연결한다.
+    // TMDB 카탈로그 전체에 대한 실제 상영 시간표가 없어서 기본은 예매 버튼을 숨긴다.
+    // 로컬 큐레이션 상영작과 같은 영화로 확인되면 applyNowShowingOverrides가 true로 바꿔준다.
     isNowShowing: false,
   };
 }
@@ -42,18 +42,52 @@ export function getRereleases(): Movie[] {
   return allMovies.filter((m) => m.isRerelease);
 }
 
-// 로컬 큐레이션 영화를 화면에 낼 때는 TMDB에서 포스터만 찾아 붙인다 (제목 검색, 한글→영문 폴백).
-export async function resolveLocalMovieCards(movies: Movie[]): Promise<RowMovie[]> {
+async function resolveLocalMovies(
+  movies: Movie[]
+): Promise<{ row: RowMovie; tmdbId: number | null }[]> {
   const infos = await Promise.all(
     movies.map((m) => getTmdbMovieInfo({ title: m.title, englishTitle: m.englishTitle }))
   );
   return movies.map((movie, i) => ({
-    id: movie.id,
-    title: movie.title,
-    posterUrl: infos[i]?.posterUrl ?? null,
-    gradient: movie.gradient,
-    isNowShowing: movie.isNowShowing,
+    row: {
+      id: movie.id,
+      title: movie.title,
+      posterUrl: infos[i]?.posterUrl ?? null,
+      gradient: movie.gradient,
+      isNowShowing: movie.isNowShowing,
+    },
+    tmdbId: infos[i]?.id ?? null,
   }));
+}
+
+// 로컬 큐레이션 영화를 화면에 낼 때는 TMDB에서 포스터만 찾아 붙인다 (제목 검색, 한글→영문 폴백).
+export async function resolveLocalMovieCards(movies: Movie[]): Promise<RowMovie[]> {
+  const resolved = await resolveLocalMovies(movies);
+  return resolved.map((r) => r.row);
+}
+
+// 현재 상영중인 로컬 영화의 TMDB id → 로컬 카드 매핑. TMDB 카탈로그 행(최근/이달/올해/…)에
+// 같은 영화가 섞여 나올 때, tmdb-<id> 카드 대신 예매 버튼이 붙은 로컬 카드로 바꿔치기하는 데 쓴다.
+export async function getLocalNowShowingByTmdbId(): Promise<Map<number, RowMovie>> {
+  const resolved = await resolveLocalMovies(getNowShowing());
+  const map = new Map<number, RowMovie>();
+  for (const { row, tmdbId } of resolved) {
+    if (tmdbId != null) map.set(tmdbId, row);
+  }
+  return map;
+}
+
+// tmdb-<id> 카드 중 실제로 우리 상영작 목록에 있는 영화는 로컬 카드(예매 버튼 포함)로 교체한다.
+export function applyNowShowingOverrides(
+  movies: RowMovie[],
+  nowShowingMap: Map<number, RowMovie>
+): RowMovie[] {
+  if (nowShowingMap.size === 0) return movies;
+  return movies.map((movie) => {
+    if (!movie.id.startsWith("tmdb-")) return movie;
+    const tmdbId = Number(movie.id.slice("tmdb-".length));
+    return nowShowingMap.get(tmdbId) ?? movie;
+  });
 }
 
 // "사용자 추천 영화" — 내가 높게 평가한 영화들을 시드로 TMDB recommendations 조회.
@@ -68,10 +102,11 @@ export async function getRecommendedForRatedRow(seedTmdbIds: number[]): Promise<
 }
 
 // 최근 영화: 올해 개봉작 중 인기(누적 관객 수 대신 TMDB 인기도 지표를 사용) 많은 20편.
+// region: "KR"로 한국 기준 개봉일을 사용해 국내 개봉 시점에 더 맞게 필터링한다.
 export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
   const results = await discoverMovies(
-    { sort_by: "popularity.desc", primary_release_year: String(year) },
+    { sort_by: "popularity.desc", primary_release_year: String(year), region: "KR" },
     20
   );
   return results.map(toRowMovie);
@@ -88,6 +123,7 @@ export async function getMonthlyBestRow(): Promise<RowMovie[]> {
       sort_by: "popularity.desc",
       "primary_release_date.gte": gte,
       "primary_release_date.lte": lte,
+      region: "KR",
     },
     5
   );
@@ -98,7 +134,7 @@ export async function getMonthlyBestRow(): Promise<RowMovie[]> {
 export async function getYearlyBestRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
   const results = await discoverMovies(
-    { sort_by: "popularity.desc", primary_release_year: String(year) },
+    { sort_by: "popularity.desc", primary_release_year: String(year), region: "KR" },
     10
   );
   return results.map(toRowMovie);
@@ -110,7 +146,7 @@ async function getPopularWithinYears(years: number, limit: number): Promise<RowM
   const now = new Date();
   const gte = `${now.getFullYear() - years}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
   const results = await discoverMovies(
-    { sort_by: "popularity.desc", "primary_release_date.gte": gte },
+    { sort_by: "popularity.desc", "primary_release_date.gte": gte, region: "KR" },
     limit
   );
   return results.map(toRowMovie);
@@ -125,8 +161,16 @@ export async function getBestOf5YearsRow(): Promise<RowMovie[]> {
 }
 
 export async function getAllTimeBestRow(): Promise<RowMovie[]> {
-  const results = await discoverMovies({ sort_by: "popularity.desc" }, 30);
+  const results = await discoverMovies({ sort_by: "popularity.desc", region: "KR" }, 30);
   return results.map(toRowMovie);
+}
+
+// 해외 Best: 원어가 한국어가 아닌 영화 중 인기 많은 10편. TMDB discover에는 "특정 언어 제외"
+// 파라미터가 없어서, 넉넉히 가져온 뒤 한국어(ko) 원작만 걸러낸다.
+export async function getInternationalBestRow(): Promise<RowMovie[]> {
+  const results = await discoverMovies({ sort_by: "popularity.desc" }, 40);
+  const foreign = results.filter((m) => m.originalLanguage !== "ko").slice(0, 10);
+  return foreign.map(toRowMovie);
 }
 
 // TMDB 공식 장르 id (https://api.themoviedb.org/3/genre/movie/list 기준, 안정적으로 고정된 값).
@@ -145,7 +189,7 @@ export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
   const genreId = GENRE_IDS[genreLabel];
   if (!genreId) return [];
   const results = await discoverMovies(
-    { sort_by: "popularity.desc", with_genres: String(genreId) },
+    { sort_by: "popularity.desc", with_genres: String(genreId), region: "KR" },
     20
   );
   return results.map(toRowMovie);
