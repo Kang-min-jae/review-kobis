@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { allMovies } from "../../../_lib/mock-movies";
 import { getTmdbMovieInfo, getTmdbMovieDetails } from "../../../_lib/tmdb";
+import { getKoficBoxOfficeByTitle } from "../../../_lib/kofic";
 import RateForm from "../../../_components/RateForm";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -10,10 +11,10 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
 
   const localMovie = allMovies.find((m) => m.id === id);
   if (localMovie) {
-    const tmdbInfo = await getTmdbMovieInfo({
-      title: localMovie.title,
-      englishTitle: localMovie.englishTitle,
-    });
+    const [tmdbInfo, boxOffice] = await Promise.all([
+      getTmdbMovieInfo({ title: localMovie.title, englishTitle: localMovie.englishTitle }),
+      getKoficBoxOfficeByTitle(localMovie.title),
+    ]);
 
     // 재개봉작은 로컬 releaseDate가 "재개봉일"이라, 원 개봉일은 TMDB에서 따로 가져온다.
     const releaseDate = localMovie.isRerelease
@@ -34,6 +35,7 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
           rereleaseDate={rereleaseDate}
           director={tmdbInfo?.director ?? null}
           cast={tmdbInfo?.cast ?? []}
+          boxOffice={boxOffice}
         />
       </main>
     );
@@ -43,6 +45,7 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
     const tmdbId = Number(id.slice("tmdb-".length));
     const info = Number.isNaN(tmdbId) ? null : await getTmdbMovieDetails(tmdbId);
     if (info) {
+      const boxOffice = await getKoficBoxOfficeByTitle(info.title);
       return (
         <main className="px-5 py-6">
           <RateForm
@@ -56,6 +59,7 @@ export default async function RateMoviePage({ params }: PageProps<"/movies/[id]/
             rereleaseDate={null}
             director={info.director}
             cast={info.cast}
+            boxOffice={boxOffice}
           />
         </main>
       );

@@ -21,6 +21,7 @@ import {
 } from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
 import type { TmdbPersonRef, TmdbCastMember } from "../_lib/tmdb";
+import type { KoficBoxOffice } from "../_lib/kofic";
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -31,6 +32,14 @@ const SHORT_MAX_SENTENCES = 2;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function formatCount(n: number): string {
+  return `${n.toLocaleString("ko-KR")}명`;
+}
+
+function formatWon(n: number): string {
+  return `${n.toLocaleString("ko-KR")}원`;
 }
 
 function VoteButtons({ reviewId }: { reviewId: string }) {
@@ -72,6 +81,7 @@ export default function RateForm({
   rereleaseDate,
   director,
   cast,
+  boxOffice,
 }: {
   movieId: string;
   movieTmdbId: number | null;
@@ -83,6 +93,7 @@ export default function RateForm({
   rereleaseDate: string | null;
   director: TmdbPersonRef | null;
   cast: TmdbCastMember[];
+  boxOffice: KoficBoxOffice | null;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReviewType>("short");
@@ -145,6 +156,8 @@ export default function RateForm({
               <span className="ml-2 text-sm font-normal text-muted">
                 {releaseDate && `| 개봉연도 ${releaseDate}`}
                 {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
+                {boxOffice && ` · 누적 관객수 ${formatCount(boxOffice.audiAcc)}`}
+                {boxOffice && ` · 누적 흥행 수익 ${formatWon(boxOffice.salesAcc)}`}
               </span>
             )}
           </h1>

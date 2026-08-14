@@ -1,6 +1,8 @@
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
+import HoverRating from "./HoverRating";
+import TopLikedReview from "./TopLikedReview";
 import type { RowMovie } from "../_lib/movie-rows";
 
 export default function MovieCard({ movie }: { movie: RowMovie }) {
@@ -12,15 +14,17 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
         }`}
       >
         {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/40">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-100 transition-opacity duration-200 group-hover:opacity-0">
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-text">
             ▶
           </span>
         </div>
+        <HoverRating movieId={movie.id} />
       </div>
 
       <div className="mt-2 space-y-1.5">
         <RatingSummary movieId={movie.id} />
+        <TopLikedReview movieId={movie.id} />
         <p className="line-clamp-2 text-sm font-medium text-text">{movie.title}</p>
 
         <div className="flex gap-1.5">
