@@ -13,7 +13,7 @@ export function subscribe(listener: () => void): () => void {
 function emitChange() {
   reviewsCache.clear();
   reviewsByAuthorCache.clear();
-  cachedUserReviewedMovieIds = null;
+  cachedUserReviewedMovies = null;
   listeners.forEach((listener) => listener());
 }
 
@@ -75,20 +75,40 @@ export function getAverageRating(movieId: string, type: ReviewType): number | nu
   return average(getReviewsSnapshot(movieId, type));
 }
 
-// 현재 브라우저 사용자가 직접 평점을 남긴 영화 id 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).
-const EMPTY_IDS: string[] = [];
-let cachedUserReviewedMovieIds: string[] | null = null;
+// 현재 브라우저 사용자가 직접 평점을 남긴 영화 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).
+// 제목/포스터는 리뷰에 스냅샷된 값을 그대로 쓴다 — TMDB 카탈로그 영화는 로컬 목데이터에
+// 없어서 movieId만으로는 다시 조회할 수 없기 때문 (나만의 영화 리스트에서 사용).
+export type ReviewedMovie = {
+  id: string;
+  title: string;
+  posterUrl: string | null;
+  gradient: string;
+};
 
-export function getUserReviewedMovieIdsSnapshot(): string[] {
-  if (typeof window === "undefined") return EMPTY_IDS;
-  if (!cachedUserReviewedMovieIds) {
-    cachedUserReviewedMovieIds = Array.from(new Set(readUserReviews().map((r) => r.movieId)));
+const EMPTY_REVIEWED_MOVIES: ReviewedMovie[] = [];
+let cachedUserReviewedMovies: ReviewedMovie[] | null = null;
+
+export function getUserReviewedMoviesSnapshot(): ReviewedMovie[] {
+  if (typeof window === "undefined") return EMPTY_REVIEWED_MOVIES;
+  if (!cachedUserReviewedMovies) {
+    const byId = new Map<string, ReviewedMovie>();
+    for (const review of readUserReviews()) {
+      if (!byId.has(review.movieId)) {
+        byId.set(review.movieId, {
+          id: review.movieId,
+          title: review.movieTitle,
+          posterUrl: review.moviePosterUrl,
+          gradient: review.movieGradient,
+        });
+      }
+    }
+    cachedUserReviewedMovies = Array.from(byId.values());
   }
-  return cachedUserReviewedMovieIds;
+  return cachedUserReviewedMovies;
 }
 
-export function getServerUserReviewedMovieIdsSnapshot(): string[] {
-  return EMPTY_IDS;
+export function getServerUserReviewedMoviesSnapshot(): ReviewedMovie[] {
+  return EMPTY_REVIEWED_MOVIES;
 }
 
 // 특정 작성자가 남긴 모든 리뷰 (영화 불문). 프로필 페이지에서 사용.

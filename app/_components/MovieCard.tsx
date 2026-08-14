@@ -1,21 +1,17 @@
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
-import { getTmdbMovieInfo } from "../_lib/tmdb";
-import type { Movie } from "../_lib/mock-movies";
+import type { RowMovie } from "../_lib/movie-rows";
 
-export default async function MovieCard({ movie }: { movie: Movie }) {
-  const tmdbInfo = await getTmdbMovieInfo({ title: movie.title, englishTitle: movie.englishTitle });
-  const posterUrl = tmdbInfo?.posterUrl ?? null;
-
+export default function MovieCard({ movie }: { movie: RowMovie }) {
   return (
     <div className="w-40 shrink-0 sm:w-48">
       <div
         className={`group relative aspect-2/3 overflow-hidden rounded-lg ${
-          posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
+          movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
         }`}
       >
-        {posterUrl && <PosterImage src={posterUrl} alt={`${movie.title} 포스터`} />}
+        {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/40">
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-text">
             ▶
