@@ -1,4 +1,5 @@
 import { seedReviews, type Review, type ReviewType } from "./mock-reviews";
+import { getGuestIdentity } from "./guest-identity";
 
 const STORAGE_KEY = "review-site:user-reviews:v1";
 
@@ -11,6 +12,7 @@ export function subscribe(listener: () => void): () => void {
 
 function emitChange() {
   reviewsCache.clear();
+  reviewsByAuthorCache.clear();
   cachedUserReviewedMovieIds = null;
   listeners.forEach((listener) => listener());
 }
@@ -89,9 +91,32 @@ export function getServerUserReviewedMovieIdsSnapshot(): string[] {
   return EMPTY_IDS;
 }
 
-export function addReview(review: Omit<Review, "id" | "createdAt">): Review {
+// 특정 작성자가 남긴 모든 리뷰 (영화 불문). 프로필 페이지에서 사용.
+const EMPTY_REVIEWS: Review[] = [];
+const reviewsByAuthorCache = new Map<string, Review[]>();
+
+export function getReviewsByAuthorSnapshot(authorId: string): Review[] {
+  if (typeof window === "undefined") return EMPTY_REVIEWS;
+  let cached = reviewsByAuthorCache.get(authorId);
+  if (!cached) {
+    cached = sortByNewest(
+      [...seedReviews, ...readUserReviews()].filter((r) => r.authorId === authorId)
+    );
+    reviewsByAuthorCache.set(authorId, cached);
+  }
+  return cached;
+}
+
+export function getServerReviewsByAuthorSnapshot(): Review[] {
+  return EMPTY_REVIEWS;
+}
+
+export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" | "authorName">): Review {
+  const identity = getGuestIdentity();
   const newReview: Review = {
     ...review,
+    authorId: identity.id,
+    authorName: identity.name,
     id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
   };

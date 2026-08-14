@@ -1,11 +1,12 @@
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
-import { getTmdbPosterUrl } from "../_lib/tmdb";
+import { getTmdbMovieInfo } from "../_lib/tmdb";
 import type { Movie } from "../_lib/mock-movies";
 
 export default async function MovieCard({ movie }: { movie: Movie }) {
-  const posterUrl = await getTmdbPosterUrl(movie.title);
+  const tmdbInfo = await getTmdbMovieInfo({ title: movie.title, englishTitle: movie.englishTitle });
+  const posterUrl = tmdbInfo?.posterUrl ?? null;
 
   return (
     <div className="w-40 shrink-0 sm:w-48">

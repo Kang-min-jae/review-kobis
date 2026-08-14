@@ -1,0 +1,61 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+import Link from "next/link";
+import StarRating from "./StarRating";
+import { getMovieById } from "../_lib/mock-movies";
+import {
+  subscribe,
+  getReviewsByAuthorSnapshot,
+  getServerReviewsByAuthorSnapshot,
+} from "../_lib/reviews-store";
+
+export default function ProfileView({ authorId }: { authorId: string }) {
+  const reviews = useSyncExternalStore(
+    subscribe,
+    () => getReviewsByAuthorSnapshot(authorId),
+    () => getServerReviewsByAuthorSnapshot()
+  );
+
+  const authorName = reviews[0]?.authorName ?? "사용자";
+
+  return (
+    <div className="px-5 py-6">
+      <Link href="/" className="text-sm text-muted hover:text-text">
+        ← 뒤로
+      </Link>
+
+      <h1 className="mt-3 text-lg font-bold text-text">{authorName}님의 평가</h1>
+      <p className="mt-1 text-xs text-muted">총 {reviews.length}개</p>
+
+      <div className="mt-6 space-y-3">
+        {reviews.length === 0 ? (
+          <p className="text-sm text-muted">아직 남긴 평가가 없어요.</p>
+        ) : (
+          reviews.map((review) => {
+            const movie = getMovieById(review.movieId);
+            const scale = review.type === "short" ? 10 : 100;
+
+            return (
+              <div key={review.id} className="rounded-lg bg-surface p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Link
+                    href={`/movies/${review.movieId}/rate`}
+                    className="truncate text-sm font-semibold text-text hover:underline"
+                  >
+                    {movie?.title ?? review.movieId}
+                  </Link>
+                  <span className="shrink-0 text-[10px] text-muted">
+                    {review.type === "short" ? "한줄평" : "장문평"}
+                  </span>
+                </div>
+                <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
