@@ -1,5 +1,10 @@
 import SearchBar from "./_components/SearchBar";
-import CategoryNav, { tabCategories, type TabCategory } from "./_components/CategoryNav";
+import CategoryNav, {
+  tabCategories,
+  genreLabels,
+  type TabCategory,
+  type GenreLabel,
+} from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
 import {
   getNowShowing,
@@ -12,12 +17,17 @@ import {
   getBestOf3YearsRow,
   getBestOf5YearsRow,
   getAllTimeBestRow,
+  getGenreRow,
 } from "./_lib/movie-rows";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
     ? (value as TabCategory)
     : "영화";
+}
+
+function resolveGenre(value: string | undefined): GenreLabel {
+  return (genreLabels as readonly string[]).includes(value ?? "") ? (value as GenreLabel) : "전체";
 }
 
 async function NowShowingSection() {
@@ -58,19 +68,27 @@ async function MovieCategorySection() {
   );
 }
 
+async function GenreSection({ genre }: { genre: GenreLabel }) {
+  const movies = await getGenreRow(genre);
+  return <MovieRow title={`${genre} 영화`} movies={movies} />;
+}
+
 export default async function Home({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
   const category = resolveCategory(
     typeof params.category === "string" ? params.category : undefined
   );
+  const genre = resolveGenre(typeof params.genre === "string" ? params.genre : undefined);
 
   return (
     <main>
       <SearchBar />
-      <CategoryNav active={category} />
+      <CategoryNav active={category} activeGenre={genre} />
 
       {category === "현재 상영중인 영화" && <NowShowingSection />}
-      {category === "영화" && <MovieCategorySection />}
+
+      {category === "영화" && genre === "전체" && <MovieCategorySection />}
+      {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
 
       {(category === "TV프로그램" || category === "단편·독립") && (
         <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
