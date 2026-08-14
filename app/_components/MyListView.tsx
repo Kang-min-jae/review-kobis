@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { getMovieById, type Movie } from "../_lib/mock-movies";
+import PosterImage from "./PosterImage";
 import {
   subscribe as subscribeMyList,
   getMyListSnapshot,
@@ -13,8 +13,9 @@ import {
 } from "../_lib/my-list-store";
 import {
   subscribe as subscribeReviews,
-  getUserReviewedMovieIdsSnapshot,
-  getServerUserReviewedMovieIdsSnapshot,
+  getUserReviewedMoviesSnapshot,
+  getServerUserReviewedMoviesSnapshot,
+  type ReviewedMovie,
 } from "../_lib/reviews-store";
 import {
   subscribe as subscribeSocial,
@@ -29,28 +30,25 @@ import {
   recordView,
 } from "../_lib/list-social-store";
 
-function toMovies(ids: string[]): Movie[] {
-  return ids
-    .map((id) => getMovieById(id))
-    .filter((movie): movie is Movie => Boolean(movie));
-}
-
 export default function MyListView() {
   useEffect(() => {
     recordView();
   }, []);
 
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
-  const reviewedIds = useSyncExternalStore(
+  const reviewedMovies = useSyncExternalStore(
     subscribeReviews,
-    getUserReviewedMovieIdsSnapshot,
-    getServerUserReviewedMovieIdsSnapshot
+    getUserReviewedMoviesSnapshot,
+    getServerUserReviewedMoviesSnapshot
   );
   const social = useSyncExternalStore(subscribeSocial, getSocialSnapshot, getServerSocialSnapshot);
   const views = useSyncExternalStore(subscribeSocial, getViewsSnapshot, getServerViewsSnapshot);
 
-  const myListMovies = toMovies(myListIds);
-  const addableMovies = toMovies(reviewedIds.filter((id) => !myListIds.includes(id)));
+  const reviewedById = new Map(reviewedMovies.map((m) => [m.id, m]));
+  const myListMovies = myListIds
+    .map((id) => reviewedById.get(id))
+    .filter((movie): movie is ReviewedMovie => Boolean(movie));
+  const addableMovies = reviewedMovies.filter((m) => !myListIds.includes(m.id));
 
   return (
     <div className="px-5 py-6">
@@ -109,7 +107,7 @@ export default function MyListView() {
       <div className="mt-6 space-y-2">
         {myListMovies.length === 0 ? (
           <p className="text-sm text-muted">
-            {reviewedIds.length === 0 ? (
+            {reviewedMovies.length === 0 ? (
               <>
                 평점을 남긴 영화가 아직 없어요. 영화에{" "}
                 <Link href="/" className="text-brand hover:underline">
@@ -125,7 +123,13 @@ export default function MyListView() {
           myListMovies.map((movie, index) => (
             <div key={movie.id} className="flex items-center gap-3 rounded-lg bg-surface p-3">
               <span className="w-6 shrink-0 text-center text-sm font-bold text-brand">{index + 1}</span>
-              <div className={`h-12 w-9 shrink-0 rounded bg-gradient-to-br ${movie.gradient}`} />
+              <div
+                className={`relative h-12 w-9 shrink-0 overflow-hidden rounded ${
+                  movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
+                }`}
+              >
+                {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+              </div>
               <p className="flex-1 truncate text-sm text-text">{movie.title}</p>
               <div className="flex shrink-0 gap-1">
                 <button
