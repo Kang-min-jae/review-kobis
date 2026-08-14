@@ -81,8 +81,8 @@ function toMovieSummary(item: RawMovieListItem): KobisMovieSummary | null {
 export type CatalogSearchParams = {
   movieNm?: string;
   directorNm?: string;
-  openStartDt?: string; // "YYYYMMDD"
-  openEndDt?: string; // "YYYYMMDD"
+  openStartDt?: string; // "YYYY" — 연도만 (KOBIS는 개봉일 검색을 연 단위로만 지원한다)
+  openEndDt?: string; // "YYYY"
   repNationCd?: "K" | "F";
 };
 
