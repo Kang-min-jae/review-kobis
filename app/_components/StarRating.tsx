@@ -8,12 +8,14 @@ function StarIcon({ className }: { className?: string }) {
 
 export default function StarRating({
   rating,
+  scale = 10,
   size = "h-3.5 w-3.5",
 }: {
   rating: number;
+  scale?: number;
   size?: string;
 }) {
-  const percent = Math.max(0, Math.min(100, (rating / 10) * 100));
+  const percent = Math.max(0, Math.min(100, (rating / scale) * 100));
 
   return (
     <div className="flex items-center gap-1.5">
