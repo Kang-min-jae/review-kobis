@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StarRating from "./StarRating";
+import PosterImage from "./PosterImage";
 import { countSentences } from "../_lib/text";
 import {
   addReview,
@@ -11,6 +12,13 @@ import {
   getReviewsSnapshot,
   getSeedReviewsSnapshot,
 } from "../_lib/reviews-store";
+import {
+  subscribe as subscribeVotes,
+  getVotesSnapshot,
+  getServerVotesSnapshot,
+  getReviewVote,
+  toggleVote,
+} from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
 
 const tabs: { type: ReviewType; label: string }[] = [
@@ -24,12 +32,46 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function VoteButtons({ reviewId }: { reviewId: string }) {
+  const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
+  const { likes, dislikes, myVote } = getReviewVote(votesState, reviewId);
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => toggleVote(reviewId, "like")}
+        className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors ${
+          myVote === "like" ? "bg-brand text-white" : "bg-black/30 text-muted hover:text-text"
+        }`}
+      >
+        👍 {likes}
+      </button>
+      <button
+        type="button"
+        onClick={() => toggleVote(reviewId, "dislike")}
+        className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors ${
+          myVote === "dislike" ? "bg-neutral-600 text-white" : "bg-black/30 text-muted hover:text-text"
+        }`}
+      >
+        👎 {dislikes}
+      </button>
+    </div>
+  );
+}
+
 export default function RateForm({
   movieId,
   movieTitle,
+  description,
+  posterUrl,
+  gradient,
 }: {
   movieId: string;
   movieTitle: string;
+  description: string;
+  posterUrl: string | null;
+  gradient: string;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReviewType>("short");
@@ -67,9 +109,22 @@ export default function RateForm({
       <Link href="/" className="text-sm text-muted hover:text-text">
         ← 뒤로
       </Link>
-      <h1 className="mt-3 text-lg font-bold text-text">{movieTitle} 평가하기</h1>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-3 flex gap-4">
+        <div
+          className={`relative aspect-2/3 w-24 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
+            posterUrl ? "bg-surface" : `bg-gradient-to-br ${gradient}`
+          }`}
+        >
+          {posterUrl && <PosterImage src={posterUrl} alt={`${movieTitle} 포스터`} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-bold text-text">{movieTitle}</h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted">{description}</p>
+        </div>
+      </div>
+
+      <div className="mt-6 flex gap-2">
         {tabs.map((tab) => (
           <button
             key={tab.type}
@@ -91,35 +146,24 @@ export default function RateForm({
           <div className="flex items-center gap-3">
             <StarRating rating={rating} scale={scale} size="h-5 w-5" />
           </div>
-
-          {activeTab === "short" ? (
+          <div className="mt-2 flex items-center gap-2">
             <input
-              type="range"
+              type="number"
               min={0}
-              max={10}
-              step={0.5}
-              value={shortRating}
-              onChange={(e) => setShortRating(Number(e.target.value))}
-              className="mt-2 w-full accent-brand"
+              max={scale}
+              step={0.1}
+              value={activeTab === "short" ? shortRating : longRating}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isNaN(value)) return;
+                const rounded = Math.round(clamp(value, 0, scale) * 10) / 10;
+                if (activeTab === "short") setShortRating(rounded);
+                else setLongRating(rounded);
+              }}
+              className="w-24 rounded-lg border border-neutral-700 bg-surface px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
             />
-          ) : (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.1}
-                value={longRating}
-                onChange={(e) => {
-                  const value = Number(e.target.value);
-                  if (Number.isNaN(value)) return;
-                  setLongRating(Math.round(clamp(value, 0, 100) * 10) / 10);
-                }}
-                className="w-24 rounded-lg border border-neutral-700 bg-surface px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
-              />
-              <span className="text-xs text-muted">/ 100.0 (소수점 첫째 자리까지)</span>
-            </div>
-          )}
+            <span className="text-xs text-muted">/ {scale.toFixed(1)} (소수점 첫째 자리까지)</span>
+          </div>
         </div>
 
         {activeTab === "short" ? (
@@ -163,8 +207,19 @@ export default function RateForm({
         <ul className="mt-3 space-y-3">
           {reviews.map((review) => (
             <li key={review.id} className="rounded-lg bg-surface p-3">
-              <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+              <div className="flex items-center justify-between">
+                <Link
+                  href={`/users/${review.authorId}`}
+                  className="text-xs font-semibold text-text hover:underline"
+                >
+                  {review.authorName}
+                </Link>
+                <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+              </div>
               <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
+              <div className="mt-2 flex justify-end">
+                <VoteButtons reviewId={review.id} />
+              </div>
             </li>
           ))}
         </ul>

@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import StarRating from "./StarRating";
+import { getMovieById } from "../_lib/mock-movies";
 import {
   subscribe,
   getReviewsByAuthorSnapshot,
@@ -32,6 +33,7 @@ export default function ProfileView({ authorId }: { authorId: string }) {
           <p className="text-sm text-muted">아직 남긴 평가가 없어요.</p>
         ) : (
           reviews.map((review) => {
+            const movie = getMovieById(review.movieId);
             const scale = review.type === "short" ? 10 : 100;
 
             return (
@@ -41,7 +43,7 @@ export default function ProfileView({ authorId }: { authorId: string }) {
                     href={`/movies/${review.movieId}/rate`}
                     className="truncate text-sm font-semibold text-text hover:underline"
                   >
-                    {review.movieTitle}
+                    {movie?.title ?? review.movieId}
                   </Link>
                   <span className="shrink-0 text-[10px] text-muted">
                     {review.type === "short" ? "한줄평" : "장문평"}
