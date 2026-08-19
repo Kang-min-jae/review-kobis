@@ -151,12 +151,18 @@ export async function searchKmdbMovie(
   if (pool.length === 0) return null; // 제목이 정확히 일치하는 후보가 없으면 포기한다.
 
   const withYear = yearHint ? pool.filter((c) => c.raw.prodYear === yearHint) : [];
-  const withPoster = pool.filter((c) => c.raw.posters);
+
+  // 연도 힌트로도 못 정하면, 같은 제목의 후보 중 가장 먼저 나온(원 개봉) 쪽을 고른다 —
+  // 재개봉판 등록이 있어도 항상 최초 개봉연도를 보여주기 위함. 그중 포스터 있는 쪽을 우선한다.
+  const sortedByYear = [...pool].sort((a, b) =>
+    (a.raw.prodYear ?? "9999").localeCompare(b.raw.prodYear ?? "9999")
+  );
+  const earliestWithPoster = sortedByYear.find((c) => c.raw.posters);
 
   const best =
     withYear.find((c) => c.raw.posters) ??
     withYear[0] ??
-    (pool.length === 1 ? pool[0] : withPoster[0]) ??
+    (pool.length === 1 ? pool[0] : (earliestWithPoster ?? sortedByYear[0])) ??
     null;
 
   return best ? toDetails(best.raw) : null;

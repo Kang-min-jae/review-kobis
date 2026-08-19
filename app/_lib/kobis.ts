@@ -34,6 +34,16 @@ function normalizeTitle(title: string): string {
   return title.replace(/\s+/g, "").toLowerCase();
 }
 
+// 재개봉작은 KOBIS에 원 개봉 등록과 별도로 "N주년", "리마스터판" 등이 붙은 재개봉
+// 등록이 따로 존재하는 경우가 있다. 제목만으로 검색하면 재개봉 등록이 걸릴 수 있어서,
+// 이런 수식어를 뗀 원제로 검색해 원 개봉 등록을 우선 찾도록 한다.
+const EDITION_SUFFIX_PATTERN =
+  /\s*[:：]?\s*(\d+\s*주년(\s*(기념)?\s*(재개봉|특별판)?)?|리마스터(링)?판?|확장판|무삭제판|디렉터스\s*컷|파이널\s*컷|익스텐디드\s*컷|극장판|스페셜\s*에디션|언레이티드판?)\s*$/;
+
+function stripEdition(title: string): string {
+  return title.replace(EDITION_SUFFIX_PATTERN, "").trim();
+}
+
 // ── 카탈로그 검색 (searchMovieList) ─────────────────────────────────────────
 
 type RawMovieListItem = {
@@ -148,9 +158,11 @@ export async function searchMovieCatalog(
 }
 
 async function searchMovieCdOnce(query: string, key: string): Promise<string | null> {
+  // 재개봉 수식어를 뗀 원제로 검색해야 원 개봉 등록이 검색 대상에 들어온다.
+  const searchTerm = stripEdition(query);
   const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json`);
   url.searchParams.set("key", key);
-  url.searchParams.set("movieNm", query);
+  url.searchParams.set("movieNm", searchTerm);
   url.searchParams.set("itemPerPage", "20");
 
   const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
@@ -162,9 +174,17 @@ async function searchMovieCdOnce(query: string, key: string): Promise<string | n
   const items = data.movieListResult?.movieList ?? [];
   if (items.length === 0) return null;
 
-  const target = normalizeTitle(query);
-  const exact = items.find((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
-  return (exact ?? items[0]).movieCd ?? null;
+  const target = normalizeTitle(searchTerm);
+  const exactMatches = items.filter((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
+  if (exactMatches.length === 0) return items[0].movieCd ?? null;
+
+  // 같은 제목이 여러 번 등록돼 있으면(재개봉 등) 가장 먼저 개봉한 등록 = 원 개봉을 고른다.
+  const withDate = exactMatches.filter((item) => item.openDt);
+  const earliest =
+    withDate.length > 0
+      ? withDate.reduce((a, b) => (a.openDt! < b.openDt! ? a : b))
+      : exactMatches[0];
+  return earliest.movieCd ?? null;
 }
 
 // 제목으로 가장 가까운 한 편을 찾는다. 정확히 일치하는 제목을 우선하고, 없으면 첫 결과를 쓴다.
