@@ -1,23 +1,52 @@
 import Link from "next/link";
 import MovieCard from "../../_components/MovieCard";
-import { searchMovieCatalog } from "../../_lib/kobis";
+import { searchMovieCatalog, findMovieCdByTitle } from "../../_lib/kobis";
+import { searchKmdbFilmography } from "../../_lib/kmdb";
 import { getLocalNowShowingByMovieCd, applyNowShowingOverrides, toRowMovie } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 
-// KOBIS 오픈API엔 인물 상세/필모그래피 API가 없다 — searchMovieList의 directorNm으로
-// 감독 이름을 재검색하는 방식만 가능하다 (배우 이름으로 필터링하는 파라미터는 없음).
-// 그래서 이 페이지는 실질적으로 "감독 페이지"로 동작하고, 배우 이름으로 들어오면
-// 결과가 비어있을 수 있다.
+const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
+
+// KMDb에서 이름으로 감독/배우 참여작을 찾고, 평점 페이지로 연결하기 위해 각 작품을
+// KOBIS movieCd와 매칭한다 (KOBIS에 없는 — 국내 미개봉 — 작품은 평점을 남길 방법이
+// 없어서 목록에서 제외한다).
+async function filmographyFromKmdb(name: string): Promise<RowMovie[]> {
+  const movies = await searchKmdbFilmography(name);
+  if (movies.length === 0) return [];
+
+  const movieCds = await Promise.all(movies.map((m) => findMovieCdByTitle(m.title)));
+  const rows: RowMovie[] = [];
+  movies.forEach((movie, i) => {
+    const movieCd = movieCds[i];
+    if (!movieCd) return;
+    rows.push({
+      id: `kobis-${movieCd}`,
+      title: movie.title,
+      posterUrl: movie.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: false,
+    });
+  });
+  return rows;
+}
+
+// KMDb 키가 없거나 KMDb에서 못 찾았을 때의 대체 경로 — KOBIS searchMovieList의
+// directorNm으로 감독 재검색 (배우 이름으로는 필터링 불가).
+async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
+  const candidates = await searchMovieCatalog({ directorNm: name }, 30);
+  return Promise.all(candidates.map(toRowMovie));
+}
+
 export default async function PersonPage({ params }: PageProps<"/people/[id]">) {
   const { id } = await params;
   const name = decodeURIComponent(id);
 
-  const [candidates, nowShowingMap] = await Promise.all([
-    searchMovieCatalog({ directorNm: name }, 30),
+  const [kmdbRows, nowShowingMap] = await Promise.all([
+    filmographyFromKmdb(name),
     getLocalNowShowingByMovieCd(),
   ]);
 
-  const rows = await Promise.all(candidates.map(toRowMovie));
+  const rows = kmdbRows.length > 0 ? kmdbRows : await filmographyFromKobisDirector(name);
   const movies: RowMovie[] = applyNowShowingOverrides(rows, nowShowingMap);
 
   return (
@@ -27,14 +56,11 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
       </Link>
 
       <h1 className="mt-3 text-lg font-bold text-text">{name}</h1>
-      <p className="mt-1 text-xs text-muted">감독 참여작 {movies.length}편</p>
+      <p className="mt-1 text-xs text-muted">참여작 {movies.length}편</p>
 
       <section className="mt-6">
         {movies.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">
-            감독으로 등록된 영화를 찾을 수 없어요. KOBIS 오픈API는 배우 이름으로는 필모그래피
-            검색을 지원하지 않아요.
-          </p>
+          <p className="mt-2 text-sm text-muted">참여작을 찾을 수 없어요.</p>
         ) : (
           <div className="mt-3 flex flex-wrap gap-4">
             {movies.map((movie) => (

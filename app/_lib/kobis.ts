@@ -287,6 +287,7 @@ export async function searchMoviesSince1960(query: string): Promise<KobisSearchH
 type DailyBoxOfficeItem = {
   movieCd?: string;
   movieNm?: string;
+  openDt?: string; // "YYYY-MM-DD" (KOBIS 박스오피스 응답은 이미 하이픈 포함 형식으로 준다)
   audiAcc?: string;
   salesAcc?: string;
 };
@@ -315,9 +316,15 @@ export type KoficWeeklyEntry = {
   rank: number;
   movieCd: string | null;
   movieNm: string;
+  openYear: string | null; // KMDb 검색에 힌트로 쓸 개봉연도 (형식이 endpoint마다 달라 연도만 뽑아둔다)
   audiAcc: number;
   salesAcc: number;
 };
+
+function extractYear(openDt: string | undefined): string | null {
+  const match = openDt?.match(/^\d{4}/);
+  return match ? match[0] : null;
+}
 
 // 이번 주 박스오피스 TOP N. "월~일" 한 주를 그 주의 월요일 날짜로 조회한다. 이번 주는
 // 아직 집계 중일 수 있어, 데이터가 확정된 지난 주 기준으로 가져온다.
@@ -348,6 +355,7 @@ export async function getWeeklyBoxOffice(limit = 10): Promise<KoficWeeklyEntry[]
       rank: index + 1,
       movieCd: item.movieCd ?? null,
       movieNm: item.movieNm ?? "제목 없음",
+      openYear: extractYear(item.openDt),
       audiAcc: Number(item.audiAcc ?? 0),
       salesAcc: Number(item.salesAcc ?? 0),
     }));

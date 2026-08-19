@@ -92,50 +92,81 @@ function toDetails(raw: RawKmdbResult): KmdbMovieDetails | null {
   };
 }
 
-// 제목(+개봉연도 힌트)으로 가장 가능성 높은 한 편을 찾는다.
-// 우선순위: 제목 일치 + 연도 일치 + 포스터 있음 > 제목 일치 + 연도 일치 >
-//          제목 일치 + 포스터 있음 > 제목 일치 > 첫 결과.
-export async function searchKmdbMovie(
-  title: string,
-  yearHint?: string | null
-): Promise<KmdbMovieDetails | null> {
+async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
   const key = apiKey();
-  if (!key) return null;
+  if (!key) return [];
 
   const url = new URL(KMDB_API_BASE);
   url.searchParams.set("collection", "kmdb_new2");
   url.searchParams.set("detail", "Y");
-  url.searchParams.set("listCount", "20");
+  url.searchParams.set("listCount", String(listCount));
   url.searchParams.set("ServiceKey", key);
-  url.searchParams.set("query", title);
+  url.searchParams.set("query", query);
 
   try {
     const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
     if (!res.ok) {
-      console.warn(`[kmdb] "${title}" 검색 실패: HTTP ${res.status}`);
-      return null;
+      console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
+      return [];
     }
     const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
-    const results = data.Data?.[0]?.Result ?? [];
-    if (results.length === 0) return null;
-
-    const candidates = results
-      .map((r) => ({ raw: r, cleanTitle: stripHighlight(r.title) }))
-      .filter((c) => c.cleanTitle === title);
-    const pool = candidates.length > 0 ? candidates : results.map((r) => ({ raw: r, cleanTitle: stripHighlight(r.title) }));
-
-    const withYear = yearHint ? pool.filter((c) => c.raw.prodYear === yearHint) : [];
-    const withPoster = pool.filter((c) => c.raw.posters);
-
-    const best =
-      withYear.find((c) => c.raw.posters) ??
-      withYear[0] ??
-      withPoster[0] ??
-      pool[0];
-
-    return best ? toDetails(best.raw) : null;
+    return data.Data?.[0]?.Result ?? [];
   } catch (error) {
-    console.warn(`[kmdb] "${title}" 요청 중 오류:`, error);
-    return null;
+    console.warn(`[kmdb] "${query}" 요청 중 오류:`, error);
+    return [];
   }
+}
+
+// 제목(+개봉연도 힌트)으로 가장 가능성 높은 한 편을 찾는다.
+// 우선순위: 제목 일치 + 연도 일치 + 포스터 있음 > 제목 일치 + 연도 일치 >
+//          제목 일치 + 포스터 있음 > 제목 일치 하나뿐.
+// "호프"처럼 흔한 제목은 검색 결과에 전혀 다른 영화가 섞여 나올 수 있어서,
+// 제목이 정확히 일치하는 후보가 하나도 없으면 엉뚱한 결과를 고르느니 그냥 포기한다
+// (포스터 없이 그라디언트로 대체되는 쪽이 잘못된 포스터보다 안전하다).
+export async function searchKmdbMovie(
+  title: string,
+  yearHint?: string | null
+): Promise<KmdbMovieDetails | null> {
+  const results = await rawSearch(title, 20);
+  if (results.length === 0) return null;
+
+  const pool = results
+    .map((r) => ({ raw: r, cleanTitle: stripHighlight(r.title) }))
+    .filter((c) => c.cleanTitle === title);
+  if (pool.length === 0) return null; // 제목이 정확히 일치하는 후보가 없으면 포기한다.
+
+  const withYear = yearHint ? pool.filter((c) => c.raw.prodYear === yearHint) : [];
+  const withPoster = pool.filter((c) => c.raw.posters);
+
+  const best =
+    withYear.find((c) => c.raw.posters) ??
+    withYear[0] ??
+    (pool.length === 1 ? pool[0] : withPoster[0]) ??
+    null;
+
+  return best ? toDetails(best.raw) : null;
+}
+
+// 감독/배우 이름으로 참여작 목록을 찾는다. KMDb 검색은 제목 외 다른 필드도 매칭될 수 있어서,
+// 실제로 그 이름이 감독/배우 목록에 있는 결과만 남긴다 (동명이인 오매칭 방지는 하지 않음 —
+// KMDb 자체가 인물 고유 id로 구분해주지 않아서, 이름이 같으면 합쳐서 보여줄 수밖에 없다).
+export async function searchKmdbFilmography(personName: string): Promise<KmdbMovieDetails[]> {
+  const results = await rawSearch(personName, 50);
+  if (results.length === 0) return [];
+
+  const matched = results.filter((r) => {
+    const directors = r.directors?.director?.map((d) => d.directorNm?.trim()) ?? [];
+    const actors = r.actors?.actor?.map((a) => a.actorNm?.trim()) ?? [];
+    return directors.includes(personName) || actors.includes(personName);
+  });
+
+  const deduped = new Map<string, RawKmdbResult>();
+  for (const r of matched) {
+    if (r.DOCID && !deduped.has(r.DOCID)) deduped.set(r.DOCID, r);
+  }
+
+  return Array.from(deduped.values())
+    .map(toDetails)
+    .filter((d): d is KmdbMovieDetails => d !== null)
+    .sort((a, b) => (b.prodYear ?? "").localeCompare(a.prodYear ?? ""));
 }

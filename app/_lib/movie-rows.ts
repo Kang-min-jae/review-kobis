@@ -131,12 +131,24 @@ export function applyNowShowingOverrides(
 }
 
 // 이번 주 박스오피스 TOP N (실제 국내 관객수 기준, KOFIC 주간 박스오피스).
-// 박스오피스 항목엔 movieCd가 그대로 들어있어 별도 검색 없이 바로 카드로 연결하고,
-// 포스터는 KMDb에서 제목으로 찾아 붙인다.
+// 박스오피스 항목엔 movieCd가 그대로 들어있어 별도 검색 없이 바로 카드로 연결한다.
+// 포스터는 KMDb에서 제목으로 찾는데, 흔한 제목(예: "호프")은 동명의 다른 영화와
+// 헷갈릴 수 있어 개봉연도를 힌트로 반드시 넘긴다 — 박스오피스 응답에 연도가
+// 없으면(드묾) KOBIS 상세조회로 한 번 더 확인해서 정확한 연도를 구한다.
 export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
   const entries = await getWeeklyBoxOffice(10);
   const withMovieCd = entries.filter((e) => e.movieCd); // movieCd가 없으면(드묾) 평점 페이지로 연결할 방법이 없어 건너뛴다.
-  const kmdbInfos = await Promise.all(withMovieCd.map((e) => searchKmdbMovie(e.movieNm)));
+
+  const openYears = await Promise.all(
+    withMovieCd.map(async (e) => {
+      if (e.openYear) return e.openYear;
+      const detail = await getMovieDetailsByCd(e.movieCd!);
+      return detail?.openDate?.slice(0, 4) ?? null;
+    })
+  );
+  const kmdbInfos = await Promise.all(
+    withMovieCd.map((e, i) => searchKmdbMovie(e.movieNm, openYears[i]))
+  );
 
   return withMovieCd.map((entry, i) => ({
     id: `kobis-${entry.movieCd}`,
