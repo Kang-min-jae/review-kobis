@@ -7,11 +7,11 @@ import type { RowMovie } from "../../_lib/movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
-// KMDb에서 이름으로 감독/배우 참여작을 찾고, 평점 페이지로 연결하기 위해 각 작품을
-// KOBIS movieCd와 매칭한다 (KOBIS에 없는 — 국내 미개봉 — 작품은 평점을 남길 방법이
-// 없어서 목록에서 제외한다).
-async function filmographyFromKmdb(name: string): Promise<RowMovie[]> {
-  const movies = await searchKmdbFilmography(name);
+// KMDb에서 이름(+가능하면 인물 코드)으로 감독/배우 참여작을 찾고, 평점 페이지로 연결하기
+// 위해 각 작품을 KOBIS movieCd와 매칭한다 (KOBIS에 없는 — 국내 미개봉 — 작품은 평점을
+// 남길 방법이 없어서 목록에서 제외한다).
+async function filmographyFromKmdb(name: string, personId: string | null): Promise<RowMovie[]> {
+  const movies = await searchKmdbFilmography(name, personId);
   if (movies.length === 0) return [];
 
   const movieCds = await Promise.all(movies.map((m) => findMovieCdByTitle(m.title)));
@@ -37,12 +37,14 @@ async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
   return Promise.all(candidates.map(toRowMovie));
 }
 
-export default async function PersonPage({ params }: PageProps<"/people/[id]">) {
+export default async function PersonPage({ params, searchParams }: PageProps<"/people/[id]">) {
   const { id } = await params;
+  const { pid } = await searchParams;
   const name = decodeURIComponent(id);
+  const personId = typeof pid === "string" ? pid : null;
 
   const [kmdbRows, nowShowingMap] = await Promise.all([
-    filmographyFromKmdb(name),
+    filmographyFromKmdb(name, personId),
     getLocalNowShowingByMovieCd(),
   ]);
 

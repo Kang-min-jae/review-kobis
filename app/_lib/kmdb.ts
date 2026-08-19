@@ -18,13 +18,23 @@ function stripHighlight(title: string | undefined): string {
   return (title ?? "").replace(/!HS\s*/g, "").replace(/!HE\s*/g, "").trim();
 }
 
+// KOBIS엔 "위커 맨: 파이널 컷", "백룡: 익스텐디드 컷"처럼 재개봉/에디션 수식어가 제목에
+// 붙어 있는데, KMDb엔 보통 원제로만 등록돼 있어서 그대로 검색하면 못 찾는다. 검색 전에
+// 이런 수식어를 떼어낸다.
+const EDITION_SUFFIX_PATTERN =
+  /\s*[:：]?\s*(\d+\s*주년(\s*(기념)?\s*(재개봉|특별판)?)?|리마스터(링)?판?|확장판|무삭제판|디렉터스\s*컷|파이널\s*컷|익스텐디드\s*컷|극장판|스페셜\s*에디션|언레이티드판?)\s*$/;
+
+function stripEdition(title: string): string {
+  return title.replace(EDITION_SUFFIX_PATTERN, "").trim();
+}
+
 function toIsoDate(yyyymmdd: string | undefined): string | null {
   if (!yyyymmdd || yyyymmdd.length !== 8) return null;
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 }
 
-type RawKmdbDirector = { directorNm?: string };
-type RawKmdbActor = { actorNm?: string };
+type RawKmdbDirector = { directorNm?: string; directorId?: string };
+type RawKmdbActor = { actorNm?: string; actorId?: string };
 type RawKmdbPlot = { plotLang?: string; plotText?: string };
 
 type RawKmdbResult = {
@@ -45,7 +55,8 @@ type RawKmdbResult = {
   stlls?: string;
 };
 
-export type KmdbPersonRef = { name: string };
+// kmdbId는 KMDb가 매기는 인물 고유 코드(예: "00001843") — 동명이인을 구분하는 데 쓴다.
+export type KmdbPersonRef = { name: string; kmdbId: string | null };
 export type KmdbCastMember = KmdbPersonRef;
 
 export type KmdbMovieDetails = {
@@ -69,7 +80,8 @@ function toDetails(raw: RawKmdbResult): KmdbMovieDetails | null {
 
   const posters = raw.posters?.split("|").map((p) => p.trim()).filter(Boolean) ?? [];
   const koreanPlot = raw.plots?.plot?.find((p) => p.plotLang === "한국어") ?? raw.plots?.plot?.[0];
-  const directorNm = raw.directors?.director?.[0]?.directorNm?.trim();
+  const directorRaw = raw.directors?.director?.[0];
+  const directorNm = directorRaw?.directorNm?.trim();
 
   return {
     docId: raw.DOCID,
@@ -81,12 +93,13 @@ function toDetails(raw: RawKmdbResult): KmdbMovieDetails | null {
     releaseDate: toIsoDate(raw.repRlsDate),
     runtimeMinutes: raw.runtime ? Number(raw.runtime) || null : null,
     watchGrade: raw.rating?.trim() || null,
-    director: directorNm ? { name: directorNm } : null,
+    director: directorNm
+      ? { name: directorNm, kmdbId: directorRaw?.directorId?.trim() || null }
+      : null,
     cast: (raw.actors?.actor ?? [])
-      .map((a) => a.actorNm?.trim())
-      .filter((name): name is string => Boolean(name))
+      .filter((a) => a.actorNm?.trim())
       .slice(0, 6)
-      .map((name) => ({ name })),
+      .map((a) => ({ name: a.actorNm!.trim(), kmdbId: a.actorId?.trim() || null })),
     genre: raw.genre?.trim() || null,
     isFeatureFilm: raw.type === "극영화",
   };
@@ -117,7 +130,8 @@ async function rawSearch(query: string, listCount: number): Promise<RawKmdbResul
   }
 }
 
-// 제목(+개봉연도 힌트)으로 가장 가능성 높은 한 편을 찾는다.
+// 제목(+개봉연도 힌트)으로 가장 가능성 높은 한 편을 찾는다. 재개봉/에디션 수식어(파이널 컷,
+// 10주년 등)는 떼고 검색한다 — KMDb엔 보통 원제로만 등록돼 있어서다.
 // 우선순위: 제목 일치 + 연도 일치 + 포스터 있음 > 제목 일치 + 연도 일치 >
 //          제목 일치 + 포스터 있음 > 제목 일치 하나뿐.
 // "호프"처럼 흔한 제목은 검색 결과에 전혀 다른 영화가 섞여 나올 수 있어서,
@@ -127,12 +141,13 @@ export async function searchKmdbMovie(
   title: string,
   yearHint?: string | null
 ): Promise<KmdbMovieDetails | null> {
-  const results = await rawSearch(title, 20);
+  const queryTitle = stripEdition(title);
+  const results = await rawSearch(queryTitle, 20);
   if (results.length === 0) return null;
 
   const pool = results
     .map((r) => ({ raw: r, cleanTitle: stripHighlight(r.title) }))
-    .filter((c) => c.cleanTitle === title);
+    .filter((c) => c.cleanTitle === queryTitle || c.cleanTitle === title);
   if (pool.length === 0) return null; // 제목이 정확히 일치하는 후보가 없으면 포기한다.
 
   const withYear = yearHint ? pool.filter((c) => c.raw.prodYear === yearHint) : [];
@@ -147,17 +162,30 @@ export async function searchKmdbMovie(
   return best ? toDetails(best.raw) : null;
 }
 
-// 감독/배우 이름으로 참여작 목록을 찾는다. KMDb 검색은 제목 외 다른 필드도 매칭될 수 있어서,
-// 실제로 그 이름이 감독/배우 목록에 있는 결과만 남긴다 (동명이인 오매칭 방지는 하지 않음 —
-// KMDb 자체가 인물 고유 id로 구분해주지 않아서, 이름이 같으면 합쳐서 보여줄 수밖에 없다).
-export async function searchKmdbFilmography(personName: string): Promise<KmdbMovieDetails[]> {
+// 감독/배우 이름(+가능하면 KMDb 인물 코드)으로 참여작 목록을 찾는다.
+// personId를 넘기면 이름이 같아도 그 코드가 실제로 감독/배우 목록에 있는 항목만 남겨서
+// 동명이인을 확실히 구분한다. personId가 없으면(직접 이름만 검색해 들어온 경우 등)
+// 이름만으로 매칭하므로 동명이인이 섞일 수 있다.
+export async function searchKmdbFilmography(
+  personName: string,
+  personId?: string | null
+): Promise<KmdbMovieDetails[]> {
   const results = await rawSearch(personName, 50);
   if (results.length === 0) return [];
 
   const matched = results.filter((r) => {
-    const directors = r.directors?.director?.map((d) => d.directorNm?.trim()) ?? [];
-    const actors = r.actors?.actor?.map((a) => a.actorNm?.trim()) ?? [];
-    return directors.includes(personName) || actors.includes(personName);
+    const directors = r.directors?.director ?? [];
+    const actors = r.actors?.actor ?? [];
+    if (personId) {
+      return (
+        directors.some((d) => d.directorId === personId) ||
+        actors.some((a) => a.actorId === personId)
+      );
+    }
+    return (
+      directors.some((d) => d.directorNm?.trim() === personName) ||
+      actors.some((a) => a.actorNm?.trim() === personName)
+    );
   });
 
   const deduped = new Map<string, RawKmdbResult>();
