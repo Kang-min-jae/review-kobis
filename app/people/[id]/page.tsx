@@ -17,7 +17,8 @@ export default async function PersonPage({ params }: PageProps<"/people/[id]">) 
     getLocalNowShowingByMovieCd(),
   ]);
 
-  const movies: RowMovie[] = applyNowShowingOverrides(candidates.map(toRowMovie), nowShowingMap);
+  const rows = await Promise.all(candidates.map(toRowMovie));
+  const movies: RowMovie[] = applyNowShowingOverrides(rows, nowShowingMap);
 
   return (
     <main className="px-5 py-6">

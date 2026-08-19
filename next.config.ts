@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
-// KOBIS 오픈API는 이미지를 제공하지 않아 원격 포스터 도메인이 더 이상 필요 없다.
-const nextConfig: NextConfig = {};
+// 포스터/스틸컷 이미지는 KMDb(한국영상자료원)에서 가져온다 — KOBIS 자체는 이미지를 제공하지 않는다.
+const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "http",
+        hostname: "file.koreafilm.or.kr",
+        pathname: "/**",
+      },
+    ],
+  },
+};
 
 export default nextConfig;
