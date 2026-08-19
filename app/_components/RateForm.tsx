@@ -22,7 +22,13 @@ import {
 import type { ReviewType } from "../_lib/mock-reviews";
 import type { KoficBoxOffice } from "../_lib/kobis";
 
-type PersonRef = { name: string };
+type PersonRef = { name: string; kmdbId?: string | null };
+
+// KMDb 인물 코드(kmdbId)가 있으면 쿼리로 같이 넘겨서 동명이인 필모그래피가 안 섞이게 한다.
+function personHref(person: PersonRef): string {
+  const base = `/people/${encodeURIComponent(person.name)}`;
+  return person.kmdbId ? `${base}?pid=${encodeURIComponent(person.kmdbId)}` : base;
+}
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -169,10 +175,7 @@ export default function RateForm({
               {director && (
                 <>
                   감독{" "}
-                  <Link
-                    href={`/people/${encodeURIComponent(director.name)}`}
-                    className="text-text hover:underline"
-                  >
+                  <Link href={personHref(director)} className="text-text hover:underline">
                     {director.name}
                   </Link>
                 </>
@@ -183,10 +186,7 @@ export default function RateForm({
                   출연{" "}
                   {cast.map((member, i) => (
                     <span key={member.name}>
-                      <Link
-                        href={`/people/${encodeURIComponent(member.name)}`}
-                        className="text-text hover:underline"
-                      >
+                      <Link href={personHref(member)} className="text-text hover:underline">
                         {member.name}
                       </Link>
                       {i < cast.length - 1 ? ", " : ""}
