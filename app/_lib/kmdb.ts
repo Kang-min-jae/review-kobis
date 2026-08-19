@@ -28,6 +28,12 @@ function stripEdition(title: string): string {
   return title.replace(EDITION_SUFFIX_PATTERN, "").trim();
 }
 
+// "아이스크림 맨" vs "아이스크림맨"처럼 KOBIS와 KMDb 사이에 띄어쓰기가 다른 경우가
+// 흔해서, 제목을 비교할 땐 공백을 무시하고 대소문자도 가리지 않는다.
+function normalizeTitle(title: string): string {
+  return title.replace(/\s+/g, "").toLowerCase();
+}
+
 function toIsoDate(yyyymmdd: string | undefined): string | null {
   if (!yyyymmdd || yyyymmdd.length !== 8) return null;
   return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
@@ -145,9 +151,14 @@ export async function searchKmdbMovie(
   const results = await rawSearch(queryTitle, 20);
   if (results.length === 0) return null;
 
+  const normalizedQuery = normalizeTitle(queryTitle);
+  const normalizedTitle = normalizeTitle(title);
   const pool = results
     .map((r) => ({ raw: r, cleanTitle: stripHighlight(r.title) }))
-    .filter((c) => c.cleanTitle === queryTitle || c.cleanTitle === title);
+    .filter((c) => {
+      const normalized = normalizeTitle(c.cleanTitle);
+      return normalized === normalizedQuery || normalized === normalizedTitle;
+    });
   if (pool.length === 0) return null; // 제목이 정확히 일치하는 후보가 없으면 포기한다.
 
   const withYear = yearHint ? pool.filter((c) => c.raw.prodYear === yearHint) : [];
@@ -188,9 +199,10 @@ export async function searchKmdbFilmography(
         actors.some((a) => a.actorId === personId)
       );
     }
+    const normalizedName = normalizeTitle(personName);
     return (
-      directors.some((d) => d.directorNm?.trim() === personName) ||
-      actors.some((a) => a.actorNm?.trim() === personName)
+      directors.some((d) => normalizeTitle(d.directorNm ?? "") === normalizedName) ||
+      actors.some((a) => normalizeTitle(a.actorNm ?? "") === normalizedName)
     );
   });
 
