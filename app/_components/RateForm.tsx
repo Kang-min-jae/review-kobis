@@ -20,7 +20,9 @@ import {
   toggleVote,
 } from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
-import type { KobisPersonRef, KobisCastMember, KoficBoxOffice } from "../_lib/kobis";
+import type { KoficBoxOffice } from "../_lib/kobis";
+
+type PersonRef = { name: string };
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -90,8 +92,8 @@ export default function RateForm({
   gradient: string;
   releaseDate: string | null;
   rereleaseDate: string | null;
-  director: KobisPersonRef | null;
-  cast: KobisCastMember[];
+  director: PersonRef | null;
+  cast: PersonRef[];
   boxOffice: KoficBoxOffice | null;
 }) {
   const router = useRouter();
