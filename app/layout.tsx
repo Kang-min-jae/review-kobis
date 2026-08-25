@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
+import NavHistoryTracker from "./_components/NavHistoryTracker";
 import "./globals.css";
 import "pretendard/dist/web/static/pretendard.css";
- 
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -25,6 +27,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <Suspense fallback={null}>
+          <NavHistoryTracker />
+        </Suspense>
         <div className="flex-1">{children}</div>
         <footer className="px-5 py-4 text-center text-[10px] text-muted">
           이 서비스는 영화진흥위원회 KOBIS 오픈API를 활용하였습니다.

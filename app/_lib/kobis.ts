@@ -31,7 +31,7 @@ function toDateStamp(date: Date): string {
 }
 
 function normalizeTitle(title: string): string {
-  return title.replace(/\s+/g, "").toLowerCase();
+  return title.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
 }
 
 // 재개봉작은 KOBIS에 원 개봉 등록과 별도로 "N주년", "리마스터판" 등이 붙은 재개봉
@@ -44,6 +44,16 @@ function stripEdition(title: string): string {
   return title.replace(EDITION_SUFFIX_PATTERN, "").trim();
 }
 
+// genreAlt만으로는 저예산 성인물이 "성인"/"에로" 장르 태그 없이 등록된 경우를 못 거른다 —
+// 제목에 흔히 쓰이는 노골적인 표현도 같이 확인한다.
+const ADULT_CONTENT_TITLE_PATTERN =
+  /(거근|정사|불륜|스와핑|색정|음란|관음증?|애액|자위|후배위|몸종|씨받이|폭유|치정|섹스|19금|성인용)/;
+
+function isAdultContent(movie: { title: string; genreAlt: string | null }): boolean {
+  if (movie.genreAlt && /성인|에로/.test(movie.genreAlt)) return true;
+  return ADULT_CONTENT_TITLE_PATTERN.test(movie.title);
+}
+
 // ── 카탈로그 검색 (searchMovieList) ─────────────────────────────────────────
 
 type RawMovieListItem = {
@@ -51,7 +61,6 @@ type RawMovieListItem = {
   movieNm?: string;
   movieNmEn?: string;
   openDt?: string; // "YYYYMMDD" 또는 미개봉 시 빈 문자열
-  prdtYear?: string;
   nationAlt?: string;
   genreAlt?: string;
   repNationNm?: string; // "한국" | "외국"
@@ -94,6 +103,9 @@ export type CatalogSearchParams = {
   openStartDt?: string; // "YYYY" — 연도만 (KOBIS는 개봉일 검색을 연 단위로만 지원한다)
   openEndDt?: string; // "YYYY"
   repNationCd?: "K" | "F";
+  // 기본은 개봉 예정작(openDt가 미래인 항목)을 제외한다. 재개봉 예정작 미리보기처럼
+  // "앞으로 개봉할 것"을 봐야 하는 곳에서만 true로 넘긴다.
+  includeUpcoming?: boolean;
 };
 
 // searchMovieList를 필요한 페이지 수만큼 호출해서 모은다 (한 페이지 최대 100개).
@@ -109,13 +121,14 @@ export async function searchMovieCatalog(
   const pageSize = 100;
   const pagesNeeded = Math.min(Math.ceil(maxResults / pageSize), 5);
   const collected: KobisMovieSummary[] = [];
+  const { includeUpcoming, ...queryParams } = params;
 
   for (let page = 1; page <= pagesNeeded; page++) {
     const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json`);
     url.searchParams.set("key", key);
     url.searchParams.set("itemPerPage", String(pageSize));
     url.searchParams.set("curPage", String(page));
-    for (const [k, v] of Object.entries(params)) {
+    for (const [k, v] of Object.entries(queryParams)) {
       if (v) url.searchParams.set(k, v);
     }
 
@@ -131,9 +144,9 @@ export async function searchMovieCatalog(
 
       for (const item of items) {
         const summary = toMovieSummary(item);
-        if (!summary || !summary.openDate) continue; // 아직 개봉 안 한 영화는 제외
-        if (summary.openDate.replace(/-/g, "") > todayStamp) continue; // 개봉 예정작 제외
-        if (summary.genreAlt && /성인|에로/.test(summary.genreAlt)) continue; // 성인물 제외
+        if (!summary || !summary.openDate) continue; // 개봉일 미확정작은 제외
+        if (!includeUpcoming && summary.openDate.replace(/-/g, "") > todayStamp) continue; // 개봉 예정작 제외
+        if (isAdultContent(summary)) continue; // 성인물 제외
         collected.push(summary);
       }
       if (items.length < pageSize) break;
@@ -157,26 +170,59 @@ export async function searchMovieCatalog(
   return deduped;
 }
 
-async function searchMovieCdOnce(query: string, key: string): Promise<string | null> {
-  // 재개봉 수식어를 뗀 원제로 검색해야 원 개봉 등록이 검색 대상에 들어온다.
+type EarliestMatch = { movieCd: string; openDate: string | null; director: string | null };
+
+function toEarliestMatch(item: RawMovieListItem): EarliestMatch | null {
+  if (!item.movieCd) return null;
+  return {
+    movieCd: item.movieCd,
+    openDate: toOpenDateIso(item.openDt),
+    director: item.directors?.[0]?.peopleNm?.trim() || null,
+  };
+}
+
+// 필모그래피 조회 시 이 함수가 수십 건 동시에 호출될 수 있어(배우 한 명당 출연작 개수만큼),
+// 일시적인 요청 실패로 실제로는 있는 작품이 누락되지 않도록 한 번 재시도한다.
+async function fetchTitleCandidates(query: string, key: string): Promise<RawMovieListItem[]> {
   const searchTerm = stripEdition(query);
   const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json`);
   url.searchParams.set("key", key);
   url.searchParams.set("movieNm", searchTerm);
   url.searchParams.set("itemPerPage", "20");
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+  let res: Response;
+  try {
+    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch {
+    try {
+      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+    } catch (error) {
+      console.warn(`[kobis] "${query}" 검색 실패 (재시도 후에도 오류):`, error);
+      return [];
+    }
+  }
   if (!res.ok) {
     console.warn(`[kobis] "${query}" 검색 실패: HTTP ${res.status}`);
-    return null;
+    return [];
   }
   const data: { movieListResult?: { movieList?: RawMovieListItem[] } } = await res.json();
-  const items = data.movieListResult?.movieList ?? [];
+  return data.movieListResult?.movieList ?? [];
+}
+
+function exactTitleMatches(items: RawMovieListItem[], query: string): RawMovieListItem[] {
+  const target = normalizeTitle(stripEdition(query));
+  return items.filter((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
+}
+
+async function findEarliestRegistration(query: string, key: string): Promise<EarliestMatch | null> {
+  const items = await fetchTitleCandidates(query, key);
   if (items.length === 0) return null;
 
-  const target = normalizeTitle(searchTerm);
-  const exactMatches = items.filter((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
-  if (exactMatches.length === 0) return items[0].movieCd ?? null;
+  const exactMatches = exactTitleMatches(items, query);
+  if (exactMatches.length === 0) {
+    return toEarliestMatch(items[0]);
+  }
 
   // 같은 제목이 여러 번 등록돼 있으면(재개봉 등) 가장 먼저 개봉한 등록 = 원 개봉을 고른다.
   const withDate = exactMatches.filter((item) => item.openDt);
@@ -184,25 +230,79 @@ async function searchMovieCdOnce(query: string, key: string): Promise<string | n
     withDate.length > 0
       ? withDate.reduce((a, b) => (a.openDt! < b.openDt! ? a : b))
       : exactMatches[0];
-  return earliest.movieCd ?? null;
+  return toEarliestMatch(earliest);
 }
 
-// 제목으로 가장 가까운 한 편을 찾는다. 정확히 일치하는 제목을 우선하고, 없으면 첫 결과를 쓴다.
+// 제목으로 원 개봉(가장 이른 등록)의 개봉일을 찾는다 — 재개봉작의 "원래 개봉연도" 표시용.
+export async function findOriginalReleaseByTitle(title: string): Promise<EarliestMatch | null> {
+  const key = apiKey();
+  if (!key) return null;
+  try {
+    return await findEarliestRegistration(title, key);
+  } catch (error) {
+    console.warn(`[kobis] "${title}" 원 개봉일 조회 중 오류:`, error);
+    return null;
+  }
+}
+
+// 제목 + 출연진(감독/배우 이름)으로 KOBIS movieCd를 찾는다. 제목만으로 찾으면 같은 한글
+// 제목을 쓰는 서로 다른 영화(동명이인 영화 — 예: "컨택트")를 헷갈릴 수 있어서, 후보가
+// 여럿이면 실제 감독/출연진에 이 사람 이름이 있는 후보만 채택한다. 확인이 안 되면(후보가
+// 여럿인데 아무도 일치하지 않으면) 엉뚱한 영화 정보를 보여주느니 그냥 포기한다.
 // 한글 제목으로 못 찾으면(주로 KOBIS에 등록된 원어 표기가 다른 경우) 영문 제목으로 재시도한다.
-export async function findMovieCdByTitle(
+export async function findMovieCdByTitleAndPerson(
   title: string,
-  englishTitle?: string
+  personName: string,
+  englishTitle?: string | null,
+  role?: "감독" | "배우" | null
 ): Promise<string | null> {
   const key = apiKey();
   if (!key) return null;
 
+  const checkDirector = role !== "배우";
+  const checkCast = role !== "감독";
+
+  async function resolve(query: string): Promise<string | null> {
+    const items = await fetchTitleCandidates(query, key!);
+    const exact = exactTitleMatches(items, query);
+    if (exact.length === 0) return null;
+    if (exact.length === 1) return exact[0].movieCd ?? null;
+
+    const normalizedPerson = normalizeTitle(personName);
+    const details = await Promise.all(
+      exact.map((item) => (item.movieCd ? getMovieDetailsByCd(item.movieCd) : null))
+    );
+    const matchByCast = details.find((d) => {
+      if (!d) return false;
+      const directorMatch = checkDirector && !!d.director && normalizeTitle(d.director.name) === normalizedPerson;
+      const castMatch = checkCast && d.cast.some((c) => normalizeTitle(c.name) === normalizedPerson);
+      return directorMatch || castMatch;
+    });
+    if (matchByCast) return matchByCast.movieCd;
+
+    // 정확히 일치하는 이름이 없으면(부가 표기 등), 이름이 서로 포함 관계인 경우로 완화한다.
+    // (역할 범위는 그대로 유지 — 감독으로 들어왔으면 출연진 이름과는 비교하지 않는다.)
+    if (normalizedPerson.length < 2) return null;
+    const matchByFuzzyCast = details.find((d) => {
+      if (!d) return false;
+      const nameMatches = (name: string) => {
+        const n = normalizeTitle(name);
+        return n.length >= 2 && (n.includes(normalizedPerson) || normalizedPerson.includes(n));
+      };
+      const directorMatch = checkDirector && !!d.director && nameMatches(d.director.name);
+      const castMatch = checkCast && d.cast.some((c) => nameMatches(c.name));
+      return directorMatch || castMatch;
+    });
+    return matchByFuzzyCast?.movieCd ?? null;
+  }
+
   try {
-    const byKorean = await searchMovieCdOnce(title, key);
+    const byKorean = await resolve(title);
     if (byKorean) return byKorean;
-    if (englishTitle) return await searchMovieCdOnce(englishTitle, key);
+    if (englishTitle) return await resolve(englishTitle);
     return null;
   } catch (error) {
-    console.warn(`[kobis] "${title}" 검색 요청 중 오류:`, error);
+    console.warn(`[kobis] "${title}" (${personName}) 검색 요청 중 오류:`, error);
     return null;
   }
 }
@@ -265,9 +365,11 @@ export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDe
       runtimeMinutes: info.showTm ? Number(info.showTm) : null,
       watchGrade: info.audits?.[0]?.watchGradeNm?.trim() || null,
       director: info.directors?.[0]?.peopleNm ? { name: info.directors[0].peopleNm.trim() } : null,
+      // 상위 6명만 담으면 주연이 아닌 배우는 출연진 매칭(동명이인 구분, 포스터 검색 등)에서
+      // 놓칠 수 있어 넉넉히 20명까지 담는다. 화면에 다 보여줄 필요는 없어 표시는 UI에서 잘라낸다.
       cast: (info.actors ?? [])
         .filter((a) => a.peopleNm)
-        .slice(0, 6)
+        .slice(0, 20)
         .map((a) => ({ name: a.peopleNm!.trim(), role: a.cast?.trim() ?? "" })),
       genreAlt: info.genres?.map((g) => g.genreNm).filter(Boolean).join(", ") || null,
       nationAlt: info.nations?.map((n) => n.nationNm).filter(Boolean).join(", ") || null,
@@ -276,16 +378,6 @@ export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDe
     console.warn(`[kobis] searchMovieInfo(${movieCd}) 요청 중 오류:`, error);
     return null;
   }
-}
-
-// 로컬 큐레이션 영화(제목만 앎)의 KOBIS 상세정보를 찾는다 — 제목 검색 → 상세 조회.
-export async function getMovieInfoByTitle(
-  title: string,
-  englishTitle?: string
-): Promise<KobisMovieDetails | null> {
-  const movieCd = await findMovieCdByTitle(title, englishTitle);
-  if (!movieCd) return null;
-  return getMovieDetailsByCd(movieCd);
 }
 
 // 검색창용 — 1960년 이후 개봉작만 남긴다.
@@ -300,6 +392,80 @@ export async function searchMoviesSince1960(query: string): Promise<KobisSearchH
   return results
     .filter((m) => m.openDate && Number(m.openDate.slice(0, 4)) >= 1960)
     .map((m) => ({ movieCd: m.movieCd, title: m.title, releaseDate: m.openDate }));
+}
+
+// ── 재개봉작 ────────────────────────────────────────────────────────────────
+
+export type KobisRerelease = {
+  movieCd: string;
+  title: string;
+  titleEn: string | null;
+  director: string | null;
+  rereleaseDate: string; // 이번 재개봉일 (ISO)
+  originalReleaseDate: string | null; // 원 개봉일 (ISO, 못 찾으면 null)
+};
+
+export type RereleaseCheck = {
+  isRerelease: boolean;
+  originalReleaseDate: string | null;
+};
+
+// 재개봉 여부는 제작연도-개봉연도 격차나 제목의 수식어만으로는 신뢰할 수 없다 — 독립·예술
+// 영화는 제작 후 수년 뒤에야 국내에서 "처음" 개봉하는 일이 흔하고, "극장판" 같은 표현은
+// 재개봉이 아닌 신작 애니메이션 제목에도 흔히 쓰인다("이누야샤 극장판" 등). 그래서 "같은
+// 제목으로 KOBIS에 더 이른 별도 등록이 있는가"를 기본 근거로 삼되, 제목만 같고 실제로는
+// 전혀 다른 영화인 동명이인 케이스("딥 워터"처럼 서로 다른 두 영화가 같은 제목을 쓰는 경우)를
+// 걸러내기 위해 두 등록의 감독명이 둘 다 확인되는데 서로 다르면 재개봉으로 보지 않는다.
+export async function resolveRerelease(
+  movie: Pick<KobisMovieSummary, "movieCd" | "title" | "openDate"> & { director?: string | null }
+): Promise<RereleaseCheck> {
+  const original = await findOriginalReleaseByTitle(movie.title);
+  const hasEarlierRegistration =
+    !!original &&
+    original.movieCd !== movie.movieCd &&
+    !!original.openDate &&
+    !!movie.openDate &&
+    original.openDate < movie.openDate;
+  if (!hasEarlierRegistration) {
+    return { isRerelease: false, originalReleaseDate: null };
+  }
+
+  const currentDirector = movie.director ? normalizeTitle(movie.director) : null;
+  const originalDirector = original!.director ? normalizeTitle(original!.director) : null;
+  if (currentDirector && originalDirector && currentDirector !== originalDirector) {
+    return { isRerelease: false, originalReleaseDate: null }; // 제목만 같은 다른 영화
+  }
+
+  return { isRerelease: true, originalReleaseDate: original!.openDate };
+}
+
+// 지정한 개봉일 범위(gte~lte, ISO) 안의 영화 중, 실제로 더 이른 개봉 이력이 확인되는
+// 영화만 재개봉작으로 분류한다.
+export async function searchRereleasesInRange(
+  gte: string,
+  lte: string,
+  limit: number
+): Promise<KobisRerelease[]> {
+  const pool = await searchMovieCatalog(
+    { openStartDt: gte.slice(0, 4), openEndDt: lte.slice(0, 4), includeUpcoming: true },
+    500
+  );
+  const candidates = pool.filter((m) => m.openDate && m.openDate >= gte && m.openDate <= lte);
+  const checks = await Promise.all(candidates.map((m) => resolveRerelease(m)));
+
+  const rereleases: KobisRerelease[] = [];
+  candidates.forEach((m, i) => {
+    if (!checks[i].isRerelease) return;
+    rereleases.push({
+      movieCd: m.movieCd,
+      title: m.title,
+      titleEn: m.titleEn,
+      director: m.director,
+      rereleaseDate: m.openDate!,
+      originalReleaseDate: checks[i].originalReleaseDate,
+    });
+  });
+  return rereleases.slice(0, limit);
 }
 
 // ── 박스오피스 (일별/주간) ───────────────────────────────────────────────────
@@ -346,20 +512,46 @@ function extractYear(openDt: string | undefined): string | null {
   return match ? match[0] : null;
 }
 
-// 이번 주 박스오피스 TOP N. "월~일" 한 주를 그 주의 월요일 날짜로 조회한다. 이번 주는
-// 아직 집계 중일 수 있어, 데이터가 확정된 지난 주 기준으로 가져온다.
-export async function getWeeklyBoxOffice(limit = 10): Promise<KoficWeeklyEntry[]> {
-  const key = apiKey();
-  if (!key) return [];
-
+// 오늘 기준 지난 주(데이터가 확정된) 월요일 — "이번 주"는 아직 집계 중일 수 있어 기본값으로 쓴다.
+function getLastConfirmedMonday(): Date {
   const now = new Date();
   const diffToMonday = (now.getDay() + 6) % 7; // 오늘이 월요일이면 0
   const lastMonday = new Date(now);
   lastMonday.setDate(now.getDate() - diffToMonday - 7);
+  return lastMonday;
+}
+
+// 어떤 달의 1일부터 오늘(또는 그 달 말일, 이미 지난 달이면)까지 걸치는 모든 월요일 목록.
+// "이 달의 Best"를 누적 관객수 기준으로 매기려고 그 달의 매주 박스오피스를 다 훑을 때 쓴다.
+export function getMondaysInMonth(year: number, monthIndex0: number): Date[] {
+  const monthStart = new Date(year, monthIndex0, 1);
+  const monthEnd = new Date(year, monthIndex0 + 1, 0);
+  const today = new Date();
+  const rangeEnd = monthEnd < today ? monthEnd : today;
+
+  const mondays: Date[] = [];
+  const cursor = new Date(monthStart);
+  cursor.setDate(cursor.getDate() + ((8 - cursor.getDay()) % 7)); // 그 달의 첫 월요일로 이동
+  while (cursor <= rangeEnd) {
+    mondays.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return mondays;
+}
+
+// 특정 주(월요일 날짜 기준) 박스오피스 TOP N. targetMonday를 생략하면 데이터가 확정된 지난 주.
+export async function getWeeklyBoxOffice(
+  limit = 10,
+  targetMonday?: Date
+): Promise<KoficWeeklyEntry[]> {
+  const key = apiKey();
+  if (!key) return [];
+
+  const monday = targetMonday ?? getLastConfirmedMonday();
 
   const url = new URL(`${KOBIS_API_BASE}/boxoffice/searchWeeklyBoxOfficeList.json`);
   url.searchParams.set("key", key);
-  url.searchParams.set("targetDt", toDateStamp(lastMonday));
+  url.searchParams.set("targetDt", toDateStamp(monday));
   url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
 
   try {

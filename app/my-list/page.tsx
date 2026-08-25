@@ -1,12 +1,10 @@
-import SearchBar from "../_components/SearchBar";
-import CategoryNav from "../_components/CategoryNav";
+import SiteHeader from "../_components/SiteHeader";
 import MyListView from "../_components/MyListView";
 
 export default function MyListPage() {
   return (
     <main>
-      <SearchBar />
-      <CategoryNav active="my-list" />
+      <SiteHeader active="my-list" />
       <MyListView />
     </main>
   );

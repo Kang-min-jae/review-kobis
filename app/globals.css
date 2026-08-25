@@ -23,3 +23,22 @@ body {
 .no-scrollbar {
   scrollbar-width: none;
 }
+
+/* 영화 목록(가로 스크롤 행)에서 옆으로 넘길 수 있다는 걸 보여주는 얇은 스크롤바 */
+.row-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-hover) transparent;
+}
+.row-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.row-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.row-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-surface-hover);
+  border-radius: 9999px;
+}
+.row-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-muted);
+}
