@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
+<<<<<<< HEAD
 import { searchMoviesSince1960 } from "../../_lib/kobis";
 import { searchKmdbPeople, suggestSimilarTitle } from "../../_lib/kmdb";
+=======
+import { searchMoviesSince1960 } from "../../_lib/tmdb";
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim() ?? "";
 
   if (!query) {
+<<<<<<< HEAD
     return NextResponse.json({ movies: [], people: [], correctedQuery: null });
   }
 
@@ -36,4 +41,11 @@ export async function GET(request: Request) {
     people: correctedPeople,
     correctedQuery: found ? suggested : null,
   });
+=======
+    return NextResponse.json({ results: [] });
+  }
+
+  const results = await searchMoviesSince1960(query);
+  return NextResponse.json({ results });
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 }

@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
+<<<<<<< HEAD
         protocol: "http",
         hostname: "file.koreafilm.or.kr",
         pathname: "/**",
@@ -17,6 +18,14 @@ const nextConfig: NextConfig = {
   // 동작(검색 결과 표시, 뒤로가기 등)이 멈춘 것처럼 보인다. 여기 등록된 주소에서의
   // 접속은 허용한다. 다른 IP로 접속할 일이 생기면 이 목록에 추가하면 된다.
   allowedDevOrigins: ["192.168.75.92", "localhost", "127.0.0.1"],
+=======
+        protocol: "https",
+        hostname: "image.tmdb.org",
+        pathname: "/t/p/**",
+      },
+    ],
+  },
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 };
 
 export default nextConfig;

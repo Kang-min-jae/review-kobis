@@ -1,25 +1,41 @@
+<<<<<<< HEAD
 import SiteHeader from "./_components/SiteHeader";
 import {
+=======
+import SearchBar from "./_components/SearchBar";
+import CategoryNav, {
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   tabCategories,
   genreLabels,
   type TabCategory,
   type GenreLabel,
 } from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
+<<<<<<< HEAD
 import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
 import {
   getNowShowingRow,
   getRereleaseRow,
   getRereleaseCategoryRows,
+=======
+import RecommendedSection from "./_components/RecommendedSection";
+import {
+  getNowShowing,
+  getRereleases,
+  resolveLocalMovieCards,
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   getRecentMoviesRow,
   getMonthlyBestRow,
   getYearlyBestRow,
   getBestOf3YearsRow,
   getBestOf5YearsRow,
   getAllTimeBestRow,
+<<<<<<< HEAD
   getInternationalBestRow,
   getWeeklyBoxOfficeRow,
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   getGenreRow,
 } from "./_lib/movie-rows";
 
@@ -34,7 +50,14 @@ function resolveGenre(value: string | undefined): GenreLabel {
 }
 
 async function NowShowingSection() {
+<<<<<<< HEAD
   const [nowShowing, rereleases] = await Promise.all([getNowShowingRow(), getRereleaseRow()]);
+=======
+  const [nowShowing, rereleases] = await Promise.all([
+    resolveLocalMovieCards(getNowShowing()),
+    resolveLocalMovieCards(getRereleases()),
+  ]);
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
   return (
     <>
@@ -44,6 +67,7 @@ async function NowShowingSection() {
   );
 }
 
+<<<<<<< HEAD
 async function RereleaseSection() {
   const groups = await getRereleaseCategoryRows();
   return (
@@ -67,10 +91,22 @@ async function MovieCategorySection() {
       getAllTimeBestRow(),
       getInternationalBestRow(),
     ]);
+=======
+async function MovieCategorySection() {
+  const [recent, monthly, yearly, best3, best5, allTime] = await Promise.all([
+    getRecentMoviesRow(),
+    getMonthlyBestRow(),
+    getYearlyBestRow(),
+    getBestOf3YearsRow(),
+    getBestOf5YearsRow(),
+    getAllTimeBestRow(),
+  ]);
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
   return (
     <>
       <RecommendedSection />
+<<<<<<< HEAD
       <MovieRow
         title="이번주 박스오피스 TOP 10"
         subtitle="국내 실제 관객수 기준 (KOFIC 영화진흥위원회)"
@@ -107,6 +143,14 @@ async function MovieCategorySection() {
         subtitle="국내 개봉한 해외 영화 · 평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
         movies={international}
       />
+=======
+      <MovieRow title="최근 영화" subtitle="올해 인기 있었던 영화" movies={recent} />
+      <MovieRow title="이 달의 Best" subtitle="이번 달 가장 인기 있는 영화" movies={monthly} />
+      <MovieRow title="올해의 Best" subtitle="올해 가장 인기 있었던 영화" movies={yearly} />
+      <MovieRow title="3년 Best" subtitle="최근 3년간 평가가 좋았던 영화" movies={best3} />
+      <MovieRow title="5년 Best" subtitle="최근 5년간 평가가 좋았던 영화" movies={best5} />
+      <MovieRow title="역대 Best" subtitle="역대 평가가 좋은 영화" movies={allTime} />
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
     </>
   );
 }
@@ -125,10 +169,17 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <main>
+<<<<<<< HEAD
       <SiteHeader active={category} activeGenre={genre} />
 
       {category === "현재 상영중인 영화" && <NowShowingSection />}
       {category === "재개봉작" && <RereleaseSection />}
+=======
+      <SearchBar />
+      <CategoryNav active={category} activeGenre={genre} />
+
+      {category === "현재 상영중인 영화" && <NowShowingSection />}
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
       {category === "영화" && genre === "전체" && <MovieCategorySection />}
       {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
