@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StarRating from "./StarRating";
 import PosterImage from "./PosterImage";
+import BackBar from "./BackBar";
+import CategoryRatings from "./CategoryRatings";
+import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
 import {
   addReview,
@@ -24,10 +27,13 @@ import type { KoficBoxOffice } from "../_lib/kobis";
 
 type PersonRef = { name: string; kmdbId?: string | null };
 
-// KMDb 인물 코드(kmdbId)가 있으면 쿼리로 같이 넘겨서 동명이인 필모그래피가 안 섞이게 한다.
-function personHref(person: PersonRef): string {
-  const base = `/people/${encodeURIComponent(person.name)}`;
-  return person.kmdbId ? `${base}?pid=${encodeURIComponent(person.kmdbId)}` : base;
+// KMDb 인물 코드(kmdbId)가 있으면 쿼리로 같이 넘겨서 동명이인 필모그래피가 안 섞이게 하고,
+// 역할(감독/배우)도 같이 넘겨서 이름은 같지만 역할이 다른 별개 인물("배우 톰 홀랜드" vs
+// "감독 톰 홀랜드")의 작품이 섞이지 않게 한다.
+function personHref(person: PersonRef, role: "감독" | "배우"): string {
+  const params = new URLSearchParams({ role });
+  if (person.kmdbId) params.set("pid", person.kmdbId);
+  return `/people/${encodeURIComponent(person.name)}?${params.toString()}`;
 }
 
 const tabs: { type: ReviewType; label: string }[] = [
@@ -36,6 +42,7 @@ const tabs: { type: ReviewType; label: string }[] = [
 ];
 
 const SHORT_MAX_SENTENCES = 2;
+const DISPLAY_CAST_LIMIT = 6;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -52,6 +59,9 @@ function formatWon(n: number): string {
 function VoteButtons({ reviewId }: { reviewId: string }) {
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
   const { likes, dislikes, myVote } = getReviewVote(votesState, reviewId);
+  const total = likes + dislikes;
+  const likePct = total > 0 ? Math.round((likes / total) * 100) : null;
+  const dislikePct = total > 0 ? 100 - likePct! : null;
 
   return (
     <div className="flex items-center gap-2">
@@ -63,6 +73,7 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
         }`}
       >
         👍 {likes}
+        {likePct !== null && <span className="opacity-80">({likePct}%)</span>}
       </button>
       <button
         type="button"
@@ -72,6 +83,7 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
         }`}
       >
         👎 {dislikes}
+        {dislikePct !== null && <span className="opacity-80">({dislikePct}%)</span>}
       </button>
     </div>
   );
@@ -86,6 +98,7 @@ export default function RateForm({
   gradient,
   releaseDate,
   rereleaseDate,
+  runtimeMinutes,
   director,
   cast,
   boxOffice,
@@ -98,6 +111,7 @@ export default function RateForm({
   gradient: string;
   releaseDate: string | null;
   rereleaseDate: string | null;
+  runtimeMinutes: number | null;
   director: PersonRef | null;
   cast: PersonRef[];
   boxOffice: KoficBoxOffice | null;
@@ -144,11 +158,9 @@ export default function RateForm({
 
   return (
     <div>
-      <Link href="/" className="text-sm text-muted hover:text-text">
-        ← 뒤로
-      </Link>
+      <BackBar />
 
-      <div className="mt-3 flex gap-4">
+      <div className="mt-3 flex flex-wrap gap-4">
         <div
           className={`relative aspect-2/3 w-24 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
             posterUrl ? "bg-surface" : `bg-gradient-to-br ${gradient}`
@@ -159,10 +171,11 @@ export default function RateForm({
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold text-text">
             {movieTitle}
-            {(releaseDate || rereleaseDate) && (
+            {(releaseDate || rereleaseDate || runtimeMinutes) && (
               <span className="ml-2 text-sm font-normal text-muted">
                 {releaseDate && `| 개봉연도 ${releaseDate}`}
                 {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
+                {runtimeMinutes && ` · 러닝타임 ${runtimeMinutes}분`}
                 {boxOffice && ` · 누적 관객수 ${formatCount(boxOffice.audiAcc)}`}
                 {boxOffice && ` · 누적 흥행 수익 ${formatWon(boxOffice.salesAcc)}`}
               </span>
@@ -175,7 +188,7 @@ export default function RateForm({
               {director && (
                 <>
                   감독{" "}
-                  <Link href={personHref(director)} className="text-text hover:underline">
+                  <Link href={personHref(director, "감독")} className="text-text hover:underline">
                     {director.name}
                   </Link>
                 </>
@@ -184,19 +197,22 @@ export default function RateForm({
               {cast.length > 0 && (
                 <>
                   출연{" "}
-                  {cast.map((member, i) => (
+                  {cast.slice(0, DISPLAY_CAST_LIMIT).map((member, i, shown) => (
                     <span key={member.name}>
-                      <Link href={personHref(member)} className="text-text hover:underline">
+                      <Link href={personHref(member, "배우")} className="text-text hover:underline">
                         {member.name}
                       </Link>
-                      {i < cast.length - 1 ? ", " : ""}
+                      {i < shown.length - 1 ? ", " : ""}
                     </span>
                   ))}
+                  {cast.length > DISPLAY_CAST_LIMIT && ` 외 ${cast.length - DISPLAY_CAST_LIMIT}명`}
                 </>
               )}
             </p>
           )}
         </div>
+
+        <CategoryRatings movieId={movieId} />
       </div>
 
       <div className="mt-6 flex gap-2">
@@ -291,7 +307,9 @@ export default function RateForm({
                 </Link>
                 <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
               </div>
-              <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
+              <div className="mt-1.5">
+                <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
+              </div>
               <div className="mt-2 flex justify-end">
                 <VoteButtons reviewId={review.id} />
               </div>

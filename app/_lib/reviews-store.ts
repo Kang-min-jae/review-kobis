@@ -10,9 +10,20 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+// 리뷰가 바뀔 때마다 올라가는 카운터 — useSyncExternalStore에서 "무언가 바뀌었다"는
+// 신호로만 쓴다 (평점순 정렬처럼 매번 새 배열을 계산해야 하는 곳은 이 값을
+// useMemo의 의존성으로 넣어 재계산 시점만 알아내고, 실제 배열은 직접 만든다 —
+// getSnapshot이 매번 새 배열을 반환하면 무한 렌더 루프 경고가 뜨기 때문).
+let reviewsVersion = 0;
+export function getReviewsVersion(): number {
+  return reviewsVersion;
+}
+
 function emitChange() {
+  reviewsVersion += 1;
   reviewsCache.clear();
   reviewsByAuthorCache.clear();
+  combinedRatingCache.clear();
   cachedUserReviewedMovies = null;
   listeners.forEach((listener) => listener());
 }
@@ -73,6 +84,28 @@ export function getReviewsSnapshot(movieId: string, type: ReviewType): Review[] 
 
 export function getAverageRating(movieId: string, type: ReviewType): number | null {
   return average(getReviewsSnapshot(movieId, type));
+}
+
+// "Best" 행 정렬용 — 한줄평(10점 만점)과 장문평(100점 만점)을 0~1로 정규화해 하나의
+// 평점으로 합치고, 참여 평점 수도 같이 반환한다 (평점이 같으면 참여 수가 많은 쪽을
+// 위로 올리기 위함).
+function averageNormalized(reviews: Review[]): number | null {
+  if (reviews.length === 0) return null;
+  const sum = reviews.reduce((acc, r) => acc + r.rating / (r.type === "short" ? 10 : 100), 0);
+  return sum / reviews.length;
+}
+
+export type CombinedRating = { average: number | null; count: number };
+const combinedRatingCache = new Map<string, CombinedRating>();
+
+export function getCombinedRatingSnapshot(movieId: string): CombinedRating {
+  let cached = combinedRatingCache.get(movieId);
+  if (!cached) {
+    const all = [...seedReviews, ...readUserReviews()].filter((r) => r.movieId === movieId);
+    cached = { average: averageNormalized(all), count: all.length };
+    combinedRatingCache.set(movieId, cached);
+  }
+  return cached;
 }
 
 // 현재 브라우저 사용자가 직접 평점을 남긴 영화 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).

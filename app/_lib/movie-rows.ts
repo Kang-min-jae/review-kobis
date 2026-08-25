@@ -1,10 +1,12 @@
-import { allMovies, type Movie } from "./mock-movies";
 import {
   searchMovieCatalog,
-  findMovieCdByTitle,
   getMovieDetailsByCd,
   getWeeklyBoxOffice,
+  getMondaysInMonth,
+  searchRereleasesInRange,
+  resolveRerelease,
   type KobisMovieSummary,
+  type KobisRerelease,
   type CatalogSearchParams,
 } from "./kobis";
 import { searchKmdbMovie } from "./kmdb";
@@ -22,12 +24,26 @@ export type RowMovie = {
 // KMDb에도 없으면(오래되거나 마이너한 작품) 이 그라디언트로 대체된다.
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
+// 개봉일로부터 이 기간(일) 안이면 "현재 상영중"으로 본다 — 실제 상영 스케줄 API가
+// 없어서 쓰는 근사치. 국내 극장 개봉작은 대체로 이 기간 안에 주요 상영관에서 빠진다.
+const NOW_SHOWING_WINDOW_DAYS = 21;
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
 function isoDate(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function monthDay(isoDateStr: string): string {
+  return isoDateStr.slice(5).replace("-", ".");
+}
+
+export function isRecentlyOpened(openDate: string | null): boolean {
+  if (!openDate) return false;
+  const diffDays = (Date.now() - new Date(openDate).getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= NOW_SHOWING_WINDOW_DAYS;
 }
 
 // KOBIS 개봉일 검색(openStartDt/openEndDt)은 연 단위(YYYY)까지만 지원한다. 정확한
@@ -48,16 +64,31 @@ async function fetchOpenedBetween(
 }
 
 // KOBIS 카탈로그 항목을 화면 카드로 바꾸면서, KMDb에서 같은 제목(+개봉연도)의 포스터를 찾아 붙인다.
+// 한글 제목 → 영문 제목 → 감독 필모그래피 순으로 찾아보고, 그래도 못 찾으면 KOBIS
+// 상세조회로 출연진을 받아와 출연진 필모그래피로 한 번 더 찾아본다(가장 비용이 커서 마지막 수단).
 export async function toRowMovie(summary: KobisMovieSummary): Promise<RowMovie> {
-  const kmdb = await searchKmdbMovie(summary.title, summary.openDate?.slice(0, 4) ?? null);
+  let kmdb = await searchKmdbMovie(summary.title, summary.openDate?.slice(0, 4) ?? null, {
+    titleEn: summary.titleEn,
+    director: summary.director,
+  });
+
+  if (!kmdb) {
+    const detail = await getMovieDetailsByCd(summary.movieCd);
+    const cast = detail?.cast.map((c) => c.name) ?? null;
+    if (cast && cast.length > 0) {
+      kmdb = await searchKmdbMovie(summary.title, summary.openDate?.slice(0, 4) ?? null, {
+        titleEn: summary.titleEn,
+        cast,
+      });
+    }
+  }
+
   return {
     id: `kobis-${summary.movieCd}`,
     title: summary.title,
     posterUrl: kmdb?.posterUrl ?? null,
     gradient: FALLBACK_GRADIENT,
-    // KOBIS 카탈로그 전체에 대한 실제 상영 시간표가 없어서 기본은 예매 버튼을 숨긴다.
-    // 로컬 큐레이션 상영작과 같은 영화로 확인되면 applyNowShowingOverrides가 true로 바꿔준다.
-    isNowShowing: false,
+    isNowShowing: isRecentlyOpened(summary.openDate),
   };
 }
 
@@ -65,69 +96,86 @@ async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> 
   return Promise.all(summaries.map(toRowMovie));
 }
 
-export function getNowShowing(): Movie[] {
-  return allMovies.filter((m) => m.isNowShowing);
-}
-
-export function getRereleases(): Movie[] {
-  return allMovies.filter((m) => m.isRerelease);
-}
-
-async function resolveLocalMovies(
-  movies: Movie[]
-): Promise<{ row: RowMovie; movieCd: string | null }[]> {
-  const [movieCds, kmdbInfos] = await Promise.all([
-    Promise.all(movies.map((m) => findMovieCdByTitle(m.title, m.englishTitle))),
-    Promise.all(
-      movies.map((m) =>
-        searchKmdbMovie(m.title, m.releaseDate ? m.releaseDate.slice(0, 4) : null)
-      )
-    ),
-  ]);
-  return movies.map((movie, i) => ({
-    row: {
-      id: movie.id,
-      title: movie.title,
-      // KMDb에서 포스터를 찾으면 그걸 쓰고, 못 찾으면 로컬 큐레이션 그라디언트로 대체.
-      posterUrl: kmdbInfos[i]?.posterUrl ?? null,
-      gradient: movie.gradient,
-      isNowShowing: movie.isNowShowing,
-    },
-    movieCd: movieCds[i],
+async function rereleasesToRows(rereleases: KobisRerelease[]): Promise<RowMovie[]> {
+  const kmdbInfos = await Promise.all(
+    rereleases.map(async (r) => {
+      const yearHint = r.originalReleaseDate?.slice(0, 4) ?? null;
+      let kmdb = await searchKmdbMovie(r.title, yearHint, {
+        titleEn: r.titleEn,
+        director: r.director,
+      });
+      if (!kmdb) {
+        const detail = await getMovieDetailsByCd(r.movieCd);
+        const cast = detail?.cast.map((c) => c.name) ?? null;
+        if (cast && cast.length > 0) {
+          kmdb = await searchKmdbMovie(r.title, yearHint, { titleEn: r.titleEn, cast });
+        }
+      }
+      return kmdb;
+    })
+  );
+  return rereleases.map((r, i) => ({
+    id: `kobis-${r.movieCd}`,
+    title: r.title,
+    posterUrl: kmdbInfos[i]?.posterUrl ?? null,
+    gradient: FALLBACK_GRADIENT,
+    isNowShowing: isRecentlyOpened(r.rereleaseDate),
+    badge: r.originalReleaseDate
+      ? `원작 ${r.originalReleaseDate.slice(0, 4)} · 재개봉 ${monthDay(r.rereleaseDate)}`
+      : `재개봉 ${monthDay(r.rereleaseDate)}`,
   }));
 }
 
-// 로컬 큐레이션 영화를 화면에 낼 때 쓰는 카드 목록.
-export async function resolveLocalMovieCards(movies: Movie[]): Promise<RowMovie[]> {
-  const resolved = await resolveLocalMovies(movies);
-  return resolved.map((r) => r.row);
+// 현재 상영중인 영화: 최근 3주 안에 개봉했고, 재개봉이 아닌(신작) 영화.
+export async function getNowShowingRow(limit = 10): Promise<RowMovie[]> {
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setDate(windowStart.getDate() - NOW_SHOWING_WINDOW_DAYS);
+  const candidates = await fetchOpenedBetween(isoDate(windowStart), isoDate(now), limit * 3);
+  const checks = await Promise.all(candidates.map((m) => resolveRerelease(m)));
+  const freshOnly = candidates.filter((_, i) => !checks[i].isRerelease).slice(0, limit);
+  return toRowMovies(freshOnly);
 }
 
-// 현재 상영중인 로컬 영화의 KOBIS movieCd → 로컬 카드 매핑. KOBIS 카탈로그 행(최근/이달/올해/…)에
-// 같은 영화가 섞여 나올 때, kobis-<movieCd> 카드 대신 예매 버튼이 붙은 로컬 카드로 바꿔치기하는 데 쓴다.
-export async function getLocalNowShowingByMovieCd(): Promise<Map<string, RowMovie>> {
-  const resolved = await resolveLocalMovies(getNowShowing());
-  const map = new Map<string, RowMovie>();
-  for (const { row, movieCd } of resolved) {
-    if (movieCd) map.set(movieCd, row);
-  }
-  return map;
+// 재개봉 영화: 최근 3주 안에 재개봉한 영화 (원 개봉일도 같이 붙는다).
+export async function getRereleaseRow(limit = 10): Promise<RowMovie[]> {
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setDate(windowStart.getDate() - NOW_SHOWING_WINDOW_DAYS);
+  const rereleases = await searchRereleasesInRange(isoDate(windowStart), isoDate(now), limit);
+  return rereleasesToRows(rereleases);
 }
 
-// kobis-<movieCd> 카드 중 실제로 우리 상영작 목록에 있는 영화는 로컬 카드(예매 버튼 포함)로 교체한다.
-// 원래 카드에 badge(순위 등)가 있었다면 교체된 카드에도 이어서 보여준다.
-export function applyNowShowingOverrides(
-  movies: RowMovie[],
-  nowShowingMap: Map<string, RowMovie>
-): RowMovie[] {
-  if (nowShowingMap.size === 0) return movies;
-  return movies.map((movie) => {
-    if (!movie.id.startsWith("kobis-")) return movie;
-    const movieCd = movie.id.slice("kobis-".length);
-    const localMatch = nowShowingMap.get(movieCd);
-    if (!localMatch) return movie;
-    return { ...localMatch, badge: movie.badge ?? localMatch.badge };
-  });
+export type MonthlyRereleaseGroup = {
+  label: string;
+  movies: RowMovie[];
+};
+
+// "재개봉작" 카테고리 — 이번 달(이미 재개봉 + 이번 달 안에 예정된 것 포함)과
+// 다음 달 재개봉 예정작을 월별로 묶어서 보여준다.
+export async function getRereleaseCategoryRows(): Promise<MonthlyRereleaseGroup[]> {
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+
+  const [thisMonth, nextMonth] = await Promise.all([
+    searchRereleasesInRange(isoDate(thisMonthStart), isoDate(thisMonthEnd), 15),
+    searchRereleasesInRange(isoDate(nextMonthStart), isoDate(nextMonthEnd), 15),
+  ]);
+  const [thisMonthRows, nextMonthRows] = await Promise.all([
+    rereleasesToRows(thisMonth),
+    rereleasesToRows(nextMonth),
+  ]);
+
+  return [
+    { label: `${now.getFullYear()}년 ${now.getMonth() + 1}월 재개봉작`, movies: thisMonthRows },
+    {
+      label: `${nextMonthStart.getFullYear()}년 ${nextMonthStart.getMonth() + 1}월 재개봉 예정작`,
+      movies: nextMonthRows,
+    },
+  ];
 }
 
 // 이번 주 박스오피스 TOP N (실제 국내 관객수 기준, KOFIC 주간 박스오피스).
@@ -139,15 +187,15 @@ export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
   const entries = await getWeeklyBoxOffice(10);
   const withMovieCd = entries.filter((e) => e.movieCd); // movieCd가 없으면(드묾) 평점 페이지로 연결할 방법이 없어 건너뛴다.
 
-  const openYears = await Promise.all(
-    withMovieCd.map(async (e) => {
-      if (e.openYear) return e.openYear;
-      const detail = await getMovieDetailsByCd(e.movieCd!);
-      return detail?.openDate?.slice(0, 4) ?? null;
-    })
-  );
+  // 상세조회로 개봉연도(응답에 없을 때의 보강)와 감독명(영문 제목/필모그래피 경유 검색용)을 같이 구한다.
+  const details = await Promise.all(withMovieCd.map((e) => getMovieDetailsByCd(e.movieCd!)));
   const kmdbInfos = await Promise.all(
-    withMovieCd.map((e, i) => searchKmdbMovie(e.movieNm, openYears[i]))
+    withMovieCd.map((e, i) =>
+      searchKmdbMovie(e.movieNm, e.openYear ?? details[i]?.openDate?.slice(0, 4) ?? null, {
+        director: details[i]?.director?.name ?? null,
+        cast: details[i]?.cast.map((c) => c.name) ?? null,
+      })
+    )
   );
 
   return withMovieCd.map((entry, i) => ({
@@ -155,7 +203,7 @@ export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
     title: entry.movieNm,
     posterUrl: kmdbInfos[i]?.posterUrl ?? null,
     gradient: FALLBACK_GRADIENT,
-    isNowShowing: false,
+    isNowShowing: true,
     badge: `${entry.rank}위 · 누적 ${entry.audiAcc.toLocaleString("ko-KR")}명`,
   }));
 }
@@ -204,15 +252,52 @@ export async function getRecentMoviesRow(): Promise<RowMovie[]> {
   return toRowMovies(results);
 }
 
-// 이 달의 Best: 이번 달 개봉작 중 최신순 5편.
-// (KOBIS엔 인기순 지표가 없어 "Best"는 최신 개봉순으로 대체한다.)
-export async function getMonthlyBestRow(): Promise<RowMovie[]> {
+// 이 달의 Best: 이번 달의 매주 박스오피스(월요일 기준)를 다 모아서, 영화별 최고
+// 누적 관객수 기준으로 랭킹을 매긴다 (KOBIS엔 "이번 달 전체 흥행 순위" API가 없어서
+// 주간 차트를 겹쳐 쌓는 방식으로 근사한다).
+export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
   const now = new Date();
-  const gte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const lte = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(lastDay)}`;
-  const results = await fetchOpenedBetween(gte, lte, 5);
-  return toRowMovies(results);
+  const mondays = getMondaysInMonth(now.getFullYear(), now.getMonth());
+  if (mondays.length === 0) return [];
+
+  const weeklyLists = await Promise.all(mondays.map((monday) => getWeeklyBoxOffice(10, monday)));
+
+  const bestByMovie = new Map<string, { movieCd: string; movieNm: string; audiAcc: number }>();
+  for (const week of weeklyLists) {
+    for (const entry of week) {
+      if (!entry.movieCd) continue;
+      const existing = bestByMovie.get(entry.movieCd);
+      if (!existing || entry.audiAcc > existing.audiAcc) {
+        bestByMovie.set(entry.movieCd, {
+          movieCd: entry.movieCd,
+          movieNm: entry.movieNm,
+          audiAcc: entry.audiAcc,
+        });
+      }
+    }
+  }
+
+  const ranked = Array.from(bestByMovie.values())
+    .sort((a, b) => b.audiAcc - a.audiAcc)
+    .slice(0, limit);
+  const details = await Promise.all(ranked.map((m) => getMovieDetailsByCd(m.movieCd)));
+  const kmdbInfos = await Promise.all(
+    ranked.map((m, i) =>
+      searchKmdbMovie(m.movieNm, details[i]?.openDate?.slice(0, 4) ?? null, {
+        director: details[i]?.director?.name ?? null,
+        cast: details[i]?.cast.map((c) => c.name) ?? null,
+      })
+    )
+  );
+
+  return ranked.map((m, i) => ({
+    id: `kobis-${m.movieCd}`,
+    title: m.movieNm,
+    posterUrl: kmdbInfos[i]?.posterUrl ?? null,
+    gradient: FALLBACK_GRADIENT,
+    isNowShowing: true,
+    badge: `누적 ${m.audiAcc.toLocaleString("ko-KR")}명`,
+  }));
 }
 
 // 올해의 Best: 올해 개봉작 중 최신순 10편.

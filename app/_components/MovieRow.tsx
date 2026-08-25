@@ -17,7 +17,7 @@ export default function MovieRow({
       <h2 className="text-lg font-bold text-text">{title}</h2>
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
-      <div className="no-scrollbar mt-4 flex gap-4 overflow-x-auto pb-2">
+      <div className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
         {movies.map((movie) => (
           <MovieCard key={movie.id} movie={movie} />
         ))}

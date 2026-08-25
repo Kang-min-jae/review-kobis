@@ -1,18 +1,17 @@
-import SearchBar from "./_components/SearchBar";
-import CategoryNav, {
+import SiteHeader from "./_components/SiteHeader";
+import {
   tabCategories,
   genreLabels,
   type TabCategory,
   type GenreLabel,
 } from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
+import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
 import {
-  getNowShowing,
-  getRereleases,
-  resolveLocalMovieCards,
-  getLocalNowShowingByMovieCd,
-  applyNowShowingOverrides,
+  getNowShowingRow,
+  getRereleaseRow,
+  getRereleaseCategoryRows,
   getRecentMoviesRow,
   getMonthlyBestRow,
   getYearlyBestRow,
@@ -22,7 +21,6 @@ import {
   getInternationalBestRow,
   getWeeklyBoxOfficeRow,
   getGenreRow,
-  type RowMovie,
 } from "./_lib/movie-rows";
 
 function resolveCategory(value: string | undefined): TabCategory {
@@ -36,10 +34,7 @@ function resolveGenre(value: string | undefined): GenreLabel {
 }
 
 async function NowShowingSection() {
-  const [nowShowing, rereleases] = await Promise.all([
-    resolveLocalMovieCards(getNowShowing()),
-    resolveLocalMovieCards(getRereleases()),
-  ]);
+  const [nowShowing, rereleases] = await Promise.all([getNowShowingRow(), getRereleaseRow()]);
 
   return (
     <>
@@ -49,8 +44,19 @@ async function NowShowingSection() {
   );
 }
 
+async function RereleaseSection() {
+  const groups = await getRereleaseCategoryRows();
+  return (
+    <>
+      {groups.map((group) => (
+        <MovieRow key={group.label} title={group.label} movies={group.movies} />
+      ))}
+    </>
+  );
+}
+
 async function MovieCategorySection() {
-  const [weeklyBoxOffice, recent, monthly, yearly, best3, best5, allTime, international, nowShowingMap] =
+  const [weeklyBoxOffice, recent, monthly, yearly, best3, best5, allTime, international] =
     await Promise.all([
       getWeeklyBoxOfficeRow(),
       getRecentMoviesRow(),
@@ -60,10 +66,7 @@ async function MovieCategorySection() {
       getBestOf5YearsRow(),
       getAllTimeBestRow(),
       getInternationalBestRow(),
-      getLocalNowShowingByMovieCd(),
     ]);
-
-  const withBooking = (movies: RowMovie[]) => applyNowShowingOverrides(movies, nowShowingMap);
 
   return (
     <>
@@ -71,47 +74,46 @@ async function MovieCategorySection() {
       <MovieRow
         title="이번주 박스오피스 TOP 10"
         subtitle="국내 실제 관객수 기준 (KOFIC 영화진흥위원회)"
-        movies={withBooking(weeklyBoxOffice)}
+        movies={weeklyBoxOffice}
       />
-      <MovieRow title="최근 영화" subtitle="올해 국내 개봉한 최신 영화" movies={withBooking(recent)} />
+      <MovieRow title="최근 영화" subtitle="올해 국내 개봉한 최신 영화" movies={recent} />
       <MovieRow
         title="이 달의 Best"
-        subtitle="이번 달 국내 개봉한 최신 영화"
-        movies={withBooking(monthly)}
+        subtitle="이번 달 국내 누적 관객수 기준"
+        movies={monthly}
       />
-      <MovieRow
+      <RatingSortedMovieRow
         title="올해의 Best"
-        subtitle="올해 국내 개봉한 최신 영화"
-        movies={withBooking(yearly)}
+        subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+        movies={yearly}
       />
-      <MovieRow
+      <RatingSortedMovieRow
         title="3년 Best"
-        subtitle="최근 3년간 국내 개봉한 최신 영화"
-        movies={withBooking(best3)}
+        subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+        movies={best3}
       />
-      <MovieRow
+      <RatingSortedMovieRow
         title="5년 Best"
-        subtitle="최근 5년간 국내 개봉한 최신 영화"
-        movies={withBooking(best5)}
+        subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+        movies={best5}
       />
-      <MovieRow title="역대 Best" subtitle="국내 개봉한 최신 영화" movies={withBooking(allTime)} />
-      <MovieRow
+      <RatingSortedMovieRow
+        title="역대 Best"
+        subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+        movies={allTime}
+      />
+      <RatingSortedMovieRow
         title="해외 Best"
-        subtitle="국내 개봉한 해외 영화 중 최신순"
-        movies={withBooking(international)}
+        subtitle="국내 개봉한 해외 영화 · 평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+        movies={international}
       />
     </>
   );
 }
 
 async function GenreSection({ genre }: { genre: GenreLabel }) {
-  const [movies, nowShowingMap] = await Promise.all([
-    getGenreRow(genre),
-    getLocalNowShowingByMovieCd(),
-  ]);
-  return (
-    <MovieRow title={`${genre} 영화`} movies={applyNowShowingOverrides(movies, nowShowingMap)} />
-  );
+  const movies = await getGenreRow(genre);
+  return <MovieRow title={`${genre} 영화`} movies={movies} />;
 }
 
 export default async function Home({ searchParams }: PageProps<"/">) {
@@ -123,10 +125,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <main>
-      <SearchBar />
-      <CategoryNav active={category} activeGenre={genre} />
+      <SiteHeader active={category} activeGenre={genre} />
 
       {category === "현재 상영중인 영화" && <NowShowingSection />}
+      {category === "재개봉작" && <RereleaseSection />}
 
       {category === "영화" && genre === "전체" && <MovieCategorySection />}
       {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}

@@ -68,12 +68,19 @@ export default function AuthButton() {
               </button>
             </form>
 
-            <button
-              type="button"
-              className="mt-2 w-full text-center text-[11px] text-muted hover:text-text"
-            >
-              Sign up
-            </button>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="text-[11px] text-muted hover:text-text"
+              >
+                Sign up
+              </button>
+              <div className="flex gap-1.5">
+                <SocialIcon label="Naver" bg="#03C75A" fg="#FFFFFF" letter="N" />
+                <SocialIcon label="Kakao" bg="#FEE500" fg="#3C1E1E" letter="K" />
+                <SocialIcon label="Google" bg="#FFFFFF" fg="#4285F4" letter="G" />
+              </div>
+            </div>
 
             <div className="mt-1 flex justify-center gap-2 text-[10px] text-muted">
               <button type="button" className="hover:text-text">
@@ -83,18 +90,6 @@ export default function AuthButton() {
               <button type="button" className="hover:text-text">
                 Forgot password
               </button>
-            </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <div className="h-px flex-1 bg-neutral-700" />
-              <span className="text-[10px] text-muted">or</span>
-              <div className="h-px flex-1 bg-neutral-700" />
-            </div>
-
-            <div className="mt-3 flex justify-center gap-3">
-              <SocialIcon label="Google" bg="#FFFFFF" fg="#4285F4" letter="G" />
-              <SocialIcon label="Naver" bg="#03C75A" fg="#FFFFFF" letter="N" />
-              <SocialIcon label="Kakao" bg="#FEE500" fg="#3C1E1E" letter="K" />
             </div>
           </div>
         </>
