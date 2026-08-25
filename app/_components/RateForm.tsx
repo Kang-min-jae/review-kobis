@@ -4,10 +4,14 @@ import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StarRating from "./StarRating";
+<<<<<<< HEAD
 import BackBar from "./BackBar";
 import MovieInfoHeader, { type PersonRef } from "./MovieInfoHeader";
 import CategoryRatings from "./CategoryRatings";
 import SpoilerText from "./SpoilerText";
+=======
+import PosterImage from "./PosterImage";
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 import { countSentences } from "../_lib/text";
 import {
   addReview,
@@ -23,7 +27,11 @@ import {
   toggleVote,
 } from "../_lib/review-votes-store";
 import type { ReviewType } from "../_lib/mock-reviews";
+<<<<<<< HEAD
 import type { KoficBoxOffice } from "../_lib/kobis";
+=======
+import type { TmdbPersonRef, TmdbCastMember } from "../_lib/tmdb";
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
 const tabs: { type: ReviewType; label: string }[] = [
   { type: "short", label: "한줄평" },
@@ -39,9 +47,12 @@ function clamp(value: number, min: number, max: number): number {
 function VoteButtons({ reviewId }: { reviewId: string }) {
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
   const { likes, dislikes, myVote } = getReviewVote(votesState, reviewId);
+<<<<<<< HEAD
   const total = likes + dislikes;
   const likePct = total > 0 ? Math.round((likes / total) * 100) : null;
   const dislikePct = total > 0 ? 100 - likePct! : null;
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
   return (
     <div className="flex items-center gap-2">
@@ -53,7 +64,10 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
         }`}
       >
         👍 {likes}
+<<<<<<< HEAD
         {likePct !== null && <span className="opacity-80">({likePct}%)</span>}
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
       </button>
       <button
         type="button"
@@ -63,7 +77,10 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
         }`}
       >
         👎 {dislikes}
+<<<<<<< HEAD
         {dislikePct !== null && <span className="opacity-80">({dislikePct}%)</span>}
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
       </button>
     </div>
   );
@@ -71,13 +88,18 @@ function VoteButtons({ reviewId }: { reviewId: string }) {
 
 export default function RateForm({
   movieId,
+<<<<<<< HEAD
   movieCd,
+=======
+  movieTmdbId,
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   movieTitle,
   description,
   posterUrl,
   gradient,
   releaseDate,
   rereleaseDate,
+<<<<<<< HEAD
   runtimeMinutes,
   director,
   cast,
@@ -85,16 +107,28 @@ export default function RateForm({
 }: {
   movieId: string;
   movieCd: string | null;
+=======
+  director,
+  cast,
+}: {
+  movieId: string;
+  movieTmdbId: number | null;
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   movieTitle: string;
   description: string;
   posterUrl: string | null;
   gradient: string;
   releaseDate: string | null;
   rereleaseDate: string | null;
+<<<<<<< HEAD
   runtimeMinutes: number | null;
   director: PersonRef | null;
   cast: PersonRef[];
   boxOffice: KoficBoxOffice | null;
+=======
+  director: TmdbPersonRef | null;
+  cast: TmdbCastMember[];
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ReviewType>("short");
@@ -125,7 +159,11 @@ export default function RateForm({
 
     addReview({
       movieId,
+<<<<<<< HEAD
       movieCd,
+=======
+      movieTmdbId,
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
       movieTitle,
       moviePosterUrl: posterUrl,
       movieGradient: gradient,
@@ -138,6 +176,7 @@ export default function RateForm({
 
   return (
     <div>
+<<<<<<< HEAD
       <BackBar />
 
       <MovieInfoHeader
@@ -154,6 +193,60 @@ export default function RateForm({
       >
         <CategoryRatings movieId={movieId} />
       </MovieInfoHeader>
+=======
+      <Link href="/" className="text-sm text-muted hover:text-text">
+        ← 뒤로
+      </Link>
+
+      <div className="mt-3 flex gap-4">
+        <div
+          className={`relative aspect-2/3 w-24 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
+            posterUrl ? "bg-surface" : `bg-gradient-to-br ${gradient}`
+          }`}
+        >
+          {posterUrl && <PosterImage src={posterUrl} alt={`${movieTitle} 포스터`} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-bold text-text">
+            {movieTitle}
+            {(releaseDate || rereleaseDate) && (
+              <span className="ml-2 text-sm font-normal text-muted">
+                {releaseDate}
+                {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
+              </span>
+            )}
+          </h1>
+          <p className="mt-2 text-xs leading-relaxed text-muted">{description}</p>
+
+          {(director || cast.length > 0) && (
+            <p className="mt-3 text-xs text-muted">
+              {director && (
+                <>
+                  감독{" "}
+                  <Link href={`/people/${director.id}`} className="text-text hover:underline">
+                    {director.name}
+                  </Link>
+                </>
+              )}
+              {director && cast.length > 0 && " | "}
+              {cast.length > 0 && (
+                <>
+                  출연{" "}
+                  {cast.map((member, i) => (
+                    <span key={member.id}>
+                      <Link href={`/people/${member.id}`} className="text-text hover:underline">
+                        {member.name}
+                      </Link>
+                      {i < cast.length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </>
+              )}
+            </p>
+          )}
+        </div>
+      </div>
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
       <div className="mt-6 flex gap-2">
         {tabs.map((tab) => (
@@ -247,9 +340,13 @@ export default function RateForm({
                 </Link>
                 <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
               </div>
+<<<<<<< HEAD
               <div className="mt-1.5">
                 <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
               </div>
+=======
+              <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
               <div className="mt-2 flex justify-end">
                 <VoteButtons reviewId={review.id} />
               </div>

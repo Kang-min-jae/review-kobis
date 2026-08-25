@@ -10,6 +10,7 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+<<<<<<< HEAD
 // 리뷰가 바뀔 때마다 올라가는 카운터 — useSyncExternalStore에서 "무언가 바뀌었다"는
 // 신호로만 쓴다 (평점순 정렬처럼 매번 새 배열을 계산해야 하는 곳은 이 값을
 // useMemo의 의존성으로 넣어 재계산 시점만 알아내고, 실제 배열은 직접 만든다 —
@@ -24,6 +25,11 @@ function emitChange() {
   reviewsCache.clear();
   reviewsByAuthorCache.clear();
   combinedRatingCache.clear();
+=======
+function emitChange() {
+  reviewsCache.clear();
+  reviewsByAuthorCache.clear();
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
   cachedUserReviewedMovies = null;
   listeners.forEach((listener) => listener());
 }
@@ -86,6 +92,7 @@ export function getAverageRating(movieId: string, type: ReviewType): number | nu
   return average(getReviewsSnapshot(movieId, type));
 }
 
+<<<<<<< HEAD
 // "Best" 행 정렬용 — 한줄평(10점 만점)과 장문평(100점 만점)을 0~1로 정규화해 하나의
 // 평점으로 합치고, 참여 평점 수도 같이 반환한다 (평점이 같으면 참여 수가 많은 쪽을
 // 위로 올리기 위함).
@@ -110,6 +117,10 @@ export function getCombinedRatingSnapshot(movieId: string): CombinedRating {
 
 // 현재 브라우저 사용자가 직접 평점을 남긴 영화 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).
 // 제목/포스터는 리뷰에 스냅샷된 값을 그대로 쓴다 — KOBIS 카탈로그 영화는 로컬 목데이터에
+=======
+// 현재 브라우저 사용자가 직접 평점을 남긴 영화 목록 (시드 리뷰는 제외 — "내가" 평가한 것만).
+// 제목/포스터는 리뷰에 스냅샷된 값을 그대로 쓴다 — TMDB 카탈로그 영화는 로컬 목데이터에
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 // 없어서 movieId만으로는 다시 조회할 수 없기 때문 (나만의 영화 리스트에서 사용).
 export type ReviewedMovie = {
   id: string;
@@ -164,6 +175,7 @@ export function getServerReviewsByAuthorSnapshot(): Review[] {
   return EMPTY_REVIEWS;
 }
 
+<<<<<<< HEAD
 // 내가 평가한 영화 중 KOBIS movieCd가 있는 것만, 높게 평가한 순으로 최대 5개.
 // "사용자 추천 영화"가 장르 기반 추천 후보를 찾을 때 시드로 사용 (클라이언트 전용 —
 // 서버 컴포넌트는 이 브라우저의 localStorage에 접근할 수 없어서 API 라우트를 거쳐 호출한다).
@@ -173,18 +185,37 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
   const bestByMovie = new Map<string, { movieCd: string; normalizedRating: number }>();
   for (const review of readUserReviews()) {
     if (review.movieCd == null) continue;
+=======
+// 내가 평가한 영화 중 TMDB id가 있는 것만, 높게 평가한 순으로 최대 5개.
+// "사용자 추천 영화"가 TMDB recommendations 조회 시드로 사용 (클라이언트 전용 —
+// 서버 컴포넌트는 이 브라우저의 localStorage에 접근할 수 없어서 API 라우트를 거쳐 호출한다).
+export function getUserRatedTmdbIdsSnapshot(): number[] {
+  if (typeof window === "undefined") return [];
+
+  const bestByMovie = new Map<string, { tmdbId: number; normalizedRating: number }>();
+  for (const review of readUserReviews()) {
+    if (review.movieTmdbId == null) continue;
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
     const scale = review.type === "short" ? 10 : 100;
     const normalizedRating = review.rating / scale;
     const existing = bestByMovie.get(review.movieId);
     if (!existing || normalizedRating > existing.normalizedRating) {
+<<<<<<< HEAD
       bestByMovie.set(review.movieId, { movieCd: review.movieCd, normalizedRating });
+=======
+      bestByMovie.set(review.movieId, { tmdbId: review.movieTmdbId, normalizedRating });
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
     }
   }
 
   return Array.from(bestByMovie.values())
     .sort((a, b) => b.normalizedRating - a.normalizedRating)
     .slice(0, 5)
+<<<<<<< HEAD
     .map((entry) => entry.movieCd);
+=======
+    .map((entry) => entry.tmdbId);
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 }
 
 export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" | "authorName">): Review {

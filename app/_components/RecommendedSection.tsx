@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import MovieRow from "./MovieRow";
+<<<<<<< HEAD
 import { getUserRatedMovieCdsSnapshot } from "../_lib/reviews-store";
+=======
+import { getUserRatedTmdbIdsSnapshot } from "../_lib/reviews-store";
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 import type { RowMovie } from "../_lib/movie-rows";
 
 // 서버 컴포넌트는 이 브라우저의 localStorage(내가 남긴 평점)에 접근할 수 없어서,
@@ -11,8 +15,13 @@ export default function RecommendedSection() {
   const [movies, setMovies] = useState<RowMovie[] | null>(null);
 
   useEffect(() => {
+<<<<<<< HEAD
     const movieCds = getUserRatedMovieCdsSnapshot();
     const query = movieCds.length > 0 ? `?movieCds=${movieCds.join(",")}` : "";
+=======
+    const tmdbIds = getUserRatedTmdbIdsSnapshot();
+    const query = tmdbIds.length > 0 ? `?tmdbIds=${tmdbIds.join(",")}` : "";
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
     fetch(`/api/recommendations${query}`)
       .then((res) => res.json())

@@ -3,8 +3,11 @@
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import StarRating from "./StarRating";
+<<<<<<< HEAD
 import BackBar from "./BackBar";
 import SpoilerText from "./SpoilerText";
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 import {
   subscribe,
   getReviewsByAuthorSnapshot,
@@ -22,7 +25,13 @@ export default function ProfileView({ authorId }: { authorId: string }) {
 
   return (
     <div className="px-5 py-6">
+<<<<<<< HEAD
       <BackBar />
+=======
+      <Link href="/" className="text-sm text-muted hover:text-text">
+        ← 뒤로
+      </Link>
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 
       <h1 className="mt-3 text-lg font-bold text-text">{authorName}님의 평가</h1>
       <p className="mt-1 text-xs text-muted">총 {reviews.length}개</p>
@@ -48,9 +57,13 @@ export default function ProfileView({ authorId }: { authorId: string }) {
                   </span>
                 </div>
                 <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+<<<<<<< HEAD
                 <div className="mt-1.5">
                   <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
                 </div>
+=======
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-text">{review.content}</p>
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
               </div>
             );
           })

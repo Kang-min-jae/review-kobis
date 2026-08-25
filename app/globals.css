@@ -22,6 +22,7 @@ body {
 }
 .no-scrollbar {
   scrollbar-width: none;
+<<<<<<< HEAD
 }
 
 /* 영화 목록(가로 스크롤 행)에서 옆으로 넘길 수 있다는 걸 보여주는 얇은 스크롤바 */
@@ -41,4 +42,6 @@ body {
 }
 .row-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: var(--color-muted);
+=======
+>>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 }
