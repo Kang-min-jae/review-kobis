@@ -1,5 +1,12 @@
 import { seedReviews, type Review, type ReviewType } from "./mock-reviews";
 import { getGuestIdentity } from "./guest-identity";
+import type { RatingCategory } from "./category-ratings-store";
+
+// 리뷰에 category 필드가 생기기 전에 저장된 데이터는 이 값이 없을 수 있다 — 그때는
+// 전체 평가로 간주한다.
+function categoryOf(review: Review): RatingCategory {
+  return review.category ?? "전체";
+}
 
 const STORAGE_KEY = "review-site:user-reviews:v1";
 
@@ -54,36 +61,56 @@ function sortByNewest(reviews: Review[]): Review[] {
 // 서버 렌더 / 하이드레이션 시점의 스냅샷. 시드 데이터만 사용하므로 서버와 클라이언트 첫 렌더가 항상 일치한다.
 // useSyncExternalStore는 참조 안정성을 요구하므로 키별로 캐시해 둔다.
 const seedReviewsCache = new Map<string, Review[]>();
-export function getSeedReviewsSnapshot(movieId: string, type: ReviewType): Review[] {
-  const key = `${movieId}:${type}`;
+export function getSeedReviewsSnapshot(
+  movieId: string,
+  type: ReviewType,
+  category: RatingCategory = "전체"
+): Review[] {
+  const key = `${movieId}:${type}:${category}`;
   let cached = seedReviewsCache.get(key);
   if (!cached) {
-    cached = sortByNewest(seedReviews.filter((r) => r.movieId === movieId && r.type === type));
+    cached = sortByNewest(
+      seedReviews.filter((r) => r.movieId === movieId && r.type === type && categoryOf(r) === category)
+    );
     seedReviewsCache.set(key, cached);
   }
   return cached;
 }
 
-export function getSeedAverageRating(movieId: string, type: ReviewType): number | null {
-  return average(getSeedReviewsSnapshot(movieId, type));
+export function getSeedAverageRating(
+  movieId: string,
+  type: ReviewType,
+  category: RatingCategory = "전체"
+): number | null {
+  return average(getSeedReviewsSnapshot(movieId, type, category));
 }
 
 // 하이드레이션 이후 클라이언트에서 사용하는 스냅샷 (로컬 저장소 반영). addReview가 호출되면 캐시를 비워 갱신한다.
 const reviewsCache = new Map<string, Review[]>();
-export function getReviewsSnapshot(movieId: string, type: ReviewType): Review[] {
-  const key = `${movieId}:${type}`;
+export function getReviewsSnapshot(
+  movieId: string,
+  type: ReviewType,
+  category: RatingCategory = "전체"
+): Review[] {
+  const key = `${movieId}:${type}:${category}`;
   let cached = reviewsCache.get(key);
   if (!cached) {
     cached = sortByNewest(
-      [...seedReviews, ...readUserReviews()].filter((r) => r.movieId === movieId && r.type === type)
+      [...seedReviews, ...readUserReviews()].filter(
+        (r) => r.movieId === movieId && r.type === type && categoryOf(r) === category
+      )
     );
     reviewsCache.set(key, cached);
   }
   return cached;
 }
 
-export function getAverageRating(movieId: string, type: ReviewType): number | null {
-  return average(getReviewsSnapshot(movieId, type));
+export function getAverageRating(
+  movieId: string,
+  type: ReviewType,
+  category: RatingCategory = "전체"
+): number | null {
+  return average(getReviewsSnapshot(movieId, type, category));
 }
 
 // "Best" 행 정렬용 — 한줄평(10점 만점)과 장문평(100점 만점)을 0~1로 정규화해 하나의
@@ -98,12 +125,17 @@ function averageNormalized(reviews: Review[]): number | null {
 export type CombinedRating = { average: number | null; count: number };
 const combinedRatingCache = new Map<string, CombinedRating>();
 
-export function getCombinedRatingSnapshot(movieId: string): CombinedRating {
-  let cached = combinedRatingCache.get(movieId);
+// 홈 화면 정렬/카드 표시용 "이 영화의 전반적인 평가" — 항목별(연출/연기 등) 리뷰가 아니라
+// 전체 리뷰만 합쳐서 계산한다.
+export function getCombinedRatingSnapshot(movieId: string, category: RatingCategory = "전체"): CombinedRating {
+  const key = `${movieId}:${category}`;
+  let cached = combinedRatingCache.get(key);
   if (!cached) {
-    const all = [...seedReviews, ...readUserReviews()].filter((r) => r.movieId === movieId);
+    const all = [...seedReviews, ...readUserReviews()].filter(
+      (r) => r.movieId === movieId && categoryOf(r) === category
+    );
     cached = { average: averageNormalized(all), count: all.length };
-    combinedRatingCache.set(movieId, cached);
+    combinedRatingCache.set(key, cached);
   }
   return cached;
 }
@@ -173,6 +205,7 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
   const bestByMovie = new Map<string, { movieCd: string; normalizedRating: number }>();
   for (const review of readUserReviews()) {
     if (review.movieCd == null) continue;
+    if (categoryOf(review) !== "전체") continue;
     const scale = review.type === "short" ? 10 : 100;
     const normalizedRating = review.rating / scale;
     const existing = bestByMovie.get(review.movieId);

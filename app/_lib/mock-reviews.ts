@@ -1,3 +1,5 @@
+import type { RatingCategory } from "./category-ratings-store";
+
 export type ReviewType = "short" | "long";
 
 export type Review = {
@@ -12,6 +14,9 @@ export type Review = {
   // 추천 후보를 찾을 때 사용 (KOBIS에서 못 찾은 로컬 영화는 null).
   movieCd: string | null;
   type: ReviewType;
+  // 어느 항목(전체/연출/연기/각본/음악/편집)에 대한 리뷰인지. 이 필드가 생기기 전에
+  // 저장된 리뷰에는 없을 수 있어 읽을 때는 항상 `?? "전체"`로 보정해서 쓴다.
+  category: RatingCategory;
   rating: number; // 한줄평 0~10, 장문평 0~100
   content: string;
   authorId: string;
