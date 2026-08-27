@@ -45,7 +45,14 @@ export default async function CategoryRatePage({
       </MovieInfoHeader>
 
       <div className="mt-6">
-        <CategoryRateForm movieId={info.movieId} category={category} />
+        <CategoryRateForm
+          movieId={info.movieId}
+          movieCd={info.movieCd}
+          movieTitle={info.movieTitle}
+          posterUrl={info.posterUrl}
+          gradient={info.gradient}
+          category={category}
+        />
       </div>
     </main>
   );

@@ -33,18 +33,19 @@ export default function ProfileView({ authorId }: { authorId: string }) {
         ) : (
           reviews.map((review) => {
             const scale = review.type === "short" ? 10 : 100;
+            const category = review.category ?? "전체";
 
             return (
               <div key={review.id} className="rounded-lg bg-surface p-3">
                 <div className="flex items-center justify-between gap-2">
                   <Link
-                    href={`/movies/${review.movieId}/rate`}
+                    href={`/movies/${review.movieId}/rate/category/${encodeURIComponent(category)}`}
                     className="truncate text-sm font-semibold text-text hover:underline"
                   >
                     {review.movieTitle}
                   </Link>
                   <span className="shrink-0 text-[10px] text-muted">
-                    {review.type === "short" ? "한줄평" : "장문평"}
+                    {category} · {review.type === "short" ? "한줄평" : "장문평"}
                   </span>
                 </div>
                 <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />

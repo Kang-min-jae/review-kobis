@@ -53,3 +53,59 @@ model RankingSnapshot {
 
   @@index([listType, syncedAt])
 }
+
+// ── 로그인 (Auth.js) ─────────────────────────────────────────────────────
+// User/Account/Session/VerificationToken은 Auth.js의 PrismaAdapter가 요구하는
+// 정확한 형태 그대로다 — 필드명을 바꾸면 어댑터가 못 찾는다. nickname/totalLikes만
+// 이 사이트에서 쓰려고 추가한 필드.
+// 참고: https://authjs.dev/getting-started/adapters/prisma
+
+model User {
+  id            String    @id @default(cuid())
+  name          String? // OAuth 제공자가 준 원래 이름
+  nickname      String? // 사이트에서 실제로 보여주는 이름 — 처음엔 name으로 채우고 나중에 바꿀 수 있게
+  email         String?   @unique // 카카오는 이메일 동의를 안 받은 앱이면 안 줄 수도 있어 nullable
+  emailVerified DateTime?
+  image         String?
+  totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
+
+  accounts Account[]
+  sessions Session[]
+
+  createdAt DateTime @default(now())
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
