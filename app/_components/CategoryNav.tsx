@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-<<<<<<< HEAD
 export const tabCategories = [
   "영화",
   "현재 상영중인 영화",
@@ -8,9 +7,6 @@ export const tabCategories = [
   "TV프로그램",
   "단편·독립",
 ] as const;
-=======
-export const tabCategories = ["영화", "현재 상영중인 영화", "TV프로그램", "단편·독립"] as const;
->>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 export type TabCategory = (typeof tabCategories)[number];
 export type NavActive = TabCategory | "my-list";
 
@@ -60,11 +56,7 @@ export default function CategoryNav({
       </nav>
 
       {active !== "my-list" && (
-<<<<<<< HEAD
         <nav className="flex flex-wrap justify-between gap-x-4 gap-y-2 px-5 pb-5 text-xs">
-=======
-        <nav className="no-scrollbar flex gap-3 overflow-x-auto px-5 pb-5 text-xs">
->>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
           {genreLabels.map((genre) => (
             <Link
               key={genre}

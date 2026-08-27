@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 영화 상세정보 캐시(KOBIS+KMDb를 합쳐 만든 결과) — 특정 영화 하나를 볼 때만
+// 필요한 long-tail 데이터라, 요청이 들어올 때 없거나 오래됐으면 그때 채워 넣는다
+// (lazy cache).
+model CachedMovie {
+  movieCd        String   @id
+  title          String
+  titleEn        String?
+  posterUrl      String?
+  overview       String?
+  releaseDate    String? // ISO yyyy-mm-dd
+  rereleaseDate  String?
+  runtimeMinutes Int?
+  watchGrade     String?
+  genreAlt       String?
+  directorName   String?
+  directorKmdbId String?
+  cast           Json // { name: string; kmdbId: string | null }[]
+  updatedAt      DateTime @updatedAt
+}
+
+// 인물 필모그래피 캐시 — 마찬가지로 그 인물 페이지를 볼 때만 필요한 long-tail
+// 데이터라 lazy cache로 채운다.
+model CachedPerson {
+  kmdbId       String   @id
+  name         String
+  role         String // "감독" | "배우"
+  filmography  Json // RowMovie[]
+  updatedAt    DateTime @updatedAt
+}
+
+// 박스오피스 순위·이 달의 Best처럼 자주 조회되는 랭킹류 목록 — 요청마다 새로
+// 계산하지 않고 하루 1~2회 배치로 미리 갱신해둔다.
+model RankingSnapshot {
+  id         Int      @id @default(autoincrement())
+  listType   String // "weekly_box_office" | "monthly_best" 등
+  rank       Int
+  movieCd    String
+  movieTitle String
+  audiAcc    Int
+  syncedAt   DateTime @default(now())
+
+  @@index([listType, syncedAt])
+}
