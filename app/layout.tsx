@@ -27,18 +27,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-<<<<<<< HEAD
         <Suspense fallback={null}>
           <NavHistoryTracker />
         </Suspense>
         <div className="flex-1">{children}</div>
         <footer className="px-5 py-4 text-center text-[10px] text-muted">
           이 서비스는 영화진흥위원회 KOBIS 오픈API를 활용하였습니다.
-=======
-        <div className="flex-1">{children}</div>
-        <footer className="px-5 py-4 text-center text-[10px] text-muted">
-          This product uses the TMDB API but is not endorsed or certified by TMDB.
->>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
         </footer>
       </body>
     </html>

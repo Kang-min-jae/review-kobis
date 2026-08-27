@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
+
+# prisma init이 AI 코딩 도구용으로 만든 참고 문서 — 앱 코드가 아니라 각자 로컬에 알아서
+# 생성되게 두고 저장소에는 포함하지 않는다.
+/.agents/
+/.claude/
+/.windsurf/
+/skills-lock.json

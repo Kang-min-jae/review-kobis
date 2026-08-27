@@ -1,19 +1,12 @@
-<<<<<<< HEAD
 import BackBar from "../../_components/BackBar";
 import FilmographyGrid from "../../_components/FilmographyGrid";
 import { searchMovieCatalog, findMovieCdByTitleAndPerson } from "../../_lib/kobis";
 import { searchKmdbFilmography } from "../../_lib/kmdb";
 import { isRecentlyOpened, toRowMovie } from "../../_lib/movie-rows";
-=======
-import Link from "next/link";
-import MovieCard from "../../_components/MovieCard";
-import { getPersonFilmography } from "../../_lib/tmdb";
->>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
 import type { RowMovie } from "../../_lib/movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
-<<<<<<< HEAD
 // KMDb에서 이름(+가능하면 인물 코드, 역할)으로 감독/배우 참여작을 찾고, 평점 페이지로
 // 연결하기 위해 각 작품을 KOBIS movieCd와 매칭한다 (KOBIS에 없는 — 국내 미개봉 — 작품은
 // 평점을 남길 방법이 없어서 목록에서 제외한다). role을 주면 "배우 톰 홀랜드"에 이름만
@@ -90,52 +83,6 @@ export default async function PersonPage({ params, searchParams }: PageProps<"/p
       <section className="mt-6">
         <FilmographyGrid movies={movies} />
       </section>
-=======
-export default async function PersonPage({ params }: PageProps<"/people/[id]">) {
-  const { id } = await params;
-  const personId = Number(id);
-  const person = Number.isNaN(personId) ? null : await getPersonFilmography(personId);
-
-  if (!person) {
-    return (
-      <main className="px-5 py-6">
-        <Link href="/" className="text-sm text-muted hover:text-text">
-          ← 뒤로
-        </Link>
-        <p className="mt-6 text-sm text-muted">
-          인물 정보를 찾을 수 없어요. TMDB API 키가 설정되어 있는지 확인해 주세요.
-        </p>
-      </main>
-    );
-  }
-
-  const movies: RowMovie[] = person.movies.map((m) => ({
-    id: `tmdb-${m.id}`,
-    title: m.title,
-    posterUrl: m.posterUrl,
-    gradient: FALLBACK_GRADIENT,
-    isNowShowing: false,
-  }));
-
-  return (
-    <main className="px-5 py-6">
-      <Link href="/" className="text-sm text-muted hover:text-text">
-        ← 뒤로
-      </Link>
-
-      <h1 className="mt-3 text-lg font-bold text-text">{person.name}</h1>
-      <p className="mt-1 text-xs text-muted">참여 작품 {movies.length}편</p>
-
-      {movies.length === 0 ? (
-        <p className="mt-6 text-sm text-muted">등록된 참여 작품이 없어요.</p>
-      ) : (
-        <div className="mt-4 flex flex-wrap gap-4">
-          {movies.map((movie) => (
-            <MovieCard key={movie.id} movie={movie} />
-          ))}
-        </div>
-      )}
->>>>>>> 508a22314e5b678532d46dcd244e06a99fcc8914
     </main>
   );
 }
