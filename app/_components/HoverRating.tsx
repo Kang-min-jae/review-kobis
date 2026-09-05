@@ -30,10 +30,8 @@ export default function HoverRating({ movieId }: { movieId: string }) {
   if (combined === null) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-      <span className="flex items-center gap-1.5 text-2xl font-bold text-star">
-        ★ {combined.toFixed(1)}
-      </span>
+    <div className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-bold text-star">
+      ★ {combined.toFixed(1)}
     </div>
   );
 }

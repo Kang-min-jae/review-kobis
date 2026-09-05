@@ -69,8 +69,13 @@ model User {
   image         String?
   totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
 
-  accounts Account[]
-  sessions Session[]
+  accounts      Account[]
+  sessions      Session[]
+  reviews       Review[]
+  reviewLikes   ReviewLike[]
+  following     Follow[]       @relation("Following")
+  followers     Follow[]       @relation("Followers")
+  watchTriggers WatchTrigger[] @relation("Reader")
 
   createdAt DateTime @default(now())
 }
@@ -108,4 +113,73 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ── 리뷰·평점 소셜 기능 ──────────────────────────────────────────────────
+
+model Review {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  movieCd String
+  // "전체" | "연출" | "연기" | "각본" | "음악" | "편집" — category-ratings-store.ts의
+  // RATING_CATEGORIES와 같은 값을 그대로 쓴다(번역 레이어 없이 1:1 매칭).
+  category String @default("전체")
+  type     ReviewType
+  content  String
+  rating   Float // 한줄평 0~10, 장문평 0~100 — 지금 화면 스케일 그대로
+
+  hasSpoiler   Boolean  @default(false)
+  spoilerLevel Int      @default(0)
+  likeCount    Int      @default(0) // 반정규화 — 좋아요 받을 때마다 트랜잭션으로 같이 갱신
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  likes         ReviewLike[]
+  watchTriggers WatchTrigger[]
+
+  @@index([movieCd, category, type])
+  @@index([userId])
+}
+
+enum ReviewType {
+  SHORT
+  LONG
+}
+
+// 리뷰 좋아요 — 등급(관객/씨네필/평론가/거장) 계산의 핵심 데이터.
+model ReviewLike {
+  id        String   @id @default(cuid())
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([reviewId, userId])
+}
+
+// 평론가 팔로우.
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+}
+
+// "이 리뷰 때문에 봤어요" 추적.
+model WatchTrigger {
+  id        String   @id @default(cuid())
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  readerId  String
+  reader    User     @relation("Reader", fields: [readerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([reviewId, readerId])
 }
