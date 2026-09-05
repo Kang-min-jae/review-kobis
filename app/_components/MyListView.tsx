@@ -3,6 +3,9 @@
 import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
+import MyRatedMovieCard from "./MyRatedMovieCard";
+import MyStyleReport from "./MyStyleReport";
+import { getBadge } from "../_lib/tier";
 import {
   subscribe as subscribeMyList,
   getMyListSnapshot,
@@ -15,8 +18,18 @@ import {
   subscribe as subscribeReviews,
   getUserReviewedMoviesSnapshot,
   getServerUserReviewedMoviesSnapshot,
+  getMyMovieRatingsSnapshot,
+  getServerMyMovieRatingsSnapshot,
+  getMyReviewsSnapshot,
+  getServerMyReviewsSnapshot,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
+import {
+  subscribe as subscribeVotes,
+  getVotesSnapshot,
+  getServerVotesSnapshot,
+  getReviewVote,
+} from "../_lib/review-votes-store";
 import {
   subscribe as subscribeSocial,
   getSocialSnapshot,
@@ -41,6 +54,13 @@ export default function MyListView() {
     getUserReviewedMoviesSnapshot,
     getServerUserReviewedMoviesSnapshot
   );
+  const myMovieRatings = useSyncExternalStore(
+    subscribeReviews,
+    getMyMovieRatingsSnapshot,
+    getServerMyMovieRatingsSnapshot
+  );
+  const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
+  const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
   const social = useSyncExternalStore(subscribeSocial, getSocialSnapshot, getServerSocialSnapshot);
   const views = useSyncExternalStore(subscribeSocial, getViewsSnapshot, getServerViewsSnapshot);
 
@@ -49,6 +69,14 @@ export default function MyListView() {
     .map((id) => reviewedById.get(id))
     .filter((movie): movie is ReviewedMovie => Boolean(movie));
   const addableMovies = reviewedMovies.filter((m) => !myListIds.includes(m.id));
+
+  const topRatedMovies = [...myMovieRatings].sort((a, b) => b.rating - a.rating);
+  const recentRatedMovies = [...myMovieRatings].sort((a, b) => (a.ratedAt < b.ratedAt ? 1 : -1));
+  const totalReviewLikes = myReviews.reduce(
+    (sum, review) => sum + getReviewVote(votesState, review.id).likes,
+    0
+  );
+  const myTier = getBadge(totalReviewLikes);
 
   return (
     <div className="px-5 py-6">
@@ -60,30 +88,64 @@ export default function MyListView() {
           </p>
         </div>
 
-        <div className="flex shrink-0 gap-1.5">
-          <button
-            type="button"
-            onClick={toggleFollow}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              social.following
-                ? "border-brand bg-brand text-white"
-                : "border-brand text-brand hover:bg-brand hover:text-white"
-            }`}
-          >
-            {social.following ? "팔로잉" : "팔로우"} {getFollowerCount(social)}
-          </button>
-          <button
-            type="button"
-            onClick={toggleLike}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              social.liked
-                ? "border-star bg-star text-black"
-                : "border-star text-star hover:bg-star hover:text-black"
-            }`}
-          >
-            ♥ {getLikeCount(social)}
-          </button>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-white">
+            🏅 {myTier}
+          </span>
+          <span className="rounded-full border border-star px-3 py-1.5 text-xs font-semibold text-star">
+            👍 평점 누적 좋아요 {totalReviewLikes}
+          </span>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={toggleFollow}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                social.following
+                  ? "border-brand bg-brand text-white"
+                  : "border-brand text-brand hover:bg-brand hover:text-white"
+              }`}
+            >
+              {social.following ? "팔로잉" : "팔로우"} {getFollowerCount(social)}
+            </button>
+            <button
+              type="button"
+              onClick={toggleLike}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                social.liked
+                  ? "border-star bg-star text-black"
+                  : "border-star text-star hover:bg-star hover:text-black"
+              }`}
+            >
+              ♥ {getLikeCount(social)}
+            </button>
+          </div>
         </div>
+      </div>
+
+      {topRatedMovies.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-sm font-bold text-text">내가 높게 평가한 영화</h2>
+          <div className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
+            {topRatedMovies.map((movie) => (
+              <MyRatedMovieCard key={movie.id} movie={movie} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recentRatedMovies.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-sm font-bold text-text">최근에 평가한 영화</h2>
+          <div className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
+            {recentRatedMovies.map((movie) => (
+              <MyRatedMovieCard key={`recent-${movie.id}`} movie={movie} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <MyStyleReport />
       </div>
 
       {addableMovies.length > 0 && (

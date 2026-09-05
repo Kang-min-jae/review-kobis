@@ -45,9 +45,10 @@ function stripEdition(title: string): string {
 }
 
 // genreAlt만으로는 저예산 성인물이 "성인"/"에로" 장르 태그 없이 등록된 경우를 못 거른다 —
-// 제목에 흔히 쓰이는 노골적인 표현도 같이 확인한다.
+// 제목에 흔히 쓰이는 노골적인 표현도 같이 확인한다. "하룻밤"처럼 일반 영화 제목에도
+// 흔히 쓰이는 단어는 오탐이 많아 넣지 않는다.
 const ADULT_CONTENT_TITLE_PATTERN =
-  /(거근|정사|불륜|스와핑|색정|음란|관음증?|애액|자위|후배위|몸종|씨받이|폭유|치정|섹스|19금|성인용)/;
+  /(거근|정사|불륜|스와핑|색정|음란|관음증?|애액|자위|후배위|몸종|씨받이|폭유|치정|섹스|19금|성인용|유부녀|신음|속궁합|육체를?\s*탐하|탐하는\s*(육체|몸)|구멍|다리\s*사이|가랑이|올라타[다는]?|올라탄|올라탔|욕정|발정|정욕|나체|알몸|은밀한\s*밤|불타는\s*밤)/;
 
 function isAdultContent(movie: { title: string; genreAlt: string | null }): boolean {
   if (movie.genreAlt && /성인|에로/.test(movie.genreAlt)) return true;

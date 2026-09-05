@@ -32,6 +32,8 @@ function emitChange() {
   reviewsByAuthorCache.clear();
   combinedRatingCache.clear();
   cachedUserReviewedMovies = null;
+  cachedMyReviews = null;
+  cachedMyMovieRatings = null;
   listeners.forEach((listener) => listener());
 }
 
@@ -174,6 +176,61 @@ export function getUserReviewedMoviesSnapshot(): ReviewedMovie[] {
 
 export function getServerUserReviewedMoviesSnapshot(): ReviewedMovie[] {
   return EMPTY_REVIEWED_MOVIES;
+}
+
+// 내가 남긴 리뷰 전체(중복 제거 없이) — 나만의 영화 리스트에서 영화별 리뷰 미리보기,
+// 누적 좋아요 합산 등에 쓴다.
+const EMPTY_MY_REVIEWS: Review[] = [];
+let cachedMyReviews: Review[] | null = null;
+
+export function getMyReviewsSnapshot(): Review[] {
+  if (typeof window === "undefined") return EMPTY_MY_REVIEWS;
+  if (!cachedMyReviews) cachedMyReviews = readUserReviews();
+  return cachedMyReviews;
+}
+
+export function getServerMyReviewsSnapshot(): Review[] {
+  return EMPTY_MY_REVIEWS;
+}
+
+// 영화별로 내가 남긴 평점을 하나로 합친 것 — 같은 영화에 항목별로 여러 리뷰를
+// 남겼으면 가장 높은 정규화 평점(0~10)과, 가장 최근에 남긴 시각을 쓴다.
+export type MyMovieRating = ReviewedMovie & {
+  rating: number; // 0~10으로 정규화(한줄평 0~10, 장문평 0~100을 같은 기준으로 비교)
+  ratedAt: string; // ISO — 이 영화에 남긴 리뷰 중 가장 최근 시각
+};
+
+const EMPTY_MY_MOVIE_RATINGS: MyMovieRating[] = [];
+let cachedMyMovieRatings: MyMovieRating[] | null = null;
+
+export function getMyMovieRatingsSnapshot(): MyMovieRating[] {
+  if (typeof window === "undefined") return EMPTY_MY_MOVIE_RATINGS;
+  if (!cachedMyMovieRatings) {
+    const byMovie = new Map<string, MyMovieRating>();
+    for (const review of readUserReviews()) {
+      const normalized = (review.rating / (review.type === "short" ? 10 : 100)) * 10;
+      const existing = byMovie.get(review.movieId);
+      if (!existing) {
+        byMovie.set(review.movieId, {
+          id: review.movieId,
+          title: review.movieTitle,
+          posterUrl: review.moviePosterUrl,
+          gradient: review.movieGradient,
+          rating: normalized,
+          ratedAt: review.createdAt,
+        });
+      } else {
+        existing.rating = Math.max(existing.rating, normalized);
+        if (review.createdAt > existing.ratedAt) existing.ratedAt = review.createdAt;
+      }
+    }
+    cachedMyMovieRatings = Array.from(byMovie.values());
+  }
+  return cachedMyMovieRatings;
+}
+
+export function getServerMyMovieRatingsSnapshot(): MyMovieRating[] {
+  return EMPTY_MY_MOVIE_RATINGS;
 }
 
 // 특정 작성자가 남긴 모든 리뷰 (영화 불문). 프로필 페이지에서 사용.

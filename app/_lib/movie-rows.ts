@@ -92,8 +92,11 @@ export async function toRowMovie(summary: KobisMovieSummary): Promise<RowMovie> 
   };
 }
 
+// 포스터를 못 찾은 영화는 카드가 빈 회색 박스로만 보여서 화면이 지저분해지고,
+// 실제로는 KMDb에 등록조차 안 된 저예산/성인물일 가능성도 높아 아예 빼고 보여준다.
 async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> {
-  return Promise.all(summaries.map(toRowMovie));
+  const rows = await Promise.all(summaries.map(toRowMovie));
+  return rows.filter((row) => row.posterUrl !== null);
 }
 
 async function rereleasesToRows(rereleases: KobisRerelease[]): Promise<RowMovie[]> {
@@ -360,5 +363,7 @@ export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
   const matched = candidates.filter((movie) =>
     keywords.some((kw) => movie.genreAlt?.includes(kw))
   );
-  return toRowMovies(matched.slice(0, 20));
+  // 포스터 없는 영화가 toRowMovies에서 빠지는 만큼 부족해지지 않도록 넉넉히 뽑아둔다.
+  const rows = await toRowMovies(matched.slice(0, 40));
+  return rows.slice(0, 20);
 }
