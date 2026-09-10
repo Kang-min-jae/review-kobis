@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import MovieCard from "./MovieCard";
+import CoverflowCarousel from "./CoverflowCarousel";
 import type { RowMovie } from "../_lib/movie-rows";
 
 export type AwardTab = {
@@ -52,12 +52,12 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
         })}
       </div>
 
-      {/* 수상작 카드 목록 */}
-      <div className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
-        {activeTab.movies.map((movie) => (
-          <MovieCard key={movie.id} movie={movie} />
-        ))}
-      </div>
+      {/* 수상작 캐러셀 */}
+      <CoverflowCarousel
+        key={activeId}
+        movies={activeTab.movies}
+        hint="카드를 드래그하거나 화살표로 넘겨보세요"
+      />
     </section>
   );
 }
