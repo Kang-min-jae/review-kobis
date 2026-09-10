@@ -200,6 +200,71 @@ export async function searchTmdbMovie(
   };
 }
 
+// ── TV 시리즈 ──────────────────────────────────────────────────────────────
+
+type RawTmdbTvSearchResult = {
+  id: number;
+  name?: string;
+  original_name?: string;
+  first_air_date?: string; // "YYYY-MM-DD" | ""
+  poster_path?: string | null;
+  overview?: string;
+};
+
+type RawTmdbTvDetails = {
+  id: number;
+  name?: string;
+  original_name?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+  number_of_seasons?: number | null;
+  genres?: RawTmdbGenre[];
+};
+
+export type TmdbSeriesDetails = {
+  tmdbId: string;
+  name: string;
+  originalName: string | null;
+  posterUrl: string | null;
+  overview: string | null;
+  firstAirDate: string | null;
+  seasonCount: number | null;
+  genre: string | null; // 콤마 구분
+};
+
+export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
+  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`);
+  if (!details) return null;
+  return {
+    tmdbId: String(details.id),
+    name: details.name ?? "",
+    originalName: details.original_name?.trim() || null,
+    posterUrl: toImageUrl(details.poster_path),
+    overview: details.overview?.trim() || null,
+    firstAirDate: details.first_air_date?.trim() || null,
+    seasonCount: details.number_of_seasons ?? null,
+    genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
+  };
+}
+
+export async function searchTmdbSeries(query: string): Promise<TmdbSeriesDetails[]> {
+  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query });
+  return (data?.results ?? [])
+    .filter((r) => r.name || r.original_name)
+    .slice(0, 5)
+    .map((r) => ({
+      tmdbId: String(r.id),
+      name: r.name ?? r.original_name ?? "",
+      originalName: r.original_name?.trim() || null,
+      posterUrl: toImageUrl(r.poster_path),
+      overview: r.overview?.trim() || null,
+      firstAirDate: r.first_air_date?.trim() || null,
+      seasonCount: null,
+      genre: null,
+    }));
+}
+
 // ── 인물 ──────────────────────────────────────────────────────────────────
 
 type RawTmdbPersonSearchResult = {

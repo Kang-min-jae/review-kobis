@@ -23,7 +23,9 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
-  const isRatable = movie.id.startsWith("kobis-");
+  const isSeries = movie.id.startsWith("tmdb-tv-");
+  const isRatable = movie.id.startsWith("kobis-") || isSeries;
+  const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
   // "추천 N%"는 내가 남긴 평점의 장르와 이 영화의 장르가 겹치는 비율 — 평점은
   // 브라우저에만 있어서 서버가 계산해줄 수 없으니 여기서 직접 계산한다.
@@ -93,7 +95,7 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
             )}
             {isRatable ? (
               <Link
-                href={`/movies/${movie.id}/rate`}
+                href={rateHref}
                 className="flex-1 whitespace-nowrap rounded-full border border-star bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
               >
                 ★ 평점

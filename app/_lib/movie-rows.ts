@@ -459,3 +459,54 @@ export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
   const rows = await toRowMovies(matched.slice(0, 40));
   return rows.slice(0, 20);
 }
+
+// 사용자 인기영화: 이 사이트에서 평점을 가장 많이 받은 영화 순서로 최대 limit편을 반환한다.
+// genreFilter가 있으면 그 장르에 속하는 영화만 남긴다 — 각 장르 섹션에서 "이 장르 내 인기"를
+// 보여줄 때 쓴다. 평점 데이터가 충분하지 않으면 빈 배열을 돌려줘서 행 자체를 숨긴다.
+export async function getUserPopularMoviesRow(
+  genreFilter?: string,
+  limit = 10
+): Promise<RowMovie[]> {
+  // CategoryRating.movieCd는 순수 KOBIS 코드(숫자만)다. 시리즈("tmdb-tv-*") 평점은
+  // 여기서 제외하기 위해 숫자로만 이루어진 코드만 취한다.
+  const topRated = await db.categoryRating.groupBy({
+    by: ["movieCd"],
+    _count: { movieCd: true },
+    orderBy: { _count: { movieCd: "desc" } },
+    take: genreFilter ? 200 : limit * 3, // 장르 필터링 여지를 두고 넉넉히 가져온다
+  });
+
+  const movieCds = topRated
+    .map((r) => r.movieCd)
+    .filter((cd) => /^\d+$/.test(cd)); // 숫자 KOBIS 코드만
+
+  if (movieCds.length === 0) return [];
+
+  const metas = await getMovieMetas(movieCds);
+
+  const rows: RowMovie[] = [];
+  for (const cd of movieCds) {
+    const meta = metas.get(cd) ?? null;
+    if (!meta?.posterUrl) continue;
+
+    // 장르 필터: genreFilter가 있으면 GENRE_KEYWORDS 기준으로 걸러낸다
+    if (genreFilter) {
+      const keywords = GENRE_KEYWORDS[genreFilter] ?? [];
+      const hasGenre = keywords.some((kw) => meta.genreAlt?.includes(kw));
+      if (!hasGenre) continue;
+    }
+
+    rows.push({
+      id: `kobis-${cd}`,
+      title: metas.get(cd)?.movieTitle ?? cd,
+      posterUrl: meta.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: false,
+      ...genreFields(meta.genreAlt),
+    });
+
+    if (rows.length >= limit) break;
+  }
+
+  return rows;
+}
