@@ -23,6 +23,7 @@ import {
   getInternationalBestRow,
   getWeeklyBoxOfficeRow,
   getGenreRow,
+  getUserPopularMoviesRow,
 } from "./_lib/movie-rows";
 import {
   getLatestAcademyWinnerRows,
@@ -30,6 +31,7 @@ import {
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
 } from "./_lib/award-winners";
+import { getCuratedSeriesRow } from "./_lib/series-rows";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -156,6 +158,24 @@ async function InternationalBestRowData() {
   );
 }
 
+async function CuratedSeriesRowData() {
+  const movies = await getCuratedSeriesRow();
+  if (movies.length === 0) return null;
+  return <MovieRow title="추천 시리즈" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
+}
+
+async function UserPopularMoviesRowData({ genre }: { genre?: string }) {
+  const movies = await getUserPopularMoviesRow(genre, 10);
+  if (movies.length < 3) return null; // 평점 데이터가 충분하지 않으면 행 숨김
+  return (
+    <MovieRow
+      title="사용자 인기영화"
+      subtitle={genre ? `${genre} 장르 중 평점이 가장 많은 순` : "이 사이트에서 평점을 가장 많이 받은 영화"}
+      movies={movies}
+    />
+  );
+}
+
 async function AwardWinnersData() {
   const [academyRows, cannesRows, berlinRows, veniceRows] = await Promise.all([
     getLatestAcademyWinnerRows(),
@@ -226,6 +246,28 @@ function MovieCategorySection() {
       <Suspense fallback={<RowSkeleton />}>
         <InternationalBestRowData />
       </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <CuratedSeriesRowData />
+      </Suspense>
+      <Suspense fallback={null}>
+        <UserPopularMoviesRowData />
+      </Suspense>
+    </>
+  );
+}
+
+async function TvProgramSection() {
+  const movies = await getCuratedSeriesRow();
+  if (movies.length === 0) {
+    return <p className="px-5 py-16 text-center text-sm text-muted">시리즈 정보를 불러오는 중이에요.</p>;
+  }
+  return (
+    <>
+      <section className="px-5 pt-6">
+        <h2 className="text-lg font-bold text-text">추천 시리즈</h2>
+        <p className="mt-1 text-sm text-muted">편집자가 고른 명작 드라마 · 애니메이션 — 평점을 남겨보세요</p>
+      </section>
+      <MovieRow title="" movies={movies} />
     </>
   );
 }
@@ -237,9 +279,14 @@ async function GenreRowData({ genre }: { genre: GenreLabel }) {
 
 function GenreSection({ genre }: { genre: GenreLabel }) {
   return (
-    <Suspense key={genre} fallback={<RowSkeleton />}>
-      <GenreRowData genre={genre} />
-    </Suspense>
+    <>
+      <Suspense key={genre} fallback={<RowSkeleton />}>
+        <GenreRowData genre={genre} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <UserPopularMoviesRowData genre={genre} />
+      </Suspense>
+    </>
   );
 }
 
@@ -259,7 +306,13 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       {category === "영화" && genre === "전체" && <MovieCategorySection />}
       {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
 
-      {(category === "TV프로그램" || category === "단편·독립") && (
+      {category === "TV프로그램" && (
+        <Suspense fallback={<RowSkeleton />}>
+          <TvProgramSection />
+        </Suspense>
+      )}
+
+      {category === "단편·독립" && (
         <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
       )}
     </main>

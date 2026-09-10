@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMeta } from "../../_lib/movie-rate-info";
+import { searchTmdbSeries } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
 // 박스오피스 등 다른 목록과 똑같이 CachedMovie(lazy cache)를 거쳐 포스터를 붙인다 —
@@ -85,32 +86,34 @@ export async function GET(request: Request) {
   const query = searchParams.get("q")?.trim() ?? "";
 
   if (!query) {
-    return NextResponse.json({ movies: [], people: [], correctedQuery: null });
+    return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  const [movieHits, rawPeople] = await Promise.all([
+  const [movieHits, rawPeople, seriesHits] = await Promise.all([
     searchMoviesSince1960(query),
     searchKmdbPeople(query, 8),
+    searchTmdbSeries(query),
   ]);
   const people = await withIdentityMappingOverride(rawPeople, query);
 
-  if (movieHits.length > 0 || people.length > 0) {
+  if (movieHits.length > 0 || people.length > 0 || seriesHits.length > 0) {
     const [movies, peopleWithWorks] = await Promise.all([withPosters(movieHits), withRepresentativeWorks(people)]);
-    return NextResponse.json({ movies, people: peopleWithWorks, correctedQuery: null });
+    return NextResponse.json({ movies, series: seriesHits, people: peopleWithWorks, correctedQuery: null });
   }
 
   // 정확히 일치하는 결과가 없으면(오타 가능성), 비슷한 제목으로 한 번 더 찾아본다.
   const suggested = await suggestSimilarTitle(query);
   if (!suggested) {
-    return NextResponse.json({ movies: [], people: [], correctedQuery: null });
+    return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  const [correctedMovieHits, rawCorrectedPeople] = await Promise.all([
+  const [correctedMovieHits, rawCorrectedPeople, correctedSeriesHits] = await Promise.all([
     searchMoviesSince1960(suggested),
     searchKmdbPeople(suggested, 8),
+    searchTmdbSeries(suggested),
   ]);
   const correctedPeople = await withIdentityMappingOverride(rawCorrectedPeople, suggested);
-  const found = correctedMovieHits.length > 0 || correctedPeople.length > 0;
+  const found = correctedMovieHits.length > 0 || correctedPeople.length > 0 || correctedSeriesHits.length > 0;
   const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
     withPosters(correctedMovieHits),
     withRepresentativeWorks(correctedPeople),
@@ -118,6 +121,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     movies: correctedMovies,
+    series: correctedSeriesHits,
     people: correctedPeopleWithWorks,
     correctedQuery: found ? suggested : null,
   });

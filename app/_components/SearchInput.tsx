@@ -11,6 +11,13 @@ type MovieHit = {
   posterUrl: string | null;
 };
 
+type SeriesHit = {
+  tmdbId: string;
+  name: string;
+  firstAirDate: string | null;
+  posterUrl: string | null;
+};
+
 type PersonHit = {
   name: string;
   kmdbId: string;
@@ -23,6 +30,7 @@ type PersonHit = {
 export default function SearchInput() {
   const [query, setQuery] = useState("");
   const [movies, setMovies] = useState<MovieHit[]>([]);
+  const [series, setSeries] = useState<SeriesHit[]>([]);
   const [people, setPeople] = useState<PersonHit[]>([]);
   const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -45,16 +53,18 @@ export default function SearchInput() {
       const res = await fetch(`/api/search-movies?q=${encodeURIComponent(trimmed)}`);
       console.debug("[search] 응답 status:", res.status);
       if (!res.ok) throw new Error(`검색 요청 실패: HTTP ${res.status}`);
-      const data: { movies?: MovieHit[]; people?: PersonHit[]; correctedQuery?: string | null } =
+      const data: { movies?: MovieHit[]; series?: SeriesHit[]; people?: PersonHit[]; correctedQuery?: string | null } =
         await res.json();
       console.debug("[search] 결과:", data);
       setMovies(data.movies ?? []);
+      setSeries(data.series ?? []);
       setPeople(data.people ?? []);
       setCorrectedQuery(data.correctedQuery ?? null);
       setError(false);
     } catch (err) {
       console.error("[search] 요청 실패:", err);
       setMovies([]);
+      setSeries([]);
       setPeople([]);
       setCorrectedQuery(null);
       setError(true);
@@ -68,6 +78,7 @@ export default function SearchInput() {
     setQuery(value);
     if (!value.trim()) {
       setMovies([]);
+      setSeries([]);
       setPeople([]);
       setCorrectedQuery(null);
       setOpen(false);
@@ -109,7 +120,7 @@ export default function SearchInput() {
     }
   }
 
-  const hasResults = movies.length > 0 || people.length > 0;
+  const hasResults = movies.length > 0 || series.length > 0 || people.length > 0;
 
   return (
     <div className="relative w-full flex-1">
@@ -202,9 +213,37 @@ export default function SearchInput() {
               </div>
             )}
 
+            {!loading && !error && series.length > 0 && (
+              <div className="border-b border-neutral-700 py-1">
+                <p className="px-3 py-1 text-[10px] font-semibold text-muted">시리즈</p>
+                {series.map((hit) => (
+                  <Link
+                    key={hit.tmdbId}
+                    href={`/series/tmdb-tv-${hit.tmdbId}/rate`}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 p-2.5 hover:bg-black/30"
+                  >
+                    <div className="relative flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-gradient-to-br from-neutral-800 via-neutral-600 to-neutral-400">
+                      {hit.posterUrl ? (
+                        <PosterImage src={hit.posterUrl} alt={`${hit.name} 포스터`} sizes="40px" />
+                      ) : (
+                        <span className="text-xs font-bold text-white/70">{hit.name.slice(0, 1)}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-text">{hit.name}</p>
+                      <p className="text-[10px] text-muted">
+                        시리즈{hit.firstAirDate ? ` · ${hit.firstAirDate.slice(0, 4)}` : ""}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+
             {!loading && !error && movies.length > 0 && (
               <div className="py-1">
-                {people.length > 0 && <p className="px-3 py-1 text-[10px] font-semibold text-muted">영화</p>}
+                {(people.length > 0 || series.length > 0) && <p className="px-3 py-1 text-[10px] font-semibold text-muted">영화</p>}
                 {movies.map((hit) => (
                   <Link
                     key={hit.movieCd}
