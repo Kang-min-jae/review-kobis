@@ -265,6 +265,95 @@ export async function searchTmdbSeries(query: string): Promise<TmdbSeriesDetails
     }));
 }
 
+export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
+  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular");
+  return (data?.results ?? [])
+    .filter((r) => r.name || r.original_name)
+    .slice(0, 20)
+    .map((r) => ({
+      tmdbId: String(r.id),
+      name: r.name ?? r.original_name ?? "",
+      originalName: r.original_name?.trim() || null,
+      posterUrl: toImageUrl(r.poster_path),
+      overview: r.overview?.trim() || null,
+      firstAirDate: r.first_air_date?.trim() || null,
+      seasonCount: null,
+      genre: null,
+    }));
+}
+
+// TMDB TV 장르 ID 매핑
+const TV_GENRE_IDS: Record<string, string> = {
+  "드라마": "18",
+  "액션": "10759",
+  "코미디": "35",
+  "범죄": "80",
+  "SF": "10765",
+  "판타지": "10765",
+  "미스터리": "9648",
+  "다큐멘터리": "99",
+  "전쟁": "10768",
+};
+
+export async function discoverTmdbSeriesByGenre(genre: string): Promise<TmdbSeriesDetails[]> {
+  const genreId = TV_GENRE_IDS[genre];
+  let data: { results?: RawTmdbTvSearchResult[] } | null;
+  if (genreId) {
+    data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/discover/tv", {
+      with_genres: genreId,
+      sort_by: "popularity.desc",
+    });
+  } else {
+    data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query: genre });
+  }
+  return (data?.results ?? [])
+    .filter((r) => r.name || r.original_name)
+    .slice(0, 20)
+    .map((r) => ({
+      tmdbId: String(r.id),
+      name: r.name ?? r.original_name ?? "",
+      originalName: r.original_name?.trim() || null,
+      posterUrl: toImageUrl(r.poster_path),
+      overview: r.overview?.trim() || null,
+      firstAirDate: r.first_air_date?.trim() || null,
+      seasonCount: null,
+      genre: null,
+    }));
+}
+
+type RawTmdbTvCredit = {
+  id: number;
+  name?: string;
+  original_name?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+};
+
+export async function getTmdbPersonTvCredits(personId: string): Promise<TmdbSeriesDetails[]> {
+  const data = await tmdbFetch<{ cast?: RawTmdbTvCredit[]; crew?: RawTmdbTvCredit[] }>(
+    `/person/${personId}/tv_credits`
+  );
+  const all = [...(data?.cast ?? []), ...(data?.crew ?? [])];
+  const deduped = new Map<number, RawTmdbTvCredit>();
+  for (const c of all) {
+    if ((c.name || c.original_name) && !deduped.has(c.id)) deduped.set(c.id, c);
+  }
+  return Array.from(deduped.values())
+    .filter((c) => c.poster_path)
+    .slice(0, 20)
+    .map((c) => ({
+      tmdbId: String(c.id),
+      name: c.name ?? c.original_name ?? "",
+      originalName: c.original_name?.trim() || null,
+      posterUrl: toImageUrl(c.poster_path),
+      overview: c.overview?.trim() || null,
+      firstAirDate: c.first_air_date?.trim() || null,
+      seasonCount: null,
+      genre: null,
+    }));
+}
+
 // ── 인물 ──────────────────────────────────────────────────────────────────
 
 type RawTmdbPersonSearchResult = {

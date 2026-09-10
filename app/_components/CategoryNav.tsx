@@ -3,7 +3,7 @@ import Link from "next/link";
 export const tabCategories = [
   "영화",
   "현재 상영중인 영화",
-  "TV프로그램",
+  "TV·시리즈물",
   "단편·독립",
 ] as const;
 export type TabCategory = (typeof tabCategories)[number];
@@ -63,7 +63,7 @@ export default function CategoryNav({
         ))}
       </nav>
 
-      {active !== "my-list" && (
+      {active !== "my-list" && active !== "TV·시리즈물" && (
         <nav className="px-5 py-4">
           {/* 세그먼트 슬라이더 — 전체를 하나의 캡슐로 묶고, 선택된 것만 살짝 밝은
               배경 + 컬러 텍스트로 보여준다(개별 테두리/아이콘 없이). */}

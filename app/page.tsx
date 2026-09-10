@@ -31,7 +31,8 @@ import {
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
 } from "./_lib/award-winners";
-import { getCuratedSeriesRow } from "./_lib/series-rows";
+import { getCuratedSeriesRow, getPopularSeriesRow } from "./_lib/series-rows";
+import SeriesKeywordSearch from "./_components/SeriesKeywordSearch";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -256,18 +257,32 @@ function MovieCategorySection() {
   );
 }
 
-async function TvProgramSection() {
+async function CuratedSeriesSection() {
   const movies = await getCuratedSeriesRow();
-  if (movies.length === 0) {
-    return <p className="px-5 py-16 text-center text-sm text-muted">시리즈 정보를 불러오는 중이에요.</p>;
-  }
+  if (movies.length === 0) return null;
+  return <MovieRow title="추천 시리즈물" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
+}
+
+async function PopularSeriesSection() {
+  const movies = await getPopularSeriesRow();
+  if (movies.length === 0) return null;
+  return <MovieRow title="인기 시리즈물" subtitle="TMDB 현재 인기 시리즈 — 넷플릭스 · 디즈니+ · 드라마 전체" movies={movies} />;
+}
+
+function TvSeriesSection() {
   return (
     <>
-      <section className="px-5 pt-6">
-        <h2 className="text-lg font-bold text-text">추천 시리즈</h2>
-        <p className="mt-1 text-sm text-muted">편집자가 고른 명작 드라마 · 애니메이션 — 평점을 남겨보세요</p>
+      <Suspense fallback={<RowSkeleton />}>
+        <CuratedSeriesSection />
+      </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <PopularSeriesSection />
+      </Suspense>
+      <section className="px-5 py-6">
+        <h2 className="text-lg font-bold text-text">키워드로 찾기</h2>
+        <p className="mt-1 text-sm text-muted">장르, 배우 이름, 시리즈 제목으로 바로 검색하세요</p>
+        <SeriesKeywordSearch />
       </section>
-      <MovieRow title="" movies={movies} />
     </>
   );
 }
@@ -306,11 +321,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
       {category === "영화" && genre === "전체" && <MovieCategorySection />}
       {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
 
-      {category === "TV프로그램" && (
-        <Suspense fallback={<RowSkeleton />}>
-          <TvProgramSection />
-        </Suspense>
-      )}
+      {category === "TV·시리즈물" && <TvSeriesSection />}
 
       {category === "단편·독립" && (
         <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
