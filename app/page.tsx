@@ -24,7 +24,12 @@ import {
   getWeeklyBoxOfficeRow,
   getGenreRow,
 } from "./_lib/movie-rows";
-import { getLatestAcademyWinnerRows, getLatestCannesWinnerRows } from "./_lib/award-winners";
+import {
+  getLatestAcademyWinnerRows,
+  getLatestCannesWinnerRows,
+  getLatestBerlinWinnerRows,
+  getLatestVeniceWinnerRows,
+} from "./_lib/award-winners";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -152,9 +157,11 @@ async function InternationalBestRowData() {
 }
 
 async function AwardWinnersData() {
-  const [academyRows, cannesRows] = await Promise.all([
+  const [academyRows, cannesRows, berlinRows, veniceRows] = await Promise.all([
     getLatestAcademyWinnerRows(),
     getLatestCannesWinnerRows(),
+    getLatestBerlinWinnerRows(),
+    getLatestVeniceWinnerRows(),
   ]);
 
   const tabs: AwardTab[] = [
@@ -169,6 +176,18 @@ async function AwardWinnersData() {
       name: "칸 영화제",
       icon: "star",
       movies: cannesRows.map((r) => r.movie),
+    },
+    {
+      id: "berlin",
+      name: "베를린 영화제",
+      icon: "star",
+      movies: berlinRows.map((r) => r.movie),
+    },
+    {
+      id: "venice",
+      name: "베니스 영화제",
+      icon: "star",
+      movies: veniceRows.map((r) => r.movie),
     },
   ].filter((tab) => tab.movies.length > 0) as AwardTab[];
 

@@ -5,7 +5,7 @@ import MovieCard from "./MovieCard";
 import type { RowMovie } from "../_lib/movie-rows";
 
 export type AwardTab = {
-  id: "academy" | "cannes";
+  id: "academy" | "cannes" | "berlin" | "venice";
   name: string;
   icon: "trophy" | "star";
   movies: RowMovie[];
@@ -23,7 +23,7 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
       <p className="mt-1 text-sm text-muted">세계 3대 영화제 · 아카데미 시상식의 최근 수상작만 모았어요</p>
 
       {/* 영화제 탭 */}
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const isActive = tab.id === activeId;
           return (
