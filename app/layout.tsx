@@ -33,6 +33,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="flex-1">{children}</div>
         <footer className="px-5 py-4 text-center text-[10px] text-muted">
           이 서비스는 영화진흥위원회 KOBIS 오픈API를 활용하였습니다.
+          <span className="mx-1 opacity-40">·</span>
+          <span className="opacity-70">포스터 이미지 제공: TMDB</span>
+          <span className="mx-1 opacity-40">·</span>
+          <span className="opacity-70">수상 정보 제공: Wikidata</span>
         </footer>
       </body>
     </html>

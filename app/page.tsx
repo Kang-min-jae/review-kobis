@@ -10,6 +10,7 @@ import MovieRow from "./_components/MovieRow";
 import BoxOfficeCoverflow from "./_components/BoxOfficeCoverflow";
 import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
+import AwardWinnersSection, { type AwardTab } from "./_components/AwardWinnersSection";
 import {
   getNowShowingRow,
   getRereleaseRow,
@@ -23,6 +24,7 @@ import {
   getWeeklyBoxOfficeRow,
   getGenreRow,
 } from "./_lib/movie-rows";
+import { getLatestAcademyWinnerRows, getLatestCannesWinnerRows } from "./_lib/award-winners";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -149,10 +151,38 @@ async function InternationalBestRowData() {
   );
 }
 
+async function AwardWinnersData() {
+  const [academyRows, cannesRows] = await Promise.all([
+    getLatestAcademyWinnerRows(),
+    getLatestCannesWinnerRows(),
+  ]);
+
+  const tabs: AwardTab[] = [
+    {
+      id: "academy",
+      name: "아카데미 시상식",
+      icon: "trophy",
+      movies: academyRows.map((r) => r.movie),
+    },
+    {
+      id: "cannes",
+      name: "칸 영화제",
+      icon: "star",
+      movies: cannesRows.map((r) => r.movie),
+    },
+  ].filter((tab) => tab.movies.length > 0) as AwardTab[];
+
+  if (tabs.length === 0) return null;
+  return <AwardWinnersSection tabs={tabs} />;
+}
+
 function MovieCategorySection() {
   return (
     <>
       <RecommendedSection />
+      <Suspense fallback={null}>
+        <AwardWinnersData />
+      </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <WeeklyBoxOfficeRowData />
       </Suspense>
