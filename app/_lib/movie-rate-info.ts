@@ -30,9 +30,9 @@ export type MovieMeta = {
   cast: PersonRef[];
   tmdbId: string | null;
   // 포스터/줄거리/장르 등을 최종적으로 어느 소스에서 가져왔는지 —
-  // "kmdb": KOFIC+KMDb 조합 | "kmdb_via_tmdb_match": KMDb에 없어 TMDB 매칭으로
-  // originalTitle을 얻은 뒤 KMDb를 재검색해 포스터를 찾은 경우.
-  source: "kmdb" | "kmdb_via_tmdb_match";
+  // "tmdb": TMDB 포스터를 직접 사용 | "kmdb": KMDb 포스터 사용 |
+  // "kmdb_via_tmdb_match": TMDB 원제로 KMDb를 재검색해 포스터를 찾은 경우.
+  source: "tmdb" | "kmdb" | "kmdb_via_tmdb_match";
 };
 
 export type ResolvedMovieInfo = MovieMeta & {
@@ -146,11 +146,16 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
     director: row.directorName ? { name: row.directorName, kmdbId: row.directorKmdbId } : null,
     cast: row.cast as PersonRef[],
     tmdbId: row.tmdbId,
-    source: row.source === "kmdb_via_tmdb_match" ? "kmdb_via_tmdb_match" : "kmdb",
+    source: row.source === "kmdb_via_tmdb_match" ? "kmdb_via_tmdb_match"
+           : row.source === "tmdb" ? "tmdb"
+           : "kmdb",
   };
 }
 
-// KOBIS+KMDb를 조합해 영화 정보를 새로 받아오고, 다음 조회를 위해 캐시에 저장한다.
+// KOBIS+TMDB+KMDb를 조합해 영화 정보를 새로 받아오고, 다음 조회를 위해 캐시에 저장한다.
+// TMDB: 포스터·개요·장르·런타임 (1차 소스)
+// KMDb: 감독·출연진 한국어 이름 + kmdbId (인물 페이지 라우팅에 필요, 1차 소스)
+// KOBIS: 개봉연도·박스오피스·관객수 (항상 KOBIS 원본 사용)
 async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const info = await getMovieDetailsByCd(movieCd);
   if (!info) return null;
@@ -161,34 +166,35 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     openDate: info.openDate,
     director: info.director?.name ?? null,
   });
+  // 개봉연도는 항상 KOBIS 원본을 쓴다 — 누적 관객수·박스오피스 기준과 일치해야 한다.
   const releaseDate = originalReleaseDate ?? info.openDate;
   const rereleaseDate = isRerelease ? info.openDate : null;
 
-  const kmdbInfo = await searchKmdbMovie(info.title, releaseDate?.slice(0, 4) ?? null, {
-    director: info.director?.name ?? null,
-    cast: info.cast.map((c) => c.name),
-  });
+  // TMDB(포스터·개요·장르·런타임)와 KMDb(한국어 감독·출연진+kmdbId)를 병렬 조회한다.
+  const [tmdbInfo, kmdbInfo] = await Promise.all([
+    searchTmdbMovie(info.title, releaseDate?.slice(0, 4) ?? null, info.titleEn),
+    searchKmdbMovie(info.title, releaseDate?.slice(0, 4) ?? null, {
+      director: info.director?.name ?? null,
+      cast: info.cast.map((c) => c.name),
+    }),
+  ]);
 
-  // KMDb에 포스터가 없으면 TMDB를 '매칭 보조 도구'로만 쓴다 — TMDB 포스터 URL을
-  // 직접 저장하는 게 아니라, TMDB에서 얻은 originalTitle(영문 원제)·개봉연도로
-  // KMDb를 재검색해 한국 측 포스터를 찾는다. 재검색에도 포스터가 없으면 null로
-  // 남긴다 — TMDB 이미지는 절대 사용하지 않는다.
-  let finalPosterUrl = kmdbInfo?.posterUrl ?? null;
-  let source: "kmdb" | "kmdb_via_tmdb_match" = "kmdb";
-  let tmdbInfo: Awaited<ReturnType<typeof searchTmdbMovie>> = null;
+  // 포스터: TMDB URL 직접 사용 → KMDb 폴백 → null
+  let finalPosterUrl = tmdbInfo?.posterUrl ?? kmdbInfo?.posterUrl ?? null;
+  let source: "tmdb" | "kmdb" | "kmdb_via_tmdb_match" =
+    tmdbInfo?.posterUrl ? "tmdb" : "kmdb";
 
-  if (!finalPosterUrl) {
-    tmdbInfo = await searchTmdbMovie(info.title, releaseDate?.slice(0, 4) ?? null, info.titleEn);
-    if (tmdbInfo?.originalTitle) {
-      const yearHintForRetry = tmdbInfo.releaseDate?.slice(0, 4) ?? releaseDate?.slice(0, 4) ?? null;
-      const kmdbRetry = await searchKmdbMovie(tmdbInfo.originalTitle, yearHintForRetry);
-      if (kmdbRetry?.posterUrl) {
-        finalPosterUrl = kmdbRetry.posterUrl;
-        source = "kmdb_via_tmdb_match";
-      }
+  // TMDB에도 KMDb에도 포스터가 없으면 TMDB 원제로 KMDb를 재검색한다.
+  if (!finalPosterUrl && tmdbInfo?.originalTitle) {
+    const yearHintForRetry = tmdbInfo.releaseDate?.slice(0, 4) ?? releaseDate?.slice(0, 4) ?? null;
+    const kmdbRetry = await searchKmdbMovie(tmdbInfo.originalTitle, yearHintForRetry);
+    if (kmdbRetry?.posterUrl) {
+      finalPosterUrl = kmdbRetry.posterUrl;
+      source = "kmdb_via_tmdb_match";
     }
   }
 
+  // 감독·출연진: KMDb 한국어 이름 + kmdbId 우선 (인물 페이지 라우팅), KOBIS 폴백
   const directorRaw = kmdbInfo?.director ?? info.director;
   const castRaw = kmdbInfo?.cast && kmdbInfo.cast.length > 0 ? kmdbInfo.cast : info.cast;
   const castToShow = castRaw.slice(0, DISPLAY_CAST_LIMIT).map(toPersonRef);
@@ -214,13 +220,15 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
   const meta: MovieMeta = {
     movieCd: info.movieCd,
     movieTitle: info.title,
-    description: kmdbInfo?.overview ?? tmdbInfo?.overview ?? info.overview ?? "아직 등록된 설명이 없어요.",
+    // 개요·장르·런타임: TMDB 1차 → KMDb 폴백 → KOBIS
+    description: tmdbInfo?.overview ?? kmdbInfo?.overview ?? info.overview ?? "아직 등록된 설명이 없어요.",
     posterUrl: finalPosterUrl,
     gradient: FALLBACK_GRADIENT,
-    releaseDate: kmdbInfo?.releaseDate ?? tmdbInfo?.releaseDate ?? releaseDate,
+    // 개봉연도: 항상 KOBIS 원본 (KMDb가 다른 연도를 돌려줄 수 있어서 KOBIS 우선)
+    releaseDate,
     rereleaseDate,
-    runtimeMinutes: kmdbInfo?.runtimeMinutes ?? tmdbInfo?.runtimeMinutes ?? info.runtimeMinutes,
-    genreAlt: kmdbInfo?.genre ?? tmdbInfo?.genre ?? info.genreAlt,
+    runtimeMinutes: tmdbInfo?.runtimeMinutes ?? kmdbInfo?.runtimeMinutes ?? info.runtimeMinutes,
+    genreAlt: tmdbInfo?.genre ?? kmdbInfo?.genre ?? info.genreAlt,
     director,
     cast: cast.filter((c): c is PersonRef => c !== null),
     tmdbId: tmdbInfo?.tmdbId ?? null,
@@ -264,9 +272,7 @@ const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 // 이 캐시를 그대로 재사용한다 — 인기작은 홈 화면만 봐도 캐시가 데워진다.
 export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const cached = await db.cachedMovie.findUnique({ where: { movieCd } });
-  // source="tmdb"(TMDB 포스터를 직접 저장했던 구 캐시)는 신선도 무관하게 재계산한다 —
-  // 이제 TMDB 포스터를 저장하지 않으므로 다음 조회 때 새 로직으로 갱신한다.
-  if (cached && cached.source !== "tmdb" && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
     return rowToMeta(cached);
   }
 

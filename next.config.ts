@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
         hostname: "file.koreafilm.or.kr",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "image.tmdb.org",
+        pathname: "/t/p/**",
+      },
     ],
   },
   // localhost가 아닌 다른 주소(예: 같은 네트워크의 IP, 192.168.x.x)로 개발 서버에
