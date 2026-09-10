@@ -2,17 +2,22 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
+import PosterImage from "./PosterImage";
 
 type MovieHit = {
   movieCd: string;
   title: string;
   releaseDate: string | null;
+  posterUrl: string | null;
 };
 
 type PersonHit = {
   name: string;
   kmdbId: string;
   role: "감독" | "배우";
+  creditCount: number;
+  latestYear: string | null;
+  representativeWorks: string[];
 };
 
 export default function SearchInput() {
@@ -161,22 +166,39 @@ export default function SearchInput() {
             {!loading && !error && people.length > 0 && (
               <div className="border-b border-neutral-700 py-1">
                 <p className="px-3 py-1 text-[10px] font-semibold text-muted">배우 · 감독</p>
-                {people.map((person) => (
-                  <Link
-                    key={person.kmdbId}
-                    href={`/people/${encodeURIComponent(person.name)}?pid=${encodeURIComponent(person.kmdbId)}&role=${encodeURIComponent(person.role)}`}
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-3 p-2.5 hover:bg-black/30"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-xs text-muted">
-                      {person.name.slice(0, 1)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-text">{person.name}</p>
-                      <p className="text-[10px] text-muted">{person.role}</p>
-                    </div>
-                  </Link>
-                ))}
+                {people.map((person) => {
+                  // 이름+역할이 같은 동명이인이 실제로 여러 명 있을 때만(진짜 구분이 필요할
+                  // 때만) 참여작 수·최근 활동연도를 같이 보여준다 — 한 명뿐이면 굳이 안 보여줘도
+                  // 헷갈리지 않는다.
+                  const isAmbiguous =
+                    people.filter((p) => p.name === person.name && p.role === person.role).length > 1;
+                  return (
+                    <Link
+                      key={person.kmdbId}
+                      href={`/people/${encodeURIComponent(person.name)}?pid=${encodeURIComponent(person.kmdbId)}&role=${encodeURIComponent(person.role)}`}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center gap-3 p-2.5 hover:bg-black/30"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-xs text-muted">
+                        {person.name.slice(0, 1)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-text">{person.name}</p>
+                        <p className="truncate text-[10px] text-muted">
+                          {person.role}
+                          {/* KOFIC 대표작이 있으면 그게 사람이 실제로 알아볼 수 있는 가장 확실한
+                              구분 정보라 우선 보여주고, 없을 때만 KMDb 기반 참여작 수·최근작으로 대체한다. */}
+                          {person.representativeWorks.length > 0 ? (
+                            <> · {person.representativeWorks.join(", ")} 외</>
+                          ) : (
+                            isAmbiguous &&
+                            ` · 참여작 ${person.creditCount}편${person.latestYear ? ` · ${person.latestYear}년 최근작` : ""}`
+                          )}
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             )}
 
@@ -190,7 +212,13 @@ export default function SearchInput() {
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-3 p-2.5 hover:bg-black/30"
                   >
-                    <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded bg-gradient-to-br from-neutral-800 via-neutral-600 to-neutral-400" />
+                    <div className="relative flex h-14 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-gradient-to-br from-neutral-800 via-neutral-600 to-neutral-400">
+                      {hit.posterUrl ? (
+                        <PosterImage src={hit.posterUrl} alt={`${hit.title} 포스터`} sizes="40px" />
+                      ) : (
+                        <span className="text-xs font-bold text-white/70">{hit.title.slice(0, 1)}</span>
+                      )}
+                    </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm text-text">{hit.title}</p>
                       <p className="text-[10px] text-muted">{hit.releaseDate?.slice(0, 4)}</p>

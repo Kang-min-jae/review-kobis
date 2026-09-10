@@ -1,88 +1,87 @@
+import Link from "next/link";
+import SiteHeader from "../../_components/SiteHeader";
 import BackBar from "../../_components/BackBar";
 import FilmographyGrid from "../../_components/FilmographyGrid";
-import { searchMovieCatalog, findMovieCdByTitleAndPerson } from "../../_lib/kobis";
-import { searchKmdbFilmography } from "../../_lib/kmdb";
-import { isRecentlyOpened, toRowMovie } from "../../_lib/movie-rows";
-import type { RowMovie } from "../../_lib/movie-rows";
+import { getPersonFilmography, getPersonTmdbId } from "../../_lib/person-filmography";
+import { findNamesakeCandidates } from "../../_lib/kmdb";
+import { getTmdbPersonBirthday } from "../../_lib/tmdb";
+import { db } from "../../_lib/db";
 
-const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
-
-// KMDb에서 이름(+가능하면 인물 코드, 역할)으로 감독/배우 참여작을 찾고, 평점 페이지로
-// 연결하기 위해 각 작품을 KOBIS movieCd와 매칭한다 (KOBIS에 없는 — 국내 미개봉 — 작품은
-// 평점을 남길 방법이 없어서 목록에서 제외한다). role을 주면 "배우 톰 홀랜드"에 이름만
-// 같은 "감독 톰 홀랜드"의 작품이 섞이는 것을 막을 수 있다.
-async function filmographyFromKmdb(
-  name: string,
-  personId: string | null,
-  role: "감독" | "배우" | null
-): Promise<RowMovie[]> {
-  const movies = await searchKmdbFilmography(name, personId, role);
-  if (movies.length === 0) return [];
-
-  // 한글 제목으로 KOBIS에서 못 찾으면 영문 제목으로 재시도한다 — 외화는 KMDb와 KOBIS의
-  // 한글 번역 표기가 다른 경우가 흔하다(특히 배우 필모그래피에 외화가 많을 때 영향이 크다).
-  // 제목이 같은 동명이인 영화(예: "컨택트")가 여럿이면 실제 출연진에 이 사람 이름이
-  // 있는 쪽만 채택한다 — 안 그러면 전혀 다른 영화 정보로 연결될 수 있다.
-  const movieCds = await Promise.all(
-    movies.map((m) => findMovieCdByTitleAndPerson(m.title, name, m.titleEng, role))
-  );
-  const rows: RowMovie[] = [];
-  movies.forEach((movie, i) => {
-    const movieCd = movieCds[i];
-    if (!movieCd) return;
-    rows.push({
-      id: `kobis-${movieCd}`,
-      title: movie.title,
-      posterUrl: movie.posterUrl,
-      gradient: FALLBACK_GRADIENT,
-      isNowShowing: isRecentlyOpened(movie.releaseDate),
-    });
-  });
-  return rows;
-}
-
-// KOBIS searchMovieList의 directorNm으로 감독 재검색 (배우 이름으로는 필터링 불가 —
-// 배우일 경우 그냥 빈 배열이 온다). KMDb 검색은 전문(full-text) 검색이라 특정 인물의
-// 작품을 다 못 찾는 경우가 있어서, KMDb 결과가 있어도 항상 같이 돌려서 합친다 —
-// KOBIS의 정확한 감독명 필터가 KMDb에서 누락된 작품을 채워준다.
-async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
-  const candidates = await searchMovieCatalog({ directorNm: name }, 30);
-  return Promise.all(candidates.map(toRowMovie));
+function candidateHref(name: string, role: "감독" | "배우", kmdbId: string): string {
+  const params = new URLSearchParams({ role, pid: kmdbId });
+  return `/people/${encodeURIComponent(name)}?${params.toString()}`;
 }
 
 export default async function PersonPage({ params, searchParams }: PageProps<"/people/[id]">) {
   const { id } = await params;
   const { pid, role: roleParam } = await searchParams;
   const name = decodeURIComponent(id);
-  const personId = typeof pid === "string" ? pid : null;
   const role = roleParam === "감독" || roleParam === "배우" ? roleParam : null;
 
-  // KOBIS 감독명 검색은 감독만 걸러줄 수 있어서(배우로는 필터링이 안 됨), 이 사람이
-  // 배우라고 이미 알고 있으면 아예 돌리지 않는다 — 안 그러면 이름만 같은 감독의 작품이
-  // 배우 필모그래피에 섞여 들어온다.
-  const shouldSearchKobisDirector = role !== "배우";
+  // URL에 pid가 없어도(예: 예전에 만들어진 링크), 이 이름이 사람이 직접 확인해둔
+  // PersonIdentityMapping에 있으면 그 확정된 kmdbId를 우선 쓴다 — 이름만으로
+  // 다시 추정하는 것보다 안전하다.
+  let personId = typeof pid === "string" ? pid : null;
+  if (!personId && role) {
+    const mapping = await db.personIdentityMapping.findUnique({
+      where: { personName_role: { personName: name, role } },
+    });
+    if (mapping?.kmdbId) personId = mapping.kmdbId;
+  }
 
-  const [kmdbRows, kobisDirectorRows] = await Promise.all([
-    filmographyFromKmdb(name, personId, role),
-    shouldSearchKobisDirector ? filmographyFromKobisDirector(name) : Promise.resolve([]),
+  const [movies, candidates] = await Promise.all([
+    getPersonFilmography(name, personId, role),
+    role ? findNamesakeCandidates(name, role) : Promise.resolve([]),
   ]);
 
-  // KMDb는 포스터가 있어 우선하고, KOBIS 감독 검색에만 있는 작품(KMDb 누락분)을 채워 넣는다.
-  const byId = new Map<string, RowMovie>();
-  for (const row of kmdbRows) byId.set(row.id, row);
-  for (const row of kobisDirectorRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  const movies: RowMovie[] = Array.from(byId.values());
+  // getPersonFilmography가 방금 TMDB에서 person_id를 찾았다면(또는 이전에 찾아
+  // 캐시해뒀다면) 그대로 재사용해서 생년월일을 참고 정보로 보여준다 — KMDb엔 없는
+  // 정보라 TMDB로만 보완 가능하다. 동명이인 확정 근거는 아니고 어디까지나 참고용.
+  const tmdbId = await getPersonTmdbId(personId);
+  const birthday = tmdbId ? await getTmdbPersonBirthday(tmdbId) : null;
+  const birthYear = birthday?.slice(0, 4) || null;
+
+  // 후보가 하나뿐이면 애초에 동명이인이 아니니 안내가 필요 없다. 여럿이면, 지금 personId가
+  // 그 후보들 중 하나로 이미 특정된 경우(검색에서 클릭했거나 매핑에 등록된 경우)엔 "다른
+  // 후보 보기" 링크만 주고, personId가 아예 없어서 이름만으로 조회된 경우엔(동명이인이
+  // 섞여 있을 위험이 실제로 있는 경우) 더 분명한 경고를 준다.
+  const others = candidates.filter((c) => c.kmdbId !== personId);
+  const isDisambiguated = candidates.length > 1 && !!personId && others.length < candidates.length;
 
   return (
-    <main className="px-5 py-6">
-      <BackBar />
+    <main>
+      <SiteHeader />
+      <div className="px-5 py-6">
+        <BackBar />
 
-      <h1 className="mt-3 text-lg font-bold text-text">{name}</h1>
-      <p className="mt-1 text-xs text-muted">참여작 {movies.length}편 · 평점 높은 순</p>
+        <h1 className="mt-3 text-lg font-bold text-text">
+          {name}
+          {birthYear && <span className="ml-2 text-sm font-normal text-muted">{birthYear}년생</span>}
+        </h1>
+        <p className="mt-1 text-xs text-muted">참여작 {movies.length}편 · 평점 높은 순</p>
 
-      <section className="mt-6">
-        <FilmographyGrid movies={movies} />
-      </section>
+        {candidates.length > 1 && (
+          <div className="mt-3 rounded-lg border border-brand/40 bg-brand/10 p-3 text-xs text-brand">
+            {isDisambiguated ? (
+              <p>같은 이름의 다른 인물이 {others.length}명 더 있어요 — 지금 보시는 필모그래피는 선택하신 분 기준이에요.</p>
+            ) : (
+              <p>같은 이름의 인물이 {candidates.length}명 등록돼 있어요 — 필모그래피에 다른 사람의 작품이 섞여 있을 수 있어요.</p>
+            )}
+            <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+              {(isDisambiguated ? others : candidates).map((c) => (
+                <Link key={c.kmdbId} href={candidateHref(name, c.role, c.kmdbId)} className="underline hover:no-underline">
+                  {isDisambiguated ? "다른 후보" : "선택"}: 참여작 {c.creditCount}편
+                  {c.latestYear ? ` · ${c.latestYear}년 최근작` : ""}
+                </Link>
+              ))}
+            </p>
+          </div>
+        )}
+
+        <section className="mt-6">
+          <FilmographyGrid movies={movies} />
+        </section>
+      </div>
     </main>
   );
 }

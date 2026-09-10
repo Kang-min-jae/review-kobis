@@ -9,34 +9,59 @@ function requireUserId(session: Session | null): string {
   return session.user.id;
 }
 
-// 리뷰 좋아요를 토글한다 — 좋아요를 누르면 Review.likeCount와, 그 리뷰를 쓴
-// 사람(User.totalLikes, 등급 계산용)을 함께 +1 하고, 취소하면 함께 -1 한다.
-// 좋아요를 누른 사람이 아니라 리뷰 작성자 쪽 totalLikes가 올라간다는 점에 주의.
-export async function toggleReviewLike(reviewId: string) {
+export type VoteType = "LIKE" | "DISLIKE";
+export type MyVote = VoteType | null;
+
+// from -> to 사이의 변화를 Review.likeCount/dislikeCount, User.totalLikes에
+// 각각 얼마나 더하고 뺄지로 환산한다. "투표 없음"은 null로 표현한다 — 이렇게 하면
+// 새로 투표/취소(토글 오프)/좋아요<->싫어요 전환 세 경우를 분기 없이 한 번에 처리할 수 있다.
+// totalLikes(등급 계산용)는 좋아요만 반영하고 싫어요는 관여하지 않는다.
+function computeDeltas(from: MyVote, to: MyVote) {
+  const like = (to === "LIKE" ? 1 : 0) - (from === "LIKE" ? 1 : 0);
+  const dislike = (to === "DISLIKE" ? 1 : 0) - (from === "DISLIKE" ? 1 : 0);
+  return { like, dislike, totalLikes: like };
+}
+
+// 리뷰에 좋아요/싫어요를 투표한다. 이미 같은 투표를 눌렀으면 취소(토글 오프)하고,
+// 다른 투표가 있었으면 그쪽으로 바꾼다 — 한 사람이 한 리뷰에 가질 수 있는 투표는 하나뿐.
+// 좋아요를 누른 사람이 아니라 리뷰 작성자 쪽 likeCount/dislikeCount/totalLikes가 바뀐다.
+export async function toggleReviewVote(reviewId: string, type: VoteType) {
   const session = await auth();
   const userId = requireUserId(session);
 
   const review = await db.review.findUniqueOrThrow({ where: { id: reviewId } });
-
   const existing = await db.reviewLike.findUnique({
     where: { reviewId_userId: { reviewId, userId } },
   });
 
-  if (existing) {
-    await db.$transaction([
-      db.reviewLike.delete({ where: { id: existing.id } }),
-      db.review.update({ where: { id: reviewId }, data: { likeCount: { decrement: 1 } } }),
-      db.user.update({ where: { id: review.userId }, data: { totalLikes: { decrement: 1 } } }),
-    ]);
-    return { liked: false };
-  }
+  const from: MyVote = existing?.type ?? null;
+  const to: MyVote = from === type ? null : type;
+  const { like, dislike, totalLikes } = computeDeltas(from, to);
 
-  await db.$transaction([
-    db.reviewLike.create({ data: { reviewId, userId } }),
-    db.review.update({ where: { id: reviewId }, data: { likeCount: { increment: 1 } } }),
-    db.user.update({ where: { id: review.userId }, data: { totalLikes: { increment: 1 } } }),
-  ]);
-  return { liked: true };
+  const writes = [];
+  if (to === null) {
+    writes.push(db.reviewLike.delete({ where: { id: existing!.id } }));
+  } else if (existing) {
+    writes.push(db.reviewLike.update({ where: { id: existing.id }, data: { type: to } }));
+  } else {
+    writes.push(db.reviewLike.create({ data: { reviewId, userId, type: to } }));
+  }
+  if (like !== 0 || dislike !== 0) {
+    writes.push(
+      db.review.update({
+        where: { id: reviewId },
+        data: { likeCount: { increment: like }, dislikeCount: { increment: dislike } },
+      })
+    );
+  }
+  if (totalLikes !== 0) {
+    writes.push(
+      db.user.update({ where: { id: review.userId }, data: { totalLikes: { increment: totalLikes } } })
+    );
+  }
+  await db.$transaction(writes);
+
+  return { myVote: to };
 }
 
 // 평론가(다른 유저) 팔로우를 토글한다.

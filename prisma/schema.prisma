@@ -26,18 +26,34 @@ model CachedMovie {
   genreAlt       String?
   directorName   String?
   directorKmdbId String?
-  cast           Json // { name: string; kmdbId: string | null }[]
+  // findMoviesByCastTmdbId(person-filmography.ts) 역방향 조회용 — 이름으로 TMDB
+  // 인물을 찾아본 결과(동명이인이면 null로 남는다).
+  directorTmdbId String?
+  cast           Json // { name: string; kmdbId: string | null; tmdbId: string | null }[]
+  // KOFIC/KMDb 둘 다 실패했거나 포스터가 없어서 TMDB로 보완한 경우에만 채워진다.
+  tmdbId         String?
+  // 포스터/줄거리/장르 등을 최종적으로 어느 소스에서 가져왔는지 — "kmdb"(기본,
+  // KOFIC+KMDb 조합) | "tmdb"(KMDb에 없어서 TMDB로 보완함).
+  source         String   @default("kmdb")
   updatedAt      DateTime @updatedAt
 }
 
 // 인물 필모그래피 캐시 — 마찬가지로 그 인물 페이지를 볼 때만 필요한 long-tail
 // 데이터라 lazy cache로 채운다.
 model CachedPerson {
-  kmdbId       String   @id
-  name         String
-  role         String // "감독" | "배우"
-  filmography  Json // RowMovie[]
-  updatedAt    DateTime @updatedAt
+  kmdbId      String   @id
+  name        String
+  role        String // "감독" | "배우"
+  filmography Json // RowMovie[]
+  // 이름으로 TMDB 인물 검색을 해서 한 번 찾아낸 person_id — 한 번 찾으면 캐시가
+  // 신선한 동안은 재검색하지 않는다. 확정 판정이 아니라 이름 기반 매칭이라 완전히
+  // 정확하다는 보장은 없다(person-filmography.ts의 filmographyFromTmdb 참고).
+  tmdbId      String?
+  // 톰 홀랜드·맷 데이먼 같은 외국 인물의 영문 본명 — TMDB는 영문 이름으로만
+  // 등록돼 있어서, 한글 이름으로 검색하면 못 찾는다. KMDb 원본 크레딧에서
+  // 추출해 여기 저장해두면 캐시가 만료돼 다시 계산할 때 재추출 없이 바로 쓸 수 있다.
+  nameEn      String?
+  updatedAt   DateTime @updatedAt
 }
 
 // 박스오피스 순위·이 달의 Best처럼 자주 조회되는 랭킹류 목록 — 요청마다 새로
@@ -54,6 +70,34 @@ model RankingSnapshot {
   @@index([listType, syncedAt])
 }
 
+// 재개봉 여부 판정 캐시 — KOFIC 박스오피스/카탈로그와 KMDb 개봉일·제작연도를 대조해서
+// 신작인지 재개봉작인지 가리는 작업(영화 하나당 KMDb 검색 + KOBIS 원 개봉 대조까지 필요)은
+// API 호출이 많이 들어서 요청마다 다시 계산하지 않는다. scripts/refresh-rerelease-
+// classifications.mts가 하루 1회 배치로 미리 계산해 여기 저장해두면, 프론트엔드
+// (movie-rows.ts)는 이 표에 저장된 값만 읽는다.
+model RereleaseClassification {
+  movieCd         String   @id
+  movieTitle      String
+  isRerelease     Boolean
+  originalYear    String? // 원작 제작/개봉 연도(YYYY) — isRerelease=false면 null
+  rereleaseDate   String? // 이번 재개봉일(ISO) — isRerelease=false면 null
+  audiAcc         Int? // 판정 시점 기준 누적 관객수(박스오피스에 있으면) — "인기 재개봉작" 정렬용
+  // 장르 필터링용(콤마 구분, KOBIS/KMDb 원본 표기 그대로) — 판정 과정에서 이미 조회한
+  // KMDb 결과에서 얻으므로 추가 API 호출이 들지 않는다. 이 값이 없으면(장르를 못
+  // 찾음) 장르 필터에서 항상 제외된다.
+  genreAlt        String?
+  // "classified": 자동/수동으로 신작·재개봉 여부가 정해짐 · "unclassified": 자동 판정 근거가
+  // 전혀 없어 수동 검수가 필요함(관리자가 scripts/manage-rerelease-override.mts로 확정해야 함).
+  status          String   @default("classified")
+  // 어떤 근거로 판정했는지: "kmdb-release-date" | "kobis-earliest-registration" |
+  // "title-keyword" | "year-gap-heuristic" | "new-release" | "manual"
+  source          String
+  manualConfirmed Boolean  @default(false) // true면 다음 배치가 덮어쓰지 않는다
+  syncedAt        DateTime @default(now())
+
+  @@index([isRerelease, status])
+}
+
 // ── 로그인 (Auth.js) ─────────────────────────────────────────────────────
 // User/Account/Session/VerificationToken은 Auth.js의 PrismaAdapter가 요구하는
 // 정확한 형태 그대로다 — 필드명을 바꾸면 어댑터가 못 찾는다. nickname/totalLikes만
@@ -63,21 +107,38 @@ model RankingSnapshot {
 model User {
   id            String    @id @default(cuid())
   name          String? // OAuth 제공자가 준 원래 이름
-  nickname      String? // 사이트에서 실제로 보여주는 이름 — 처음엔 name으로 채우고 나중에 바꿀 수 있게
+  nickname      String?   @unique // 사이트에서 실제로 보여주는 이름 — 처음엔 name으로 채우고 나중에 바꿀 수 있게. 중복 불가(NULL은 여러 개 허용).
   email         String?   @unique // 카카오는 이메일 동의를 안 받은 앱이면 안 줄 수도 있어 nullable
   emailVerified DateTime?
   image         String?
+  password      String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null
   totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
 
-  accounts      Account[]
-  sessions      Session[]
-  reviews       Review[]
-  reviewLikes   ReviewLike[]
-  following     Follow[]       @relation("Following")
-  followers     Follow[]       @relation("Followers")
-  watchTriggers WatchTrigger[] @relation("Reader")
+  accounts            Account[]
+  sessions            Session[]
+  reviews             Review[]
+  reviewLikes         ReviewLike[]
+  categoryRatings     CategoryRating[]
+  following           Follow[]             @relation("Following")
+  followers           Follow[]             @relation("Followers")
+  watchTriggers       WatchTrigger[]       @relation("Reader")
+  passwordResetTokens PasswordResetToken[]
 
   createdAt DateTime @default(now())
+}
+
+// "아이디·비밀번호 찾기"용 1회성 토큰. Auth.js 어댑터가 요구하는
+// VerificationToken(이메일 인증/매직링크 전용, 스키마 형태가 고정됨)과는
+// 목적이 달라 별도 모델로 뒀다.
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Account {
@@ -122,10 +183,10 @@ model Review {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  movieCd String
+  movieCd  String
   // "전체" | "연출" | "연기" | "각본" | "음악" | "편집" — category-ratings-store.ts의
   // RATING_CATEGORIES와 같은 값을 그대로 쓴다(번역 레이어 없이 1:1 매칭).
-  category String @default("전체")
+  category String     @default("전체")
   type     ReviewType
   content  String
   rating   Float // 한줄평 0~10, 장문평 0~100 — 지금 화면 스케일 그대로
@@ -133,14 +194,17 @@ model Review {
   hasSpoiler   Boolean  @default(false)
   spoilerLevel Int      @default(0)
   likeCount    Int      @default(0) // 반정규화 — 좋아요 받을 때마다 트랜잭션으로 같이 갱신
+  dislikeCount Int      @default(0) // 반정규화 — 싫어요는 등급(totalLikes) 계산엔 안 들어간다
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   likes         ReviewLike[]
   watchTriggers WatchTrigger[]
 
+  // 한 사람은 같은 영화의 같은 항목·타입(한줄평/장문평)에 리뷰를 하나만 남긴다 —
+  // 다시 등록하면 새로 만들지 않고 그 리뷰를 수정한다.
+  @@unique([userId, movieCd, category, type])
   @@index([movieCd, category, type])
-  @@index([userId])
 }
 
 enum ReviewType {
@@ -148,16 +212,40 @@ enum ReviewType {
   LONG
 }
 
-// 리뷰 좋아요 — 등급(관객/씨네필/평론가/거장) 계산의 핵심 데이터.
+// 항목별 페이지 위쪽의 빠른 별점(글 없이 숫자만) — 한줄평/장문평(Review)과는 별개다.
+// 한 유저가 같은 영화의 같은 항목엔 점수 하나만 남긴다(1인 1표, upsert).
+model CategoryRating {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movieCd   String
+  category  String // Review.category와 같은 값("전체"/"연출"/"연기"/"각본"/"음악"/"편집")
+  score     Float // 0.0 ~ 10.0
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, movieCd, category])
+  @@index([movieCd, category])
+}
+
+// 리뷰 좋아요/싫어요 — 좋아요는 등급(관객/씨네필/평론가/거장) 계산의 핵심 데이터,
+// 싫어요는 표시용(dislikeCount)일 뿐 등급엔 영향 없음. 한 사람이 한 리뷰에 남길 수
+// 있는 투표는 하나뿐이라(좋아요 누른 뒤 싫어요를 누르면 좋아요가 싫어요로 바뀐다).
 model ReviewLike {
   id        String   @id @default(cuid())
   reviewId  String
   review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      VoteType @default(LIKE)
   createdAt DateTime @default(now())
 
   @@unique([reviewId, userId])
+}
+
+enum VoteType {
+  LIKE
+  DISLIKE
 }
 
 // 평론가 팔로우.
@@ -182,4 +270,44 @@ model WatchTrigger {
   createdAt DateTime @default(now())
 
   @@unique([reviewId, readerId])
+}
+
+// 필모그래피 자동 매칭(동명이인 구분 등)이 못 잡아내는 경우를 위한 수동 예외.
+// KMDb 원본 데이터 자체의 오류처럼 우리 로직으로는 못 고치는 경우, 사람이 직접
+// "이 인물의 이 영화는 빼라/넣어라"를 등록해두면 다음 캐시 갱신부터 반영된다.
+model PersonFilmographyOverride {
+  id           String                          @id @default(cuid())
+  personKmdbId String
+  movieCd      String
+  action       PersonFilmographyOverrideAction
+  reason       String?
+  createdAt    DateTime                        @default(now())
+
+  @@unique([personKmdbId, movieCd])
+  @@index([personKmdbId])
+}
+
+enum PersonFilmographyOverrideAction {
+  EXCLUDE
+  INCLUDE
+}
+
+// 이름만으로는 동명이인을 구분할 근거가 없는 경우를 위한 화이트리스트. "황정민"처럼
+// 자주 검색되고 이미 동명이인 문제가 실제로 확인된 이름을, 사람이 직접 확인한
+// kmdbId(+가능하면 KOFIC peopleCd)로 미리 확정해둔다. movie-rate-info.ts가 영화
+// cast의 이름에 kmdbId를 역조회(resolvePersonId)하기 전에 이 테이블을 먼저 확인해서,
+// 등록된 이름이면 검색 기반 추정 대신 이 확정값을 그대로 쓴다.
+// koficPeopleCd는 KOFIC 영화인 상세정보 API 구조가 아직 완전히 검증되지 않아 우선
+// nullable로 둔다 — 검증되면 채워 넣는다.
+model PersonIdentityMapping {
+  id            String   @id @default(cuid())
+  personName    String
+  role          String // "감독" | "배우"
+  kmdbId        String?
+  koficPeopleCd String?
+  tmdbId        String?
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@unique([personName, role])
 }
