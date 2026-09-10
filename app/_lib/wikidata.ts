@@ -50,40 +50,37 @@ async function sparqlFetch(query: string): Promise<Record<string, { value: strin
   }
 }
 
-// 부문 QID 배열을 받아 각 부문의 가장 최근 수상 엔티티를 반환한다.
+// 부문 QID 배열을 받아 최근 N년 수상 엔티티를 반환한다.
 // FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 } 로 사람 엔티티(Q5)를 제거해
 // 배우·감독 수상 부문에서 인명이 섞이는 것을 원천 차단한다.
-export async function fetchLatestWinners(awardQids: string[]): Promise<WikidataAwardWinner[]> {
+export async function fetchLatestWinners(
+  awardQids: string[],
+  sinceYear = new Date().getFullYear() - 6,
+): Promise<WikidataAwardWinner[]> {
   if (awardQids.length === 0) return [];
 
   const values = awardQids.map((q) => `wd:${q}`).join(" ");
 
   const query = `
-SELECT ?award ?film ?year ?labelKo ?labelEn WHERE {
+SELECT DISTINCT ?award ?film ?year ?labelKo ?labelEn WHERE {
   VALUES ?award { ${values} }
-  {
-    SELECT ?award (MAX(?yr) AS ?maxYear) WHERE {
-      ?f p:P166 ?stmt .
-      ?stmt ps:P166 ?award .
-      ?stmt pq:P585 ?d .
-      FILTER NOT EXISTS { ?f wdt:P31 wd:Q5 }
-      BIND(YEAR(?d) AS ?yr)
-    }
-    GROUP BY ?award
-  }
-  ?film p:P166 ?stmt2 .
-  ?stmt2 ps:P166 ?award .
-  ?stmt2 pq:P585 ?date2 .
+  ?film p:P166 ?stmt .
+  ?stmt ps:P166 ?award .
+  ?stmt pq:P585 ?date .
   FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }
-  BIND(YEAR(?date2) AS ?year)
-  FILTER(?year = ?maxYear)
+  BIND(YEAR(?date) AS ?year)
+  FILTER(?year >= ${sinceYear})
   OPTIONAL { ?film rdfs:label ?labelKo FILTER(LANG(?labelKo) = "ko") }
   OPTIONAL { ?film rdfs:label ?labelEn FILTER(LANG(?labelEn) = "en") }
 }
+ORDER BY ?award DESC(?year)
+LIMIT 100
 `.trim();
 
   const rows = await sparqlFetch(query);
 
+  // filmQid+awardQid 조합으로 중복 제거 (같은 영화가 같은 부문에서 여러 날짜로 등록된 경우)
+  const seen = new Set<string>();
   const results: WikidataAwardWinner[] = [];
   for (const row of rows) {
     const filmUri = row.film?.value ?? "";
@@ -93,8 +90,11 @@ SELECT ?award ?film ?year ?labelKo ?labelEn WHERE {
     const awardUri = row.award?.value ?? "";
     const awardQid = awardUri.split("/").pop() ?? "";
     const year = parseInt(row.year?.value ?? "0", 10);
-    if (!filmQid || !titleEn || !year) continue;
-    results.push({ filmQid, titleKo, titleEn, awardQid, ceremonyYear: year });
+    if (!filmQid || (!titleEn && !titleKo) || !year) continue;
+    const key = `${filmQid}-${awardQid}-${year}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push({ filmQid, titleKo, titleEn: titleEn || titleKo!, awardQid, ceremonyYear: year });
   }
   return results;
 }

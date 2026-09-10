@@ -11,6 +11,13 @@ export type AwardTab = {
   movies: RowMovie[];
 };
 
+const TAB_ICONS: Record<AwardTab["id"], { emoji: string; color: string }> = {
+  academy:  { emoji: "🏆", color: "from-yellow-600 to-yellow-400" },
+  cannes:   { emoji: "🌴", color: "from-rose-600 to-pink-400" },
+  berlin:   { emoji: "🐻", color: "from-red-700 to-red-400" },
+  venice:   { emoji: "🦁", color: "from-orange-600 to-amber-400" },
+};
+
 export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
   const [activeId, setActiveId] = useState<AwardTab["id"]>(tabs[0]?.id ?? "academy");
   const activeTab = tabs.find((t) => t.id === activeId) ?? tabs[0];
@@ -20,33 +27,36 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
   return (
     <section className="px-5 py-6">
       <h2 className="text-lg font-bold text-text">수상작으로 보기</h2>
-      <p className="mt-1 text-sm text-muted">세계 3대 영화제 · 아카데미 시상식의 최근 수상작만 모았어요</p>
+      <p className="mt-1 text-sm text-muted">세계 3대 영화제 · 아카데미 시상식의 최근 수상작</p>
 
-      {/* 영화제 탭 */}
-      <div className="mt-4 flex flex-wrap gap-2">
+      {/* 원형 영화제 탭 */}
+      <div className="mt-5 flex justify-center gap-6">
         {tabs.map((tab) => {
           const isActive = tab.id === activeId;
+          const { emoji, color } = TAB_ICONS[tab.id];
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveId(tab.id)}
-              className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors ${
-                isActive
-                  ? "border-star bg-star text-black"
-                  : "border-white/20 text-muted hover:border-white/40 hover:text-text"
-              }`}
+              className="flex flex-col items-center gap-1.5"
             >
-              {tab.icon === "trophy" ? (
-                <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.49L12 22l3.16-0.51C19.13 20.17 22 16.42 22 12c0-5.52-4.48-10-10-10zm0 18l-2.5-.4C7.17 18.75 5 15.57 5 12c0-3.86 3.14-7 7-7s7 3.14 7 7c0 3.57-2.17 6.75-4.5 7.6L12 20z" />
-                  <path d="M9 9h2v5H9zm4 0h2v5h-2z" />
-                </svg>
-              ) : (
-                <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                </svg>
-              )}
-              {tab.name}
+              <span
+                className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-lg transition-all ${
+                  isActive
+                    ? `bg-gradient-to-br ${color} ring-2 ring-star ring-offset-2 ring-offset-black scale-110`
+                    : "bg-neutral-800 opacity-60 hover:opacity-90"
+                }`}
+              >
+                {emoji}
+              </span>
+              <span
+                className={`text-[11px] font-semibold transition-colors ${
+                  isActive ? "text-star" : "text-muted"
+                }`}
+              >
+                {tab.name.replace(" 영화제", "").replace(" 시상식", "")}
+              </span>
             </button>
           );
         })}

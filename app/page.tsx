@@ -275,14 +275,14 @@ function TvSeriesSection() {
       <Suspense fallback={<RowSkeleton />}>
         <CuratedSeriesSection />
       </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <PopularSeriesSection />
-      </Suspense>
       <section className="px-5 py-6">
         <h2 className="text-lg font-bold text-text">키워드로 찾기</h2>
         <p className="mt-1 text-sm text-muted">장르, 배우 이름, 시리즈 제목으로 바로 검색하세요</p>
         <SeriesKeywordSearch />
       </section>
+      <Suspense fallback={<RowSkeleton />}>
+        <PopularSeriesSection />
+      </Suspense>
     </>
   );
 }

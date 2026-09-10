@@ -51,13 +51,13 @@ function releaseSlot(): void {
   }
 }
 
-async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+async function tmdbFetch<T>(path: string, params: Record<string, string> = {}, lang = "ko-KR"): Promise<T | null> {
   const key = apiKey();
   if (!key) return null;
 
   const url = new URL(`${TMDB_API_BASE}${path}`);
   url.searchParams.set("api_key", key);
-  url.searchParams.set("language", "ko-KR");
+  url.searchParams.set("language", lang);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   await acquireSlot();
@@ -248,21 +248,39 @@ export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDe
   };
 }
 
+function rawToSeriesDetails(r: RawTmdbTvSearchResult): TmdbSeriesDetails {
+  return {
+    tmdbId: String(r.id),
+    name: r.name ?? r.original_name ?? "",
+    originalName: r.original_name?.trim() || null,
+    posterUrl: toImageUrl(r.poster_path),
+    overview: r.overview?.trim() || null,
+    firstAirDate: r.first_air_date?.trim() || null,
+    seasonCount: null,
+    genre: null,
+  };
+}
+
+// 한국어·영어 두 로케일로 동시에 검색해 결과를 합친다.
+// TMDB search는 질의어가 어떤 언어든 검색하지만 language 파라미터가 반환 제목에 영향을 주므로,
+// 두 로케일을 병렬 요청해 tmdbId 기준으로 중복 제거하면 한글/영문 제목 모두 잡힌다.
 export async function searchTmdbSeries(query: string): Promise<TmdbSeriesDetails[]> {
-  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query });
-  return (data?.results ?? [])
-    .filter((r) => r.name || r.original_name)
-    .slice(0, 5)
-    .map((r) => ({
-      tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
-      posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+  const [koData, enData] = await Promise.all([
+    tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query }, "ko-KR"),
+    tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query }, "en-US"),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: TmdbSeriesDetails[] = [];
+  for (const r of [...(koData?.results ?? []), ...(enData?.results ?? [])]) {
+    if (!(r.name || r.original_name)) continue;
+    const id = String(r.id);
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(rawToSeriesDetails(r));
+    }
+  }
+  return merged.slice(0, 10);
 }
 
 export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
@@ -270,16 +288,7 @@ export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
   return (data?.results ?? [])
     .filter((r) => r.name || r.original_name)
     .slice(0, 20)
-    .map((r) => ({
-      tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
-      posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+    .map(rawToSeriesDetails);
 }
 
 // TMDB TV 장르 ID 매핑
@@ -309,16 +318,7 @@ export async function discoverTmdbSeriesByGenre(genre: string): Promise<TmdbSeri
   return (data?.results ?? [])
     .filter((r) => r.name || r.original_name)
     .slice(0, 20)
-    .map((r) => ({
-      tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
-      posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+    .map(rawToSeriesDetails);
 }
 
 type RawTmdbTvCredit = {
