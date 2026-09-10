@@ -2,7 +2,7 @@
 // KOBIS/KMDb가 아닌 TMDB TV 엔드포인트를 사용하고, CachedSeries에 캐시한다.
 
 import { db } from "./db";
-import { getTmdbSeriesDetails } from "./tmdb";
+import { getTmdbSeriesDetails, getTmdbPopularSeries } from "./tmdb";
 import { splitGenres } from "./movie-rows";
 import type { RowMovie } from "./movie-rows";
 
@@ -81,4 +81,19 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
 export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
   const results = await Promise.all(CURATED_SERIES_IDS.map(getOrFetchSeries));
   return results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
+}
+
+export async function getPopularSeriesRow(): Promise<RowMovie[]> {
+  const list = await getTmdbPopularSeries();
+  return list
+    .filter((s) => s.posterUrl !== null)
+    .map((s) => ({
+      id: `tmdb-tv-${s.tmdbId}`,
+      title: s.name,
+      posterUrl: s.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: false,
+      genre: null,
+      allGenres: [],
+    }));
 }
