@@ -65,7 +65,10 @@ type RawKmdbResult = {
 };
 
 // kmdbId는 KMDb가 매기는 인물 고유 코드(예: "00001843") — 동명이인을 구분하는 데 쓴다.
-export type KmdbPersonRef = { name: string; kmdbId: string | null };
+// nameEn은 TMDB 검색용 — 톰 홀랜드/맷 데이먼 같은 외국 배우는 TMDB에 본명(영문)
+// 으로만 등록돼 있어서, 한글 이름으로 검색하면 못 찾는다(movie-rate-info.ts,
+// person-filmography.ts의 TMDB 인물 검색 참고).
+export type KmdbPersonRef = { name: string; nameEn: string | null; kmdbId: string | null };
 export type KmdbCastMember = KmdbPersonRef;
 
 export type KmdbMovieDetails = {
@@ -103,15 +106,61 @@ function toDetails(raw: RawKmdbResult): KmdbMovieDetails | null {
     runtimeMinutes: raw.runtime ? Number(raw.runtime) || null : null,
     watchGrade: raw.rating?.trim() || null,
     director: directorNm
-      ? { name: directorNm, kmdbId: directorRaw?.directorId?.trim() || null }
+      ? { name: directorNm, nameEn: directorRaw?.directorEnNm?.trim() || null, kmdbId: directorRaw?.directorId?.trim() || null }
       : null,
     cast: (raw.actors?.actor ?? [])
       .filter((a) => a.actorNm?.trim())
       .slice(0, 20)
-      .map((a) => ({ name: stripHighlight(a.actorNm), kmdbId: a.actorId?.trim() || null })),
+      .map((a) => ({
+        name: stripHighlight(a.actorNm),
+        nameEn: a.actorEnNm?.trim() || null,
+        kmdbId: a.actorId?.trim() || null,
+      })),
     genre: raw.genre?.trim() || null,
     isFeatureFilm: raw.type === "극영화",
   };
+}
+
+// KMDb는 레거시 http(https 아님) API라 keep-alive 소켓을 서버 쪽에서 갑자기 끊어버리는
+// 경우("other side closed" SocketError)가 잦다. 새 연결로 재시도하면 대부분 바로
+// 해결되므로, 네트워크 오류(HTTP 상태 코드가 아닌 fetch 자체의 실패)일 때만 짧게
+// 재시도한다 — 존재하지 않는 데이터라 404 등이 온 경우는 재시도해도 소용없으므로 제외.
+const RAW_SEARCH_MAX_ATTEMPTS = 3;
+
+// fetch 자체엔 기본 타임아웃이 없어서, 연결이 에러 없이 그냥 응답 없이 멈춰버리면
+// (실제로 이 네트워크에서 여러 번 있었다) 이 요청이 영원히 안 끝난다 — 그러면 아래
+// KMDb 동시 요청 슬롯도 영원히 안 풀려서(finally를 못 타니까), 남은 슬롯이 하나둘
+// 줄다가 결국 홈 화면 일부 줄이 영원히 로딩 중으로 멈춰버리는 문제로 이어진다.
+// 일정 시간 안에 응답이 없으면 실패로 처리해서 재시도·슬롯 반납이 되게 한다.
+const FETCH_TIMEOUT_MS = 10_000;
+
+// 홈 화면처럼 한 요청 안에서 영화 수십~백 편의 메타데이터를 한꺼번에 조회하는
+// 페이지는(첫 방문이라 캐시가 비어 있으면 특히) 동시에 수십~백 건의 KMDb 요청이
+// 한꺼번에 나간다 — 실제로 이게 "other side closed" 소켓 오류가 몰려서 나는 원인
+// 중 하나였다(레거시 서버가 그만큼의 동시 연결을 못 버팀). 그래서 이 앱 전체에서
+// KMDb로 동시에 나가는 요청 개수를 여기서 하나로 제한한다 — 초과분은 큐에서
+// 순서대로 기다렸다가 나간다. searchKmdbMovie 등 모든 KMDb 함수가 결국 이
+// rawSearch를 거치므로, 호출부(movie-rows.ts 등) 하나하나를 손댈 필요 없이 여기
+// 한 곳에서만 막으면 된다.
+const KMDB_MAX_CONCURRENT_REQUESTS = 4;
+let kmdbActiveRequests = 0;
+const kmdbWaitQueue: Array<() => void> = [];
+
+function acquireKmdbSlot(): Promise<void> {
+  if (kmdbActiveRequests < KMDB_MAX_CONCURRENT_REQUESTS) {
+    kmdbActiveRequests++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => kmdbWaitQueue.push(resolve));
+}
+
+function releaseKmdbSlot(): void {
+  const next = kmdbWaitQueue.shift();
+  if (next) {
+    next(); // 대기 중이던 다음 요청이 이 슬롯을 그대로 이어받는다(활성 개수는 그대로).
+  } else {
+    kmdbActiveRequests--;
+  }
 }
 
 async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
@@ -125,17 +174,32 @@ async function rawSearch(query: string, listCount: number): Promise<RawKmdbResul
   url.searchParams.set("ServiceKey", key);
   url.searchParams.set("query", query);
 
+  await acquireKmdbSlot();
   try {
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
-    if (!res.ok) {
-      console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
-      return [];
+    for (let attempt = 1; attempt <= RAW_SEARCH_MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(url, {
+          next: { revalidate: 60 * 60 * 24 },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
+          return [];
+        }
+        const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
+        return data.Data?.[0]?.Result ?? [];
+      } catch (error) {
+        if (attempt < RAW_SEARCH_MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+          continue;
+        }
+        console.warn(`[kmdb] "${query}" 요청 중 오류(재시도 ${RAW_SEARCH_MAX_ATTEMPTS}회 실패):`, error);
+        return [];
+      }
     }
-    const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
-    return data.Data?.[0]?.Result ?? [];
-  } catch (error) {
-    console.warn(`[kmdb] "${query}" 요청 중 오류:`, error);
     return [];
+  } finally {
+    releaseKmdbSlot();
   }
 }
 
@@ -190,6 +254,30 @@ function pickBestMatch(
   return best?.raw ?? null;
 }
 
+// 제목이 같은 KMDb 레코드를 전부 찾는다 — 가장 가능성 높은 한 편만 고르는
+// searchKmdbMovie와 달리, 동명이작 여부를 판정하려면(재개봉 판정 배치) 후보를 전부
+// 모아 감독/배우/원제로 하나씩 대조해야 한다. 정규화 후 제목이 정확히 일치하는
+// 레코드만 담는다(searchKmdbMovie의 fuzzy 폴백은 여기선 안 쓴다 — 동명이작 판정의
+// 입력 자체가 애매해지면 안 된다).
+export async function searchKmdbMoviesByTitle(title: string, titleEn?: string | null): Promise<KmdbMovieDetails[]> {
+  const acceptableTitles = new Set([normalizeTitle(stripEdition(title)), normalizeTitle(title)]);
+  if (titleEn) {
+    acceptableTitles.add(normalizeTitle(stripEdition(titleEn)));
+    acceptableTitles.add(normalizeTitle(titleEn));
+  }
+
+  const results = await rawSearch(stripEdition(title), 50);
+  const pool = results.filter((r) => acceptableTitles.has(normalizeTitle(stripHighlight(r.title))));
+
+  const deduped = new Map<string, RawKmdbResult>();
+  for (const r of pool) {
+    if (r.DOCID && !deduped.has(r.DOCID)) deduped.set(r.DOCID, r);
+  }
+  return Array.from(deduped.values())
+    .map(toDetails)
+    .filter((d): d is KmdbMovieDetails => d !== null);
+}
+
 // 제목(+개봉연도 힌트)으로 가장 가능성 높은 한 편을 찾는다. 재개봉/에디션 수식어(파이널 컷,
 // 10주년 등)는 떼고 검색한다 — KMDb엔 보통 원제로만 등록돼 있어서다.
 // 한글 제목 검색으로 못 찾으면, 알려진 정보를 다른 경로로 하나씩 더 시도해서 어떻게든
@@ -224,8 +312,12 @@ export async function searchKmdbMovie(
     best = pickBestMatch(byDirector, acceptableTitles, yearHint);
   }
 
+  // 출연진이 많은 앙상블 영화는 이름을 한 명씩 순서대로 검색하면 요청이 끝없이
+  // 늘어날 수 있어서(실제로 이 폴백이 KMDb에 요청이 몰리는 원인 중 하나였다), 앞쪽
+  // 몇 명(대체로 비중이 큰 순으로 등록됨)만 시도하고 그래도 못 찾으면 포기한다.
+  const CAST_FALLBACK_LIMIT = 5;
   if (!best && extra?.cast) {
-    for (const member of extra.cast) {
+    for (const member of extra.cast.slice(0, CAST_FALLBACK_LIMIT)) {
       const byCastMember = await rawSearch(member, 50);
       best = pickBestMatch(byCastMember, acceptableTitles, yearHint);
       if (best) break;
@@ -239,51 +331,96 @@ export async function searchKmdbMovie(
 // role을 주면 그 역할(감독/배우) 슬롯에서만 이름을 찾는다 — 그렇지 않으면 "톰 홀랜드"처럼
 // 이름은 같지만 완전히 다른 두 사람(스파이더맨의 배우 vs 처키 시리즈의 감독)이 있을 때,
 // 배우로 클릭해 들어왔는데도 그 이름이 감독으로 등록된 전혀 다른 영화까지 섞여 들어온다.
-// personId가 있으면 우선 그 코드로 매칭해 동명이인을 확실히 구분하되, KMDb 인물 코드가
-// 같은 사람에게 일관되게 붙어있지 않은 경우가 있어(오래된 아카이브 데이터의 흔한 문제)
-// 이름이 정확히 일치하는 항목도 같이 포함한다 — 검색어 자체가 이 사람 이름이라 이름
-// 일치만으로도 오매칭 위험은 낮다.
+//
+// personId가 있으면 그 코드로만 매칭한다 — 예전엔 이름 일치도 같이 허용했었는데, "박정민"처럼
+// 흔한 이름은 완전히 다른 무명 배우/단역이 같은 이름으로 KMDb에 따로 등록돼 있는 경우가 있어
+// (실제 사례: "하루"/"군함도"/"메소드"/"왕을 참하라"에 다른 사람 "박정민"이 배우로 등록돼
+// 있었고, 그 사람의 actorId는 우리가 찾는 배우 박정민의 kmdbId와 달랐다) 이름 일치를 허용하면
+// 이런 동명이인의 작품이 필모그래피에 섞여 들어온다. personId가 없을 때만(코드 자체를 모를 때)
+// 어쩔 수 없이 이름으로 매칭한다.
+function creditsOf(
+  r: RawKmdbResult,
+  includeDirectors: boolean,
+  includeActors: boolean
+): { directors: RawKmdbDirector[]; actors: RawKmdbActor[] } {
+  return {
+    directors: includeDirectors ? (r.directors?.director ?? []) : [],
+    actors: includeActors ? (r.actors?.actor ?? []) : [],
+  };
+}
+
 export async function searchKmdbFilmography(
   personName: string,
   personId?: string | null,
-  role?: "감독" | "배우" | null
+  role?: "감독" | "배우" | null,
+  nameEn?: string | null
 ): Promise<KmdbMovieDetails[]> {
   const results = await rawSearch(personName, 100);
-  if (results.length === 0) return [];
+  // 외국 배우는 한글 이름 검색과 병행해 영문 이름으로도 검색 — KMDb에 영문으로만
+  // 등록돼 있거나 한글 이름 검색 결과에 이 인물의 작품이 충분히 안 걸리는 경우를 보완.
+  const enResults = nameEn && nameEn !== personName ? await rawSearch(nameEn, 100) : [];
+  const allResults = enResults.length > 0
+    ? Array.from(new Map([...results, ...enResults].filter(r => r.DOCID).map(r => [r.DOCID!, r])).values())
+    : results;
+  if (allResults.length === 0) return [];
 
   const includeDirectors = role !== "배우";
   const includeActors = role !== "감독";
 
-  const normalizedName = normalizeTitle(personName);
-  let matched = results.filter((r) => {
-    const directors = includeDirectors ? (r.directors?.director ?? []) : [];
-    const actors = includeActors ? (r.actors?.actor ?? []) : [];
-    const byId =
-      !!personId &&
-      (directors.some((d) => d.directorId === personId) || actors.some((a) => a.actorId === personId));
+  let matched: RawKmdbResult[];
+
+  if (personId) {
+    // ID를 문자열로 트림해서 비교한다 — 어느 한쪽에 공백이 섞여 있거나 타입이 어긋나면
+    // (예: 한쪽만 문자열) 비교가 항상 false가 되어 결과가 통째로 비어버리는데, 이 조용한
+    // 실패를 원천적으로 없애기 위해 양쪽 다 명시적으로 String() 캐스팅해서 비교한다.
+    const targetId = String(personId).trim();
+    matched = allResults.filter((r) => {
+      const { directors, actors } = creditsOf(r, includeDirectors, includeActors);
+      return (
+        directors.some((d) => d.directorId != null && String(d.directorId).trim() === targetId) ||
+        actors.some((a) => a.actorId != null && String(a.actorId).trim() === targetId)
+      );
+    });
+  } else {
     // 검색어가 이 사람 이름이면 KMDb가 이름 자체를 !HS...!HE로 감싸 돌려주므로, 비교 전에
     // 반드시 하이라이트 마커를 제거해야 한다 — 안 그러면 이 사람의 작품인데도 이름 비교가
     // 실패해서 필모그래피에서 누락된다.
-    const byName =
-      directors.some((d) => normalizeTitle(stripHighlight(d.directorNm)) === normalizedName) ||
-      actors.some((a) => normalizeTitle(stripHighlight(a.actorNm)) === normalizedName);
-    return byId || byName;
-  });
-
-  // 정확히 일치하는 항목이 하나도 없으면, 표기가 살짝 다른 경우(부가 표기, 띄어쓰기 등)에
-  // 대비해 이름이 서로 포함 관계인 후보로 한 번 더 찾아본다 — 검색어 자체가 이 사람 이름이라
-  // 완전 무관한 인물이 우연히 걸릴 위험은 낮다. 이때도 역할 범위는 그대로 유지한다.
-  if (matched.length === 0 && normalizedName.length >= 2) {
-    const nameMatches = (raw: string | undefined) => {
-      if (!raw) return false;
-      const n = normalizeTitle(stripHighlight(raw));
-      return n.length >= 2 && (n.includes(normalizedName) || normalizedName.includes(n));
-    };
-    matched = results.filter((r) => {
-      const directors = includeDirectors ? (r.directors?.director ?? []) : [];
-      const actors = includeActors ? (r.actors?.actor ?? []) : [];
-      return directors.some((d) => nameMatches(d.directorNm)) || actors.some((a) => nameMatches(a.actorNm));
+    const normalizedName = normalizeTitle(personName);
+    const normalizedNameEn = nameEn ? normalizeTitle(nameEn) : null;
+    matched = allResults.filter((r) => {
+      const { directors, actors } = creditsOf(r, includeDirectors, includeActors);
+      return (
+        directors.some((d) => {
+          const n = normalizeTitle(stripHighlight(d.directorNm));
+          return n === normalizedName || (normalizedNameEn && normalizeTitle(d.directorEnNm ?? "") === normalizedNameEn);
+        }) ||
+        actors.some((a) => {
+          const n = normalizeTitle(stripHighlight(a.actorNm));
+          return n === normalizedName || (normalizedNameEn && normalizeTitle(a.actorEnNm ?? "") === normalizedNameEn);
+        })
+      );
     });
+
+    // 정확히 일치하는 항목이 하나도 없으면, 표기가 살짝 다른 경우(부가 표기, 띄어쓰기 등)에
+    // 대비해 이름이 서로 포함 관계인 후보로 한 번 더 찾아본다 — 검색어 자체가 이 사람 이름이라
+    // 완전 무관한 인물이 우연히 걸릴 위험은 낮다. 이때도 역할 범위는 그대로 유지한다.
+    if (matched.length === 0 && normalizedName.length >= 2) {
+      const nameMatches = (korName: string | undefined, enName: string | undefined) => {
+        if (korName) {
+          const n = normalizeTitle(stripHighlight(korName));
+          if (n.length >= 2 && (n.includes(normalizedName) || normalizedName.includes(n))) return true;
+        }
+        if (normalizedNameEn && enName) {
+          const n = normalizeTitle(enName);
+          if (n.length >= 2 && (n.includes(normalizedNameEn) || normalizedNameEn.includes(n))) return true;
+        }
+        return false;
+      };
+      matched = allResults.filter((r) => {
+        const { directors, actors } = creditsOf(r, includeDirectors, includeActors);
+        return directors.some((d) => nameMatches(d.directorNm, d.directorEnNm)) || actors.some((a) => nameMatches(a.actorNm, a.actorEnNm));
+      });
+    }
   }
 
   const deduped = new Map<string, RawKmdbResult>();
@@ -297,7 +434,16 @@ export async function searchKmdbFilmography(
     .sort((a, b) => (b.prodYear ?? "").localeCompare(a.prodYear ?? ""));
 }
 
-export type KmdbPersonHit = { name: string; kmdbId: string; role: "감독" | "배우" };
+export type KmdbPersonHit = {
+  name: string;
+  kmdbId: string;
+  role: "감독" | "배우";
+  // 이번 검색(최대 100건) 안에서 이 kmdbId로 credit이 몇 번 잡혔는지 — 동명이인을
+  // 구분하는 보조 정보이자, "유령 후보"(우연히 한 번 스쳐 지나간 단역/오매칭)를
+  // 걸러내는 근거로 쓴다. 생년월일 데이터가 없어도 계산 가능하다.
+  creditCount: number;
+  latestYear: string | null;
+};
 
 // 검색창 자동완성용 — 이름이 (한글이든 영문이든) 검색어를 포함하거나, 검색어가 초성이면
 // 초성이 일치하는 감독/배우를 찾는다. KMDb의 query 검색은 영화 기준이라, 검색 결과에
@@ -308,12 +454,21 @@ export type KmdbPersonHit = { name: string; kmdbId: string; role: "감독" | "�
 // 같은 순수 초성 검색어는 KMDb 검색엔진이 애초에 이해하지 못해 후보 자체가 안 잡힐 수
 // 있다 — 그런 경우 이 초성 비교 로직까지 갈 후보 풀 자체가 비어 있게 된다.
 export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbPersonHit[]> {
-  const results = await rawSearch(query, 30);
+  // 30건으론 활동량이 많은 배우/감독의 최근작이 검색 결과에 다 안 들어올 수 있다
+  // (KMDb 전문검색이 관련도순이라 최신순 정렬이 보장 안 됨) — 실제로 황정민(24개
+  // credit 확인됨)의 활동연도범위가 30건 기준으론 최근작이 빠진 채로 나온 사례가
+  // 있어서, searchKmdbFilmography와 같은 100건으로 넉넉히 늘렸다.
+  const results = await rawSearch(query, 100);
   if (results.length === 0) return [];
 
   const normalizedQuery = normalizeTitle(query);
   const queryChosung = isChosungOnly(query) ? query.replace(/\s+/g, "") : null;
-  const hits = new Map<string, KmdbPersonHit>();
+  // 키를 kmdbId 하나로만 두면, 같은 숫자 코드가 (드물게도) 감독 credit과 배우 credit
+  // 양쪽에 다 등장할 때 둘이 하나로 합쳐져서 creditCount가 뒤섞이고 role은 먼저 잡힌
+  // 쪽으로 고정돼버리는 문제가 실제로 확인됐다(안재홍 사례: 배우 00012168의 실제
+  // 배우 credit이 엉뚱하게 다른 감독 코드의 감독 credit과 합산됨). role까지 키에
+  // 포함해서 완전히 별개로 집계한다.
+  const hits = new Map<string, { kmdbId: string; name: string; role: "감독" | "배우"; creditCount: number; latestYear: string | null }>();
 
   const matches = (korean?: string, english?: string) => {
     if (korean) {
@@ -324,24 +479,58 @@ export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbP
     return false;
   };
 
+  function bump(id: string, name: string, role: "감독" | "배우", prodYear: string | undefined) {
+    const key = `${id}::${role}`;
+    const existing = hits.get(key);
+    if (existing) {
+      existing.creditCount += 1;
+      if (prodYear && (!existing.latestYear || prodYear > existing.latestYear)) existing.latestYear = prodYear;
+    } else {
+      hits.set(key, { kmdbId: id, name, role, creditCount: 1, latestYear: prodYear ?? null });
+    }
+  }
+
   for (const r of results) {
     for (const d of r.directors?.director ?? []) {
       if (!d.directorId || !d.directorNm) continue;
       const cleanName = stripHighlight(d.directorNm);
-      if (matches(cleanName, d.directorEnNm) && !hits.has(d.directorId)) {
-        hits.set(d.directorId, { name: cleanName, kmdbId: d.directorId, role: "감독" });
-      }
+      if (matches(cleanName, d.directorEnNm)) bump(d.directorId, cleanName, "감독", r.prodYear);
     }
     for (const a of r.actors?.actor ?? []) {
       if (!a.actorId || !a.actorNm) continue;
       const cleanName = stripHighlight(a.actorNm);
-      if (matches(cleanName, a.actorEnNm) && !hits.has(a.actorId)) {
-        hits.set(a.actorId, { name: cleanName, kmdbId: a.actorId, role: "배우" });
-      }
+      if (matches(cleanName, a.actorEnNm)) bump(a.actorId, cleanName, "배우", r.prodYear);
     }
   }
 
-  return Array.from(hits.values()).slice(0, limit);
+  const all: KmdbPersonHit[] = Array.from(hits.values()).map((v) => ({
+    kmdbId: v.kmdbId,
+    name: v.name,
+    role: v.role,
+    creditCount: v.creditCount,
+    latestYear: v.latestYear,
+  }));
+
+  // 이름+역할이 완전히 같은 후보가 여럿(동명이인)일 때만, credit이 이 검색에서 딱 1번밖에
+  // 안 잡힌 쪽을 "유령 후보"로 보고 뺀다 — 우연히 다른 사람 영화의 단역/오매칭으로 한 번
+  // 스친 것일 위험이 크다. 후보가 하나뿐이면(동명이인이 아니면) credit이 1번이어도 그대로
+  // 보여준다 — 검색어 자체가 이 사람 이름이라 신뢰할 수 있다.
+  const groupKey = (h: KmdbPersonHit) => `${normalizeTitle(h.name)}::${h.role}`;
+  const countByGroup = new Map<string, number>();
+  for (const hit of all) countByGroup.set(groupKey(hit), (countByGroup.get(groupKey(hit)) ?? 0) + 1);
+
+  const filtered = all.filter((hit) => (countByGroup.get(groupKey(hit)) ?? 0) === 1 || hit.creditCount >= 2);
+
+  return filtered.sort((a, b) => b.creditCount - a.creditCount).slice(0, limit);
+}
+
+// 이 이름+역할로 실제 등록된(유령 후보 아닌) 서로 다른 kmdbId를 전부 찾는다 — 인물
+// 페이지에서 "동명이인이 몇 명 있고, 지금 보는 사람이 그중 누구인지/다른 후보로
+// 바꾸려면 어디로 가야 하는지"를 보여주는 데 쓴다. searchKmdbPeople의 유령 후보
+// 필터링을 그대로 재사용한다.
+export async function findNamesakeCandidates(name: string, role: "감독" | "배우"): Promise<KmdbPersonHit[]> {
+  const hits = await searchKmdbPeople(name, 50);
+  return hits.filter((h) => h.name === name && h.role === role);
 }
 
 // 이름만 있고 KMDb 인물 코드가 없는 경우(예: 이 영화가 KMDb에 없어서 KOBIS 정보로만
@@ -349,17 +538,67 @@ export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbP
 // 코드가 붙으면 그 뒤로는 인물 상세 페이지가 이름이 아니라 코드 기반으로 필모그래피를
 // 조회하게 되어 동명이인이 섞이는 문제를 크게 줄인다. 다만 이 역조회 자체는 이름
 // 매칭에 기대므로 완벽하진 않다 — 그래도 코드가 아예 없는 것보다는 훨씬 낫다.
-export async function resolvePersonId(name: string, role: "감독" | "배우"): Promise<string | null> {
-  const hits = await searchKmdbPeople(name, 10);
-  if (hits.length === 0) return null;
+//
+// 주의: 이름+역할이 같은데 kmdbId가 서로 다른 후보가 여럿이면(완전히 다른 두 사람이
+// 같은 이름을 쓰는 진짜 동명이인) 이 영화와 실제로 관련된 게 어느 쪽인지 판단할 근거가
+// 기본적으로는 없다. 이럴 때 아무 후보나(예: 검색에서 먼저 걸린 유명한 쪽) 골라 코드를
+// 붙이면, 그 사람과 무관한 이 영화가 그 사람의 필모그래피에 영구히(캐시로) 섞여 들어가는
+// 잘못이 생긴다("박정민" 필모그래피에 실제로 출연하지 않은 영화가 다수 섞이던 원인이
+// 이것이었다).
+//
+// contextYear(지금 이 인물을 찾게 된 영화의 개봉/제작연도)를 주면, 각 후보의 "활동
+// 연도 범위"(그 kmdbId로 credit된 다른 영화들의 제작연도 최소~최대, 이름 검색 결과
+// 안에서 계산)와 대조해서 그 시기에 실제로 활동한 후보 하나만 남는지 확인한다 —
+// 생년월일 데이터 없이도 계산 가능한, 근거 있는 구분 방법이다. 그래도 유일하게
+// 좁혀지지 않으면(범위가 겹치거나 아무도 안 맞으면) 여전히 포기한다 — 엉뚱한 사람과
+// 잘못 연결하는 것보다 코드 없이 이름만 보여주는 쪽이 안전하다.
+export async function resolvePersonId(
+  name: string,
+  role: "감독" | "배우",
+  contextYear?: string | null
+): Promise<string | null> {
+  const results = await rawSearch(name, 100);
+  if (results.length === 0) return null;
 
   const normalizedName = normalizeTitle(name);
-  const exact = hits.filter((h) => normalizeTitle(h.name) === normalizedName);
-  const pool = exact.length > 0 ? exact : hits;
-  // 같은 역할(감독/배우)의 후보만 채택한다 — 역할이 다른 동명이인의 코드를 잘못 붙이면
-  // ("배우 톰 홀랜드"에 "감독 톰 홀랜드"의 코드가 붙는 식으로) 오히려 더 나쁘다.
-  const sameRole = pool.find((h) => h.role === role);
-  return sameRole?.kmdbId ?? null;
+  const candidates = new Map<string, { years: number[] }>();
+
+  for (const r of results) {
+    const prodYear = r.prodYear ? Number(r.prodYear) : null;
+    const directors = role === "배우" ? [] : (r.directors?.director ?? []);
+    const actors = role === "감독" ? [] : (r.actors?.actor ?? []);
+    for (const d of directors) {
+      if (d.directorId && normalizeTitle(stripHighlight(d.directorNm)) === normalizedName) {
+        const c = candidates.get(d.directorId) ?? { years: [] };
+        if (prodYear && !Number.isNaN(prodYear)) c.years.push(prodYear);
+        candidates.set(d.directorId, c);
+      }
+    }
+    for (const a of actors) {
+      if (a.actorId && normalizeTitle(stripHighlight(a.actorNm)) === normalizedName) {
+        const c = candidates.get(a.actorId) ?? { years: [] };
+        if (prodYear && !Number.isNaN(prodYear)) c.years.push(prodYear);
+        candidates.set(a.actorId, c);
+      }
+    }
+  }
+
+  const pool = Array.from(candidates.entries());
+  if (pool.length === 0) return null;
+  if (pool.length === 1) return pool[0][0];
+
+  if (contextYear) {
+    const year = Number(contextYear);
+    if (!Number.isNaN(year)) {
+      const inRange = pool.filter(([, c]) => {
+        if (c.years.length === 0) return false;
+        return year >= Math.min(...c.years) - 2 && year <= Math.max(...c.years) + 2;
+      });
+      if (inRange.length === 1) return inRange[0][0];
+    }
+  }
+
+  return null; // 0명이면 못 찾은 것, 2명 이상이고 문맥으로도 못 좁히면 진짜 동명이인 — 포기.
 }
 
 // 정확히 일치하는 검색 결과가 하나도 없을 때(주로 오타) 쓰는 "이런 뜻이었나요?" 제안.

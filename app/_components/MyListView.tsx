@@ -4,7 +4,11 @@ import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import MyRatedMovieCard from "./MyRatedMovieCard";
+import MyRatedMoviesSection from "./MyRatedMoviesSection";
 import MyStyleReport from "./MyStyleReport";
+import MovieDiaryCalendar from "./MovieDiaryCalendar";
+import CustomListsSection from "./CustomListsSection";
+import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import { getBadge } from "../_lib/tier";
 import {
   subscribe as subscribeMyList,
@@ -43,7 +47,7 @@ import {
   recordView,
 } from "../_lib/list-social-store";
 
-export default function MyListView() {
+export default function MyListView({ myRatedMovies }: { myRatedMovies: MyRatedMovie[] }) {
   useEffect(() => {
     recordView();
   }, []);
@@ -80,7 +84,9 @@ export default function MyListView() {
 
   return (
     <div className="px-5 py-6">
-      <div className="flex items-start justify-between gap-4">
+      <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} />
+
+      <div className="mt-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-text">나만의 영화 리스트</h1>
           <p className="mt-1 text-xs text-muted">
@@ -143,6 +149,8 @@ export default function MyListView() {
           </div>
         </div>
       )}
+
+      <MyRatedMoviesSection movies={myRatedMovies} />
 
       <div className="mt-6">
         <MyStyleReport />
@@ -222,6 +230,8 @@ export default function MyListView() {
           ))
         )}
       </div>
+
+      <CustomListsSection />
     </div>
   );
 }

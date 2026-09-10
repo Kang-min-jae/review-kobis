@@ -18,6 +18,12 @@
 
 const KOBIS_API_BASE = "https://kobis.or.kr/kobisopenapi/webservice/rest";
 
+// fetch 자체엔 기본 타임아웃이 없어서, 연결이 에러 없이 그냥 응답 없이 멈춰버리면
+// (이 네트워크에서 실제로 여러 번 있었다) 그 요청을 기다리는 쪽(예: searchMovieCatalog의
+// 순차 페이지 루프, Promise.all로 여러 건을 한꺼번에 기다리는 호출)이 영원히 안 끝난다.
+// 일정 시간 안에 응답이 없으면 실패로 처리해서 재시도·다음 단계 진행이 되게 한다.
+const KOBIS_FETCH_TIMEOUT_MS = 10_000;
+
 function apiKey(): string | null {
   return process.env.KOFIC_API_KEY || null;
 }
@@ -134,7 +140,7 @@ export async function searchMovieCatalog(
     }
 
     try {
-      const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+      const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
       if (!res.ok) {
         console.warn(`[kobis] searchMovieList 실패: HTTP ${res.status} (page ${page})`);
         break;
@@ -193,11 +199,11 @@ async function fetchTitleCandidates(query: string, key: string): Promise<RawMovi
 
   let res: Response;
   try {
-    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } catch {
     try {
-      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
     } catch (error) {
       console.warn(`[kobis] "${query}" 검색 실패 (재시도 후에도 오류):`, error);
       return [];
@@ -250,12 +256,29 @@ export async function findOriginalReleaseByTitle(title: string): Promise<Earlies
 // 제목을 쓰는 서로 다른 영화(동명이인 영화 — 예: "컨택트")를 헷갈릴 수 있어서, 후보가
 // 여럿이면 실제 감독/출연진에 이 사람 이름이 있는 후보만 채택한다. 확인이 안 되면(후보가
 // 여럿인데 아무도 일치하지 않으면) 엉뚱한 영화 정보를 보여주느니 그냥 포기한다.
+//
+// 제목이 유일하게 하나만 잡히면 KOBIS 출연진 대조 없이 그대로 채택한다 — 한때(안재홍
+// 사례 대응) 여기서도 항상 KOBIS 캐스팅과 대조하도록 했었는데, KOBIS의 출연진 목록은
+// getMovieDetailsByCd에서 상위 20명까지만 담기도 하고 애초에 KOBIS 쪽 등록 자체가
+// 실제보다 부실한 경우가 있어서, 실제로 출연한 정상적인 작품(예: 박정민의 "얼굴")까지
+// 함께 걸러지는 부작용이 실제로 확인됐다(71편 -> 29편, 검색 단계에서 확인된 42편보다도
+// 적게 줄어듦). 동명이인 방지는 이제 상위 단계(searchKmdbFilmography의 personId 전용
+// 매칭, PersonIdentityMapping)에서 이미 훨씬 정확하게 처리되고 있어서, 여기서까지 다시
+// KOBIS로 재검증하면 "한쪽 소스에만 있는 정상 작품"을 잘못 쳐내는 비용이 더 크다.
+//
+// 다만 제목만 같고 아예 무관한 별개의 영화(예: 개봉 예정인 신작 "손 없는 날"과, 제목만
+// 우연히 같은 훨씬 예전의 단편 "손 없는 날")까지 걸러내는 안전장치는 필요하다 — 이건
+// KOBIS 출연진이 부실해서 생기는 문제가 아니라 제목 문자열 자체가 우연히 겹치는
+// 별개의 두 영화라, 위에서 뺀 "캐스팅 재검증"과는 다른 문제다. yearHint(KMDb가 알려준
+// 제작연도)가 있는데 유일한 후보의 개봉연도가 그와 1년 넘게 차이나면(미개봉작이라
+// 후보의 openDt가 아예 없는 경우는 문제 없음) 그 후보는 채택하지 않는다.
 // 한글 제목으로 못 찾으면(주로 KOBIS에 등록된 원어 표기가 다른 경우) 영문 제목으로 재시도한다.
 export async function findMovieCdByTitleAndPerson(
   title: string,
   personName: string,
   englishTitle?: string | null,
-  role?: "감독" | "배우" | null
+  role?: "감독" | "배우" | null,
+  yearHint?: string | null
 ): Promise<string | null> {
   const key = apiKey();
   if (!key) return null;
@@ -267,7 +290,17 @@ export async function findMovieCdByTitleAndPerson(
     const items = await fetchTitleCandidates(query, key!);
     const exact = exactTitleMatches(items, query);
     if (exact.length === 0) return null;
-    if (exact.length === 1) return exact[0].movieCd ?? null;
+    if (exact.length === 1) {
+      const only = exact[0];
+      if (yearHint && only.openDt) {
+        const candidateYear = Number(only.openDt.slice(0, 4));
+        const hintYear = Number(yearHint);
+        if (!Number.isNaN(candidateYear) && !Number.isNaN(hintYear) && Math.abs(candidateYear - hintYear) > 1) {
+          return null;
+        }
+      }
+      return only.movieCd ?? null;
+    }
 
     const normalizedPerson = normalizeTitle(personName);
     const details = await Promise.all(
@@ -316,6 +349,7 @@ export type KobisCastMember = KobisPersonRef & { role: string };
 export type KobisMovieDetails = {
   movieCd: string;
   title: string;
+  titleEn: string | null;
   overview: string | null; // KOBIS엔 시놉시스가 없어 항상 null (인터페이스 호환용으로 유지)
   posterUrl: string | null; // KOBIS엔 이미지가 없어 항상 null (인터페이스 호환용으로 유지)
   openDate: string | null;
@@ -330,6 +364,7 @@ export type KobisMovieDetails = {
 type RawMovieInfo = {
   movieCd?: string;
   movieNm?: string;
+  movieNmEn?: string;
   showTm?: string;
   openDt?: string;
   genres?: { genreNm?: string }[];
@@ -339,6 +374,11 @@ type RawMovieInfo = {
   audits?: { watchGradeNm?: string }[];
 };
 
+// 필모그래피 조회 시(동명이인 구분을 위해 제목이 겹치는 후보끼리 대조할 때) 이
+// 함수가 연달아 여러 번 호출될 수 있어서, fetchTitleCandidates와 같은 이유로 한
+// 번 재시도한다 — 재시도 없이는 일시적인 요청 실패로 실제로는 있는 작품이 없는
+// 것처럼 취급돼, 같은 인물을 다시 조회할 때마다 결과 편수가 들쭉날쭉해지는
+// 원인이 된다(실제로 관측됨: 같은 필모그래피가 조회할 때마다 29편/33편으로 다르게 나옴).
 export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDetails | null> {
   const key = apiKey();
   if (!key) return null;
@@ -347,8 +387,20 @@ export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDe
   url.searchParams.set("key", key);
   url.searchParams.set("movieCd", movieCd);
 
+  let res: Response;
   try {
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } });
+    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch {
+    try {
+      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+    } catch (error) {
+      console.warn(`[kobis] searchMovieInfo(${movieCd}) 실패 (재시도 후에도 오류):`, error);
+      return null;
+    }
+  }
+
+  try {
     if (!res.ok) {
       console.warn(`[kobis] searchMovieInfo(${movieCd}) 실패: HTTP ${res.status}`);
       return null;
@@ -360,6 +412,7 @@ export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDe
     return {
       movieCd: info.movieCd,
       title: info.movieNm,
+      titleEn: info.movieNmEn?.trim() || null,
       overview: null,
       posterUrl: null,
       openDate: toOpenDateIso(info.openDt),
@@ -386,25 +439,74 @@ export type KobisSearchHit = {
   movieCd: string;
   title: string;
   releaseDate: string | null;
+  genre: string | null;
 };
 
 export async function searchMoviesSince1960(query: string): Promise<KobisSearchHit[]> {
   const results = await searchMovieCatalog({ movieNm: query }, 10);
   return results
     .filter((m) => m.openDate && Number(m.openDate.slice(0, 4)) >= 1960)
-    .map((m) => ({ movieCd: m.movieCd, title: m.title, releaseDate: m.openDate }));
+    .map((m) => ({ movieCd: m.movieCd, title: m.title, releaseDate: m.openDate, genre: m.genreAlt }));
+}
+
+// ── 영화인(인물) 목록 ────────────────────────────────────────────────────────
+// KMDb와는 완전히 별개인 KOFIC 자체 인물 코드(peopleCd) 체계 — KMDb의 kmdbId와
+// 서로 매핑되는 값이 아니다(두 기관이 각자 독립적으로 부여한 코드). 그래서 이걸로
+// "이 kmdbId에 대응하는 peopleCd"를 직접 찾을 수는 없고, 어디까지나 이름으로
+// 다시 검색해서 얻는 별도의 참고 정보(대표작 등)로만 쓴다.
+//
+// 응답 필드(peopleCd/peopleNm/repRoleNm/filmoNames)는 KOFIC 공식 서비스 페이지와
+// 실제 사용 사례로 확인됐지만, filmoNames가 정확히 어떤 구분자로 이어진 문자열인지는
+// 검증 못 했다 — 우선 쉼표 기준으로 나누고, 실제 응답을 보고 필요하면 조정한다.
+type RawPeopleListItem = {
+  peopleCd?: string;
+  peopleNm?: string;
+  repRoleNm?: string;
+  filmoNames?: string;
+};
+
+export type KoficPeopleHit = {
+  peopleCd: string;
+  name: string;
+  repRoleNm: string | null;
+  filmoNames: string[];
+};
+
+export async function searchKoficPeopleList(peopleNm: string): Promise<KoficPeopleHit[]> {
+  const key = apiKey();
+  if (!key) return [];
+
+  const url = new URL(`${KOBIS_API_BASE}/people/searchPeopleList.json`);
+  url.searchParams.set("key", key);
+  url.searchParams.set("peopleNm", peopleNm);
+  url.searchParams.set("itemPerPage", "10");
+
+  try {
+    const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+    if (!res.ok) {
+      console.warn(`[kobis] searchPeopleList("${peopleNm}") 실패: HTTP ${res.status}`);
+      return [];
+    }
+    const data: { peopleListResult?: { peopleList?: RawPeopleListItem[] } } = await res.json();
+    const list = data.peopleListResult?.peopleList ?? [];
+    return list
+      .filter((p): p is RawPeopleListItem & { peopleCd: string; peopleNm: string } => !!p.peopleCd && !!p.peopleNm)
+      .map((p) => ({
+        peopleCd: p.peopleCd,
+        name: p.peopleNm,
+        repRoleNm: p.repRoleNm?.trim() || null,
+        filmoNames: (p.filmoNames ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }));
+  } catch (error) {
+    console.warn(`[kobis] searchPeopleList("${peopleNm}") 요청 중 오류:`, error);
+    return [];
+  }
 }
 
 // ── 재개봉작 ────────────────────────────────────────────────────────────────
-
-export type KobisRerelease = {
-  movieCd: string;
-  title: string;
-  titleEn: string | null;
-  director: string | null;
-  rereleaseDate: string; // 이번 재개봉일 (ISO)
-  originalReleaseDate: string | null; // 원 개봉일 (ISO, 못 찾으면 null)
-};
 
 export type RereleaseCheck = {
   isRerelease: boolean;
@@ -440,35 +542,6 @@ export async function resolveRerelease(
   return { isRerelease: true, originalReleaseDate: original!.openDate };
 }
 
-// 지정한 개봉일 범위(gte~lte, ISO) 안의 영화 중, 실제로 더 이른 개봉 이력이 확인되는
-// 영화만 재개봉작으로 분류한다.
-export async function searchRereleasesInRange(
-  gte: string,
-  lte: string,
-  limit: number
-): Promise<KobisRerelease[]> {
-  const pool = await searchMovieCatalog(
-    { openStartDt: gte.slice(0, 4), openEndDt: lte.slice(0, 4), includeUpcoming: true },
-    500
-  );
-  const candidates = pool.filter((m) => m.openDate && m.openDate >= gte && m.openDate <= lte);
-  const checks = await Promise.all(candidates.map((m) => resolveRerelease(m)));
-
-  const rereleases: KobisRerelease[] = [];
-  candidates.forEach((m, i) => {
-    if (!checks[i].isRerelease) return;
-    rereleases.push({
-      movieCd: m.movieCd,
-      title: m.title,
-      titleEn: m.titleEn,
-      director: m.director,
-      rereleaseDate: m.openDate!,
-      originalReleaseDate: checks[i].originalReleaseDate,
-    });
-  });
-  return rereleases.slice(0, limit);
-}
-
 // ── 박스오피스 (일별/주간) ───────────────────────────────────────────────────
 
 type DailyBoxOfficeItem = {
@@ -489,7 +562,7 @@ async function fetchDailyBoxOffice(targetDt: string, key: string): Promise<Daily
   url.searchParams.set("key", key);
   url.searchParams.set("targetDt", targetDt);
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
   if (!res.ok) {
     console.warn(`[kobis] 일별 박스오피스(${targetDt}) 조회 실패: HTTP ${res.status}`);
     return [];
@@ -504,6 +577,7 @@ export type KoficWeeklyEntry = {
   movieCd: string | null;
   movieNm: string;
   openYear: string | null; // KMDb 검색에 힌트로 쓸 개봉연도 (형식이 endpoint마다 달라 연도만 뽑아둔다)
+  openDate: string | null; // ISO — 재개봉 판정 배치가 KMDb 개봉일과 대조할 때 쓴다
   audiAcc: number;
   salesAcc: number;
 };
@@ -556,7 +630,7 @@ export async function getWeeklyBoxOffice(
   url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
 
   try {
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+    const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
     if (!res.ok) {
       console.warn(`[kobis] 주간 박스오피스 조회 실패: HTTP ${res.status}`);
       return [];
@@ -569,6 +643,7 @@ export async function getWeeklyBoxOffice(
       movieCd: item.movieCd ?? null,
       movieNm: item.movieNm ?? "제목 없음",
       openYear: extractYear(item.openDt),
+      openDate: item.openDt ?? null,
       audiAcc: Number(item.audiAcc ?? 0),
       salesAcc: Number(item.salesAcc ?? 0),
     }));

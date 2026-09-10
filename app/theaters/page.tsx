@@ -2,6 +2,7 @@ import { getNowShowingRow, getRereleaseRow } from "../_lib/movie-rows";
 import { getNationwideTheaters } from "../_lib/mock-theaters";
 import MovieTheaterFavorites from "../_components/MovieTheaterFavorites";
 import TheaterBrowser from "../_components/TheaterBrowser";
+import SiteHeader from "../_components/SiteHeader";
 import BackBar from "../_components/BackBar";
 
 export default async function TheatersPage({ searchParams }: PageProps<"/theaters">) {
@@ -12,28 +13,31 @@ export default async function TheatersPage({ searchParams }: PageProps<"/theater
   const theaters = getNationwideTheaters(inTheaters);
 
   return (
-    <main className="px-5 py-6">
-      <BackBar />
+    <main>
+      <SiteHeader />
+      <div className="px-5 py-6">
+        <BackBar />
 
-      <h1 className="mt-3 text-lg font-bold text-text">
-        {movie ? `${movie.title} 예매하기` : "전국 영화관"}
-      </h1>
+        <h1 className="mt-3 text-lg font-bold text-text">
+          {movie ? `${movie.title} 예매하기` : "전국 영화관"}
+        </h1>
 
-      {movie ? (
-        <>
-          <p className="mt-1 text-sm text-muted">
-            + 버튼으로 자주 가는 극장을 즐겨찾기해두면, 그 극장에서 이 영화를 상영할 때 바로 예매로 연결돼요.
-          </p>
-          <div className="mt-6">
-            <MovieTheaterFavorites movieId={movie.id} theaters={theaters} />
-          </div>
-        </>
-      ) : (
-        <>
-          <p className="mt-1 text-sm text-muted">상영 중인 극장을 확인해 보세요.</p>
-          <TheaterBrowser theaters={theaters} />
-        </>
-      )}
+        {movie ? (
+          <>
+            <p className="mt-1 text-sm text-muted">
+              + 버튼으로 자주 가는 극장을 즐겨찾기해두면, 그 극장에서 이 영화를 상영할 때 바로 예매로 연결돼요.
+            </p>
+            <div className="mt-6">
+              <MovieTheaterFavorites movieId={movie.id} theaters={theaters} />
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-muted">상영 중인 극장을 확인해 보세요.</p>
+            <TheaterBrowser theaters={theaters} />
+          </>
+        )}
+      </div>
     </main>
   );
 }

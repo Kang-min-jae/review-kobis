@@ -3,7 +3,6 @@ import Link from "next/link";
 export const tabCategories = [
   "영화",
   "현재 상영중인 영화",
-  "재개봉작",
   "TV프로그램",
   "단편·독립",
 ] as const;
@@ -20,6 +19,12 @@ export const genreLabels = [
   "모험",
   "SF",
   "공포",
+  "코미디",
+  "범죄",
+  "판타지",
+  "미스터리",
+  "다큐멘터리",
+  "뮤지컬",
 ] as const;
 export type GenreLabel = (typeof genreLabels)[number];
 
@@ -32,22 +37,25 @@ export default function CategoryNav({
 }) {
   return (
     <div>
-      <nav className="flex flex-wrap items-center gap-4 px-5 pb-3">
+      <nav className="flex flex-wrap items-center gap-5 border-b border-neutral-800 px-5 pt-1">
         <Link
           href="/my-list"
-          className={`text-sm font-bold transition-colors ${
-            active === "my-list" ? "text-star" : "text-star/70 hover:text-star"
+          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+            active === "my-list"
+              ? "border-star font-bold text-text"
+              : "border-transparent font-medium text-text/80 hover:text-text"
           }`}
         >
           나만의 영화 리스트
         </Link>
-        <span className="h-4 w-px bg-neutral-700" />
         {tabCategories.map((category) => (
           <Link
             key={category}
             href={`/?category=${encodeURIComponent(category)}`}
-            className={`text-sm transition-colors ${
-              active === category ? "font-bold text-brand" : "text-brand/60 hover:text-brand"
+            className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+              active === category
+                ? "border-star font-bold text-text"
+                : "border-transparent font-medium text-text/80 hover:text-text"
             }`}
           >
             {category}
@@ -56,18 +64,25 @@ export default function CategoryNav({
       </nav>
 
       {active !== "my-list" && (
-        <nav className="flex flex-wrap justify-between gap-x-4 gap-y-2 px-5 pb-5 text-xs">
-          {genreLabels.map((genre) => (
-            <Link
-              key={genre}
-              href={`/?category=${encodeURIComponent(active)}&genre=${encodeURIComponent(genre)}`}
-              className={`whitespace-nowrap transition-colors ${
-                activeGenre === genre ? "font-bold text-text" : "text-muted hover:text-text"
-              }`}
-            >
-              {genre}
-            </Link>
-          ))}
+        <nav className="px-5 py-4">
+          {/* 세그먼트 슬라이더 — 전체를 하나의 캡슐로 묶고, 선택된 것만 살짝 밝은
+              배경 + 컬러 텍스트로 보여준다(개별 테두리/아이콘 없이). */}
+          <div className="inline-flex flex-wrap gap-1 rounded-full bg-surface p-1">
+            {genreLabels.map((genre) => {
+              const isActive = activeGenre === genre;
+              return (
+                <Link
+                  key={genre}
+                  href={`/?category=${encodeURIComponent(active)}&genre=${encodeURIComponent(genre)}`}
+                  className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    isActive ? "bg-star text-black" : "text-muted hover:text-text"
+                  }`}
+                >
+                  {genre}
+                </Link>
+              );
+            })}
+          </div>
         </nav>
       )}
     </div>

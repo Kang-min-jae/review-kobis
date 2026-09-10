@@ -290,3 +290,25 @@ export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" |
   emitChange();
   return newReview;
 }
+
+// createdAt(ISO, UTC)을 이 리뷰를 남긴 사람의 로컬 날짜 기준 "YYYY-MM-DD" 키로
+// 바꾼다 — MovieDiaryCalendar의 toLocalDateKey와 동일한 계산이다(무비 다이어리
+// 칸이 이 키로 하루를 구분하므로, 삭제도 같은 기준으로 맞춰야 한다).
+function toLocalDateKey(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// 무비 다이어리에서 "삭제"를 누르면 그 날짜에 그 영화로 남긴 리뷰를 전부(한줄평+
+// 장문평, 항목별 리뷰 포함) 지운다 — "그 날 이 영화를 봤다는 기록 자체"를 지우는
+// 개념이라 항목 하나만 남기지 않는다.
+export function removeReviewsForMovieOnDate(movieId: string, dateKey: string) {
+  const remaining = readUserReviews().filter(
+    (r) => !(r.movieId === movieId && toLocalDateKey(r.createdAt) === dateKey)
+  );
+  writeUserReviews(remaining);
+  emitChange();
+}

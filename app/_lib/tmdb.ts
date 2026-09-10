@@ -1,394 +1,310 @@
-// TMDB 공식 포스터/줄거리/크레딧/카탈로그 연동. API 키가 없거나 요청이 실패하면
-// 조용히 빈 값을 반환해 호출부가 항상 자연스럽게 대체(그라디언트/빈 목록)되도록 한다.
-// 출처 표기("This product uses the TMDB API...")는 app/layout.tsx 하단에 고정돼 있다.
-// 포스터 다운로드 방지는 app/_components/PosterImage.tsx에서 처리한다.
+// TMDB(The Movie Database) 오픈API 연동 — KOBIS/KMDb 둘 다 이 영화를 못 찾거나
+// 포스터가 없을 때 마지막 폴백으로 쓴다. 또한 인물(감독/배우) 필모그래피 조회에서
+// person_id 기반 movie_credits 엔드포인트를 활용해 KMDb 텍스트 검색이 갖는 구조적
+// 한계(관련도순 검색이라 credit이 있어도 결과에 아예 안 걸릴 수 있다 — 이 세션에서
+// 실제로 "파수꾼" 박정민 사례로 확인됨)를 보완한다. TMDB는 인물 코드 하나로 그
+// 사람의 "전체" 참여작을 한 번에 돌려줘서, 검색 결과 개수 제한 자체가 없다.
 //
-// TMDB 계정 설정(themoviedb.org > Settings > API)에는 키가 두 종류 있다:
-//   - API Key (v3 auth): 32자 정도의 짧은 문자열 → 쿼리스트링 ?api_key=
-//   - API Read Access Token (v4 auth): "eyJ..."로 시작하는 긴 토큰 → Authorization: Bearer
-// 둘 중 뭘 넣었는지 몰라도 되게, 형태를 보고 자동으로 맞는 방식을 골라 쓴다.
+// v3 API Key 인증(쿼리파라미터 ?api_key=...)을 쓴다 — KOBIS/KMDb와 스타일을 맞췄고,
+// 여기서 쓰는 엔드포인트(search/movie, movie 상세, search/person, person 상세,
+// person movie_credits)는 전부 v3 키만으로 충분하다. Bearer(v4) 토큰이 필요한 건
+// 리스트·평점 관련 기능뿐이라 이 기능엔 안 쓴다.
+//
+// 참고: 이 코드는 TMDB의 오래 안정적으로 유지돼 온 v3 응답 구조(공식 문서 기준)를
+// 그대로 가정한다 — 이 샌드박스에선 실제 키로 라이브 호출해 응답을 확인할 방법이
+// 없었으므로(TMDB_API_KEY 미발급), 실제 환경에서 첫 실행 시 필드명이 문서와 다르게
+// 오면 알려달라.
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
-// "10주년", "리마스터판", "확장판" 같은 재개봉/에디션 수식어를 검색어에서 제거해
-// TMDB 원제 매칭률을 높인다. ("너의 이름은. 10주년" → "너의 이름은.")
-const EDITION_SUFFIX_PATTERN =
-  /\s*(\d+\s*주년(\s*(기념)?\s*(재개봉|특별판)?)?|리마스터(링)?판?|확장판|무삭제판|디렉터스\s*컷|극장판|스페셜\s*에디션)\s*/g;
-
-function cleanTitleForSearch(title: string): string {
-  return title.replace(EDITION_SUFFIX_PATTERN, " ").replace(/\s+/g, " ").trim();
+function apiKey(): string | null {
+  return process.env.TMDB_API_KEY || null;
 }
 
-function isV4ReadAccessToken(key: string): boolean {
-  return key.startsWith("eyJ") || key.length > 60;
+// KMDb/KOBIS와 같은 이유(응답 없이 멈추는 연결을 무한정 기다리지 않기 위해)로
+// 타임아웃을 걸고, 네트워크 자체 실패는 짧게 재시도한다. TMDB는 공식적으로 엄격한
+// 요청 제한을 문서화해두진 않지만(예전의 40건/10초 제한은 폐지됨), 그래도 짧은
+// 시간에 동시 요청이 몰리지 않도록 이 앱 전체에서 동시 요청 개수를 제한한다 —
+// kmdb.ts에 적용한 것과 같은 패턴이다.
+const FETCH_TIMEOUT_MS = 10_000;
+const MAX_ATTEMPTS = 3;
+const MAX_CONCURRENT_REQUESTS = 4;
+
+let activeRequests = 0;
+const waitQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (activeRequests < MAX_CONCURRENT_REQUESTS) {
+    activeRequests++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waitQueue.push(resolve));
 }
 
-function authHeaders(apiKey: string, isV4: boolean): HeadersInit | undefined {
-  return isV4 ? { Authorization: `Bearer ${apiKey}` } : undefined;
+function releaseSlot(): void {
+  const next = waitQueue.shift();
+  if (next) {
+    next(); // 대기 중이던 다음 요청이 이 슬롯을 그대로 이어받는다.
+  } else {
+    activeRequests--;
+  }
 }
 
-export type TmdbMovieSummary = {
-  id: number;
-  title: string;
-  posterUrl: string | null;
-  overview: string | null;
-  popularity: number;
-  voteAverage: number;
-  voteCount: number;
-  releaseDate: string | null;
-};
+async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+  const key = apiKey();
+  if (!key) return null;
 
-export type TmdbPersonRef = { id: number; name: string };
-export type TmdbCastMember = TmdbPersonRef & { character: string };
+  const url = new URL(`${TMDB_API_BASE}${path}`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("language", "ko-KR");
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-export type TmdbMovieDetails = TmdbMovieSummary & {
-  director: TmdbPersonRef | null;
-  cast: TmdbCastMember[];
-};
+  await acquireSlot();
+  try {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(url, {
+          next: { revalidate: 60 * 60 * 24 },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          console.warn(`[tmdb] ${path} 요청 실패: HTTP ${res.status}`);
+          return null;
+        }
+        return (await res.json()) as T;
+      } catch (error) {
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+          continue;
+        }
+        console.warn(`[tmdb] ${path} 요청 중 오류(재시도 ${MAX_ATTEMPTS}회 실패):`, error);
+        return null;
+      }
+    }
+    return null;
+  } finally {
+    releaseSlot();
+  }
+}
 
-type RawTmdbResult = {
+function toImageUrl(path: string | null | undefined): string | null {
+  return path ? `${TMDB_IMAGE_BASE}${path}` : null;
+}
+
+function normalizeTitle(title: string): string {
+  return title.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+}
+
+// ── 영화 ──────────────────────────────────────────────────────────────────
+
+type RawTmdbMovieSearchResult = {
   id: number;
   title?: string;
   original_title?: string;
+  release_date?: string; // "YYYY-MM-DD" | ""
   poster_path?: string | null;
-  overview?: string | null;
-  popularity?: number;
-  vote_average?: number;
-  vote_count?: number;
-  release_date?: string | null;
+  overview?: string;
 };
 
-function toSummary(raw: RawTmdbResult): TmdbMovieSummary {
+type RawTmdbGenre = { id: number; name: string };
+
+type RawTmdbMovieDetails = {
+  id: number;
+  title?: string;
+  original_title?: string;
+  release_date?: string;
+  poster_path?: string | null;
+  overview?: string;
+  runtime?: number | null;
+  genres?: RawTmdbGenre[];
+};
+
+export type TmdbMovieDetails = {
+  tmdbId: string;
+  title: string;
+  originalTitle: string | null;
+  posterUrl: string | null;
+  overview: string | null;
+  releaseDate: string | null;
+  runtimeMinutes: number | null;
+  genre: string | null; // 콤마 구분 — KMDb/KOBIS의 genreAlt 형식과 맞춘다
+};
+
+// 검색 결과 중 제목(한국어/원어 둘 다 대조)이 정확히 일치하는 후보만 추리고,
+// 연도 힌트가 있으면 그것까지 맞는 쪽을 우선한다 — 다른 소스들과 같은 원칙으로,
+// 정확히 일치하는 후보가 하나도 없으면 엉뚱한 영화를 잘못 붙이느니 그냥 포기한다.
+function pickBestMovieMatch(
+  results: RawTmdbMovieSearchResult[],
+  acceptableTitles: Set<string>,
+  yearHint: string | null
+): RawTmdbMovieSearchResult | null {
+  const pool = results.filter((r) => {
+    const t1 = r.title ? normalizeTitle(r.title) : null;
+    const t2 = r.original_title ? normalizeTitle(r.original_title) : null;
+    return (!!t1 && acceptableTitles.has(t1)) || (!!t2 && acceptableTitles.has(t2));
+  });
+  if (pool.length === 0) return null;
+  if (!yearHint) return pool[0];
+
+  const withYear = pool.filter((r) => r.release_date?.slice(0, 4) === yearHint);
+  return withYear[0] ?? pool[0];
+}
+
+// 제목(+영문 제목, 개봉연도 힌트)으로 TMDB에서 영화를 찾는다. KOFIC/KMDb 둘 다
+// 실패했거나 포스터가 없을 때만 호출되는 마지막 폴백이다. 장르 "이름"은 검색
+// 응답엔 없고(genre_ids 숫자만 옴) 상세조회에만 있어서, 후보를 찾으면 상세조회를
+// 한 번 더 해서 포스터·줄거리·러닝타임·장르를 전부 그 응답 기준으로 채운다.
+export async function searchTmdbMovie(
+  title: string,
+  yearHint: string | null,
+  titleEn?: string | null
+): Promise<TmdbMovieDetails | null> {
+  const acceptableTitles = new Set([normalizeTitle(title)]);
+  if (titleEn) acceptableTitles.add(normalizeTitle(titleEn));
+
+  const data = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title });
+  let best = pickBestMovieMatch(data?.results ?? [], acceptableTitles, yearHint);
+
+  // 한글 제목으로 못 찾으면 영문 제목으로 재시도한다 — 외화는 TMDB 한국어 등록
+  // 표기가 KOBIS/KMDb와 다른 경우가 흔하다.
+  if (!best && titleEn) {
+    const dataEn = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleEn });
+    best = pickBestMovieMatch(dataEn?.results ?? [], acceptableTitles, yearHint);
+  }
+  if (!best) return null;
+
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${best.id}`);
+  if (!details) {
+    return {
+      tmdbId: String(best.id),
+      title: best.title ?? title,
+      originalTitle: null,
+      posterUrl: toImageUrl(best.poster_path),
+      overview: best.overview?.trim() || null,
+      releaseDate: best.release_date?.trim() || null,
+      runtimeMinutes: null,
+      genre: null,
+    };
+  }
+
   return {
-    id: raw.id,
-    title: raw.title || raw.original_title || "제목 없음",
-    posterUrl: raw.poster_path ? `${TMDB_IMAGE_BASE}${raw.poster_path}` : null,
-    overview: raw.overview?.trim() || null,
-    popularity: raw.popularity ?? 0,
-    voteAverage: raw.vote_average ?? 0,
-    voteCount: raw.vote_count ?? 0,
-    releaseDate: raw.release_date || null,
+    tmdbId: String(details.id),
+    title: details.title ?? best.title ?? title,
+    originalTitle: details.original_title?.trim() || null,
+    posterUrl: toImageUrl(details.poster_path),
+    overview: details.overview?.trim() || null,
+    releaseDate: details.release_date?.trim() || null,
+    runtimeMinutes: details.runtime ?? null,
+    genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
   };
 }
 
-async function searchTmdbId(
-  query: string,
-  language: string,
-  apiKey: string,
-  isV4: boolean
-): Promise<number | null> {
-  const url = new URL(`${TMDB_API_BASE}/search/movie`);
-  url.searchParams.set("query", query);
-  url.searchParams.set("language", language);
-  if (!isV4) url.searchParams.set("api_key", apiKey);
+// ── 인물 ──────────────────────────────────────────────────────────────────
 
-  const res = await fetch(url, {
-    headers: authHeaders(apiKey, isV4),
-    next: { revalidate: 60 * 60 * 24 },
-  });
-
-  if (!res.ok) {
-    console.warn(
-      `[tmdb] "${query}" (${language}) 검색 실패: HTTP ${res.status} (${isV4 ? "v4 Bearer 토큰" : "v3 api_key"} 방식) — 키가 올바른지 themoviedb.org에서 확인해 보세요.`
-    );
-    return null;
-  }
-
-  const data: { results?: RawTmdbResult[] } = await res.json();
-  return data.results?.[0]?.id ?? null;
-}
-
-// 영화 상세정보 + 크레딧(감독/출연진)을 한 번에 가져온다. TMDB 영화 id로 정확히 단건 조회.
-export async function getTmdbMovieDetails(tmdbId: number): Promise<TmdbMovieDetails | null> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return null;
-  const isV4 = isV4ReadAccessToken(apiKey);
-
-  const url = new URL(`${TMDB_API_BASE}/movie/${tmdbId}`);
-  url.searchParams.set("language", "ko-KR");
-  url.searchParams.set("append_to_response", "credits");
-  if (!isV4) url.searchParams.set("api_key", apiKey);
-
-  try {
-    const res = await fetch(url, {
-      headers: authHeaders(apiKey, isV4),
-      next: { revalidate: 60 * 60 * 24 },
-    });
-    if (!res.ok) {
-      console.warn(`[tmdb] movie/${tmdbId} 조회 실패: HTTP ${res.status}`);
-      return null;
-    }
-
-    const data: RawTmdbResult & {
-      credits?: {
-        crew?: { id: number; name: string; job?: string }[];
-        cast?: { id: number; name: string; character?: string }[];
-      };
-    } = await res.json();
-
-    const directorEntry = data.credits?.crew?.find((c) => c.job === "Director");
-
-    return {
-      ...toSummary(data),
-      director: directorEntry ? { id: directorEntry.id, name: directorEntry.name } : null,
-      cast: (data.credits?.cast ?? []).slice(0, 6).map((c) => ({
-        id: c.id,
-        name: c.name,
-        character: c.character ?? "",
-      })),
-    };
-  } catch (error) {
-    console.warn(`[tmdb] movie/${tmdbId} 요청 중 오류:`, error);
-    return null;
-  }
-}
-
-// 제목으로 검색해서 가장 근접한 매치의 상세정보(+크레딧)를 가져온다. 로컬 큐레이션
-// 영화(현재 상영중/재개봉)처럼 TMDB id를 모를 때 사용.
-export async function getTmdbMovieInfo(movie: {
-  title: string;
-  englishTitle?: string;
-}): Promise<TmdbMovieDetails | null> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return null;
-  const isV4 = isV4ReadAccessToken(apiKey);
-
-  try {
-    // 1순위: 정제한 한글 제목으로 한국어 매칭
-    const koreanQuery = cleanTitleForSearch(movie.title);
-    let id = await searchTmdbId(koreanQuery, "ko-KR", apiKey, isV4);
-
-    // 2순위: 실패하면 영문(원어) 제목으로 재시도 — TMDB는 원제 매칭률이 더 높다
-    if (!id) {
-      const englishQuery = movie.englishTitle
-        ? cleanTitleForSearch(movie.englishTitle)
-        : koreanQuery;
-      id = await searchTmdbId(englishQuery, "en-US", apiKey, isV4);
-    }
-
-    if (!id) {
-      console.warn(`[tmdb] "${movie.title}"를 한글/영문 검색 모두에서 찾지 못했어요.`);
-      return null;
-    }
-
-    return await getTmdbMovieDetails(id);
-  } catch (error) {
-    console.warn(`[tmdb] "${movie.title}" 요청 중 오류:`, error);
-    return null;
-  }
-}
-
-// discover/movie를 필요한 만큼 페이지네이션해서 가져온다 (한 페이지 20개, 최대 5페이지=100개로 제한).
-export async function discoverMovies(
-  params: Record<string, string>,
-  maxResults: number
-): Promise<TmdbMovieSummary[]> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return [];
-  const isV4 = isV4ReadAccessToken(apiKey);
-  const pagesNeeded = Math.min(Math.ceil(maxResults / 20), 5);
-  const results: TmdbMovieSummary[] = [];
-
-  for (let page = 1; page <= pagesNeeded; page++) {
-    const url = new URL(`${TMDB_API_BASE}/discover/movie`);
-    url.searchParams.set("language", "ko-KR");
-    url.searchParams.set("include_adult", "false");
-    url.searchParams.set("page", String(page));
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
-    if (!isV4) url.searchParams.set("api_key", apiKey);
-
-    try {
-      const res = await fetch(url, {
-        headers: authHeaders(apiKey, isV4),
-        next: { revalidate: 60 * 60 * 6 },
-      });
-      if (!res.ok) {
-        console.warn(`[tmdb] discover 실패: HTTP ${res.status} (page ${page}, ${url.search})`);
-        break;
-      }
-      const data: { results?: RawTmdbResult[]; total_pages?: number } = await res.json();
-      const pageResults = (data.results ?? []).map(toSummary);
-      results.push(...pageResults);
-      if (pageResults.length === 0 || page >= (data.total_pages ?? page)) break;
-    } catch (error) {
-      console.warn(`[tmdb] discover 요청 중 오류 (page ${page}):`, error);
-      break;
-    }
-    if (results.length >= maxResults) break;
-  }
-
-  return results.slice(0, maxResults);
-}
-
-// "사용자 추천 영화" 중 아직 평가한 영화가 없는 사용자를 위한 폴백 — TMDB 주간 트렌딩.
-export async function getTrendingMoviesWeek(limit: number): Promise<TmdbMovieSummary[]> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return [];
-  const isV4 = isV4ReadAccessToken(apiKey);
-
-  const url = new URL(`${TMDB_API_BASE}/trending/movie/week`);
-  url.searchParams.set("language", "ko-KR");
-  if (!isV4) url.searchParams.set("api_key", apiKey);
-
-  try {
-    const res = await fetch(url, {
-      headers: authHeaders(apiKey, isV4),
-      next: { revalidate: 60 * 60 * 6 },
-    });
-    if (!res.ok) {
-      console.warn(`[tmdb] trending 조회 실패: HTTP ${res.status}`);
-      return [];
-    }
-    const data: { results?: RawTmdbResult[] } = await res.json();
-    return (data.results ?? []).slice(0, limit).map(toSummary);
-  } catch (error) {
-    console.warn(`[tmdb] trending 요청 중 오류:`, error);
-    return [];
-  }
-}
-
-// 내가 높게 평가한 영화들(seedIds)을 시드로 TMDB의 movie/{id}/recommendations를 모아
-// 여러 시드에서 겹쳐 추천되는 영화일수록 앞에 오도록 빈도순 정렬 (동률이면 인기도순).
-// 이미 평가한 영화는 추천에서 제외한다.
-export async function getMovieRecommendations(
-  seedIds: number[],
-  limit: number
-): Promise<TmdbMovieSummary[]> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey || seedIds.length === 0) return [];
-  const isV4 = isV4ReadAccessToken(apiKey);
-
-  const seenSeeds = new Set(seedIds);
-  const scored = new Map<number, { summary: TmdbMovieSummary; count: number }>();
-
-  for (const seedId of seedIds) {
-    const url = new URL(`${TMDB_API_BASE}/movie/${seedId}/recommendations`);
-    url.searchParams.set("language", "ko-KR");
-    if (!isV4) url.searchParams.set("api_key", apiKey);
-
-    try {
-      const res = await fetch(url, {
-        headers: authHeaders(apiKey, isV4),
-        next: { revalidate: 60 * 60 * 6 },
-      });
-      if (!res.ok) {
-        console.warn(`[tmdb] movie/${seedId}/recommendations 실패: HTTP ${res.status}`);
-        continue;
-      }
-      const data: { results?: RawTmdbResult[] } = await res.json();
-      for (const raw of data.results ?? []) {
-        if (seenSeeds.has(raw.id)) continue;
-        const existing = scored.get(raw.id);
-        if (existing) existing.count += 1;
-        else scored.set(raw.id, { summary: toSummary(raw), count: 1 });
-      }
-    } catch (error) {
-      console.warn(`[tmdb] movie/${seedId}/recommendations 요청 중 오류:`, error);
-    }
-  }
-
-  return Array.from(scored.values())
-    .sort((a, b) => b.count - a.count || b.summary.popularity - a.summary.popularity)
-    .slice(0, limit)
-    .map((entry) => entry.summary);
-}
-
-export type TmdbPersonFilmography = {
-  name: string;
-  profileUrl: string | null;
-  movies: TmdbMovieSummary[];
+type RawTmdbPersonSearchResult = {
+  id: number;
+  name?: string;
+  profile_path?: string | null;
 };
 
-// 감독/배우 상세 + 참여 작품 목록. 인물 프로필 페이지(/people/[id])에서 사용.
-export async function getPersonFilmography(personId: number): Promise<TmdbPersonFilmography | null> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return null;
-  const isV4 = isV4ReadAccessToken(apiKey);
+export type TmdbPersonHit = {
+  tmdbId: string;
+  name: string;
+  profileUrl: string | null;
+};
 
-  const url = new URL(`${TMDB_API_BASE}/person/${personId}`);
-  url.searchParams.set("language", "ko-KR");
-  url.searchParams.set("append_to_response", "movie_credits");
-  if (!isV4) url.searchParams.set("api_key", apiKey);
-
-  try {
-    const res = await fetch(url, {
-      headers: authHeaders(apiKey, isV4),
-      next: { revalidate: 60 * 60 * 24 },
-    });
-    if (!res.ok) {
-      console.warn(`[tmdb] person/${personId} 조회 실패: HTTP ${res.status}`);
-      return null;
-    }
-
-    const data: {
-      name?: string;
-      profile_path?: string | null;
-      movie_credits?: { cast?: RawTmdbResult[]; crew?: RawTmdbResult[] };
-    } = await res.json();
-
-    const byId = new Map<number, TmdbMovieSummary>();
-    for (const item of data.movie_credits?.cast ?? []) {
-      if (!byId.has(item.id)) byId.set(item.id, toSummary(item));
-    }
-    for (const item of data.movie_credits?.crew ?? []) {
-      if (!byId.has(item.id)) byId.set(item.id, toSummary(item));
-    }
-
-    const movies = Array.from(byId.values()).sort((a, b) =>
-      (b.releaseDate ?? "").localeCompare(a.releaseDate ?? "")
-    );
-
-    return {
-      name: data.name ?? "이름 없음",
-      profileUrl: data.profile_path ? `${TMDB_IMAGE_BASE}${data.profile_path}` : null,
-      movies,
-    };
-  } catch (error) {
-    console.warn(`[tmdb] person/${personId} 요청 중 오류:`, error);
-    return null;
-  }
+export async function searchTmdbPerson(name: string): Promise<TmdbPersonHit[]> {
+  const data = await tmdbFetch<{ results?: RawTmdbPersonSearchResult[] }>("/search/person", { query: name });
+  return (data?.results ?? [])
+    .filter((r) => r.name)
+    .map((r) => ({ tmdbId: String(r.id), name: r.name!, profileUrl: toImageUrl(r.profile_path) }));
 }
 
-export type TmdbSearchHit = {
+async function findExactPersonMatch(name: string): Promise<string | null> {
+  const candidates = await searchTmdbPerson(name);
+  const sameName = candidates.filter((c) => c.name === name);
+  return sameName.length === 1 ? sameName[0].tmdbId : null;
+}
+
+// 이름으로 TMDB person_id를 찾는다 — 검색 결과 중 이름이 정확히 같은 후보가
+// 하나로 좁혀질 때만 채택하고, 동명이인이 여럿이면 근거 없이 아무나 고르지 않고
+// 포기한다(이 코드베이스의 다른 동명이인 처리와 같은 원칙). 영화 캐스트의 tmdbId
+// 역조회, 인물 필모그래피 조회 양쪽에서 재사용한다.
+//
+// 톰 홀랜드·맷 데이먼 같은 외국 배우는 TMDB에 본명(영문)으로만 등록돼 있어서,
+// KOBIS/KMDb에서 얻은 한글 이름으로 검색하면 아예 못 찾는다 — 한글로 못 찾으면
+// 영문 이름(nameEn, KMDb의 actorEnNm/directorEnNm)으로 재시도한다. 영문 이름이
+// 없으면(한국 인물 등) 한글 결과만으로 판단한다.
+export async function resolveTmdbPersonIdByName(name: string, nameEn?: string | null): Promise<string | null> {
+  const byKorean = await findExactPersonMatch(name);
+  if (byKorean) return byKorean;
+  if (nameEn) return findExactPersonMatch(nameEn);
+  return null;
+}
+
+type RawTmdbPersonDetails = {
   id: number;
+  name?: string;
+  birthday?: string | null; // "YYYY-MM-DD" | null(비공개/미확인)
+};
+
+// 동명이인 후보를 구분하는 "참고 정보"로 생년월일을 보여주기 위한 조회 — KMDb엔
+// 이 정보가 아예 없어서 TMDB로만 보완할 수 있다. 확정 판정 근거로 쓰진 않는다
+// (TMDB 인물과 KMDb 인물을 이름만으로 이어붙인 것이라, 그 자체가 완전히 정확한
+// 동일인 매칭이라는 보장은 없다 — 어디까지나 사람이 참고할 힌트).
+export async function getTmdbPersonBirthday(tmdbId: string): Promise<string | null> {
+  const data = await tmdbFetch<RawTmdbPersonDetails>(`/person/${tmdbId}`);
+  return data?.birthday?.trim() || null;
+}
+
+type RawTmdbCreditMovie = {
+  id: number;
+  title?: string;
+  original_title?: string;
+  release_date?: string;
+  poster_path?: string | null;
+  job?: string; // crew 항목에만 있음(예: "Director")
+};
+
+export type TmdbCreditMovie = {
+  tmdbId: string;
   title: string;
+  originalTitle: string | null;
   posterUrl: string | null;
   releaseDate: string | null;
 };
 
-// 검색창용 — 1960년 이후 개봉작만 결과에 남긴다 (조건은 조용히 적용, UI에 노출하지 않음).
-export async function searchMoviesSince1960(query: string): Promise<TmdbSearchHit[]> {
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) return [];
-  const isV4 = isV4ReadAccessToken(apiKey);
+// person_id 하나로 이 사람의 "전체" 영화 참여작을 한 번에 돌려준다 — KMDb의 텍스트
+// 검색(관련도순, 최대 100건)과 달리 검색 결과 누락이 구조적으로 없다(전수 조회).
+// role이 "감독"이면 crew 중 job이 "Director"인 것만, "배우"면 cast 전부, 모르면
+// 둘 다 합친다.
+export async function getTmdbPersonMovieCredits(
+  tmdbId: string,
+  role: "감독" | "배우" | null
+): Promise<TmdbCreditMovie[]> {
+  const data = await tmdbFetch<{ cast?: RawTmdbCreditMovie[]; crew?: RawTmdbCreditMovie[] }>(
+    `/person/${tmdbId}/movie_credits`
+  );
+  if (!data) return [];
 
-  const url = new URL(`${TMDB_API_BASE}/search/movie`);
-  url.searchParams.set("query", query);
-  url.searchParams.set("language", "ko-KR");
-  url.searchParams.set("include_adult", "false");
-  if (!isV4) url.searchParams.set("api_key", apiKey);
+  const raw: RawTmdbCreditMovie[] =
+    role === "감독"
+      ? (data.crew ?? []).filter((c) => c.job === "Director")
+      : role === "배우"
+        ? (data.cast ?? [])
+        : [...(data.cast ?? []), ...(data.crew ?? []).filter((c) => c.job === "Director")];
 
-  try {
-    const res = await fetch(url, { headers: authHeaders(apiKey, isV4) });
-    if (!res.ok) {
-      console.warn(`[tmdb] "${query}" 검색 실패: HTTP ${res.status}`);
-      return [];
-    }
-    const data: { results?: RawTmdbResult[] } = await res.json();
-    return (data.results ?? [])
-      .filter((r) => r.release_date && Number(r.release_date.slice(0, 4)) >= 1960)
-      .slice(0, 10)
-      .map((r) => ({
-        id: r.id,
-        title: r.title || r.original_title || "제목 없음",
-        posterUrl: r.poster_path ? `${TMDB_IMAGE_BASE}${r.poster_path}` : null,
-        releaseDate: r.release_date ?? null,
-      }));
-  } catch (error) {
-    console.warn(`[tmdb] "${query}" 검색 요청 중 오류:`, error);
-    return [];
+  const deduped = new Map<number, RawTmdbCreditMovie>();
+  for (const c of raw) {
+    if (c.title && !deduped.has(c.id)) deduped.set(c.id, c);
   }
+
+  return Array.from(deduped.values()).map((c) => ({
+    tmdbId: String(c.id),
+    title: c.title!,
+    originalTitle: c.original_title?.trim() || null,
+    posterUrl: toImageUrl(c.poster_path),
+    releaseDate: c.release_date?.trim() || null,
+  }));
 }
