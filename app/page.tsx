@@ -261,7 +261,7 @@ function MovieCategorySection() {
 async function CuratedSeriesSection() {
   const movies = await getCuratedSeriesRow();
   if (movies.length === 0) return null;
-  return <MovieRow title="추천 시리즈물" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
+  return <MovieRow title="추천 시리즈물" subtitle="사용자 평점순" movies={movies} />;
 }
 
 async function PopularSeriesSection() {
