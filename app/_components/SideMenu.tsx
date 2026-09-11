@@ -207,7 +207,14 @@ export default function SideMenu({ session }: { session: Session | null }) {
 
             <p className="mt-6 px-2 text-xs font-semibold text-muted">설정</p>
             <nav className="mt-2 space-y-1">
-              <PlaceholderItem icon={<GearIcon />} label="계정 설정" onClose={close} />
+              <Link
+                href="/mypage"
+                onClick={close}
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <GearIcon />
+                계정 설정
+              </Link>
               <PlaceholderItem icon={<BellIcon />} label="알림" onClose={close} />
               <div
                 className={`flex items-center justify-between rounded-lg px-2 py-2.5 text-sm text-text ${

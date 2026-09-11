@@ -39,6 +39,13 @@ export default function AuthButton({ session }: { session: Session | null }) {
               >
                 내 프로필
               </Link>
+              <Link
+                href="/mypage"
+                onClick={() => setOpen(false)}
+                className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-black/30"
+              >
+                마이페이지
+              </Link>
               <button
                 type="button"
                 onClick={() => {
