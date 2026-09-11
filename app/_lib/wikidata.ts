@@ -235,6 +235,14 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
       return data;
     }
   } catch (err) {
+    // P2021: 테이블 자체가 없음 → npx prisma db push 미실행 상태.
+    // 이 경우 SPARQL까지 40초 기다리지 않고 폴백을 즉시 메모리 캐시에 올려 반환한다.
+    if ((err as { code?: string }).code === "P2021") {
+      console.warn("[wikidata] CachedAwardWinners 테이블 없음 — 폴백 사용 (npx prisma db push 필요)");
+      const data = FALLBACK_WINNERS[type];
+      memCache.set(type, { data, at: Date.now() });
+      return data;
+    }
     console.warn("[wikidata] DB 캐시 조회 실패:", err);
   }
 
