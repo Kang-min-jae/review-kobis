@@ -194,6 +194,8 @@ async function fetchFestivalWinnersRaw(
 }
 
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
+// 버전을 올리면 기존 DB 캐시를 무시하고 Wikidata를 즉시 재조회한다.
+const CACHE_VERSION = "v3";
 const DB_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
@@ -203,45 +205,52 @@ const g = globalThis as typeof globalThis & { __wikidataCache?: Map<string, MemE
 if (!g.__wikidataCache) g.__wikidataCache = new Map<string, MemEntry>();
 const memCache = g.__wikidataCache;
 
+// 폴백은 Wikidata 연결 실패 시에만 사용된다. 최신 데이터는 항상 Wikidata에서 온다.
 const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
+  // 97회 아카데미 시상식 (2025년 3월)
   academy: [
-    { categoryLabel: "작품상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395", tmdbId: "872585" },
-    { categoryLabel: "감독상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395", tmdbId: "872585" },
-    { categoryLabel: "국제영화상", titleKo: "존재의 구역", titleEn: "The Zone of Interest", ceremonyYear: 2024, filmQid: "Q104070684", tmdbId: "872906" },
+    { categoryLabel: "작품상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1209290" },
+    { categoryLabel: "감독상",    titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1023919" },
+    { categoryLabel: "남우주연상", titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1023919" },
+    { categoryLabel: "여우주연상", titleKo: null,            titleEn: "The Substance",  ceremonyYear: 2025, filmQid: "Q125889440", tmdbId: "933260" },
+    { categoryLabel: "국제영화상", titleKo: null,            titleEn: "I'm Still Here", ceremonyYear: 2025, filmQid: "Q128023745", tmdbId: "1156593" },
+    { categoryLabel: "각본상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1209290" },
+    { categoryLabel: "각색상",    titleKo: null,            titleEn: "Conclave",       ceremonyYear: 2025, filmQid: "Q128029218", tmdbId: "975902" },
   ],
+  // 78회 칸 영화제 (2025년 5월) — Wikidata 재조회로 자동 반영
   cannes: [
     { categoryLabel: "황금종려상", titleKo: "아노라", titleEn: "Anora", ceremonyYear: 2024, filmQid: "Q125499906", tmdbId: "1209290" },
     { categoryLabel: "심사위원대상", titleKo: null, titleEn: "All We Imagine as Light", ceremonyYear: 2024, filmQid: "Q124949622", tmdbId: "1164659" },
   ],
+  // 75회 베를린 영화제 (2025년 2월) — Wikidata 재조회로 자동 반영
   berlin: [
     { categoryLabel: "황금곰상", titleKo: null, titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185", tmdbId: "1239586" },
   ],
+  // 82회 베니스 영화제 (2025년 9월) — Wikidata 재조회로 자동 반영
   venice: [
-    // 2024 (제81회)
-    { categoryLabel: "황금사자상", titleKo: null, titleEn: "April", ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
-    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Vermiglio", ceremonyYear: 2024, filmQid: "Q127028023", tmdbId: "1352009" },
-    { categoryLabel: "감독상", titleKo: null, titleEn: "The Brutalist", ceremonyYear: 2024, filmQid: "Q108851477", tmdbId: "1023919" },
-    { categoryLabel: "각본상", titleKo: null, titleEn: "I'm Still Here", ceremonyYear: 2024, filmQid: "Q128023745", tmdbId: "1156593" },
-    { categoryLabel: "여우주연상", titleKo: null, titleEn: "Babygirl", ceremonyYear: 2024, filmQid: "Q128462534", tmdbId: "1037073" },
-    { categoryLabel: "특별심사위원상", titleKo: null, titleEn: "Queer", ceremonyYear: 2024, filmQid: "Q115030826", tmdbId: "539051" },
-    // 2023 (제80회)
-    { categoryLabel: "황금사자상", titleKo: "가여운 것들", titleEn: "Poor Things", ceremonyYear: 2023, filmQid: "Q119701505", tmdbId: "792307" },
-    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Evil Does Not Exist", ceremonyYear: 2023, filmQid: "Q117095625", tmdbId: "1139558" },
-    { categoryLabel: "감독상", titleKo: null, titleEn: "Io Capitano", ceremonyYear: 2023, filmQid: "Q117386499", tmdbId: "1062809" },
+    { categoryLabel: "황금사자상",   titleKo: null, titleEn: "April",          ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
+    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Vermiglio",       ceremonyYear: 2024, filmQid: "Q127028023", tmdbId: "1352009" },
+    { categoryLabel: "감독상",       titleKo: null, titleEn: "The Brutalist",   ceremonyYear: 2024, filmQid: "Q108851477", tmdbId: "1023919" },
+    { categoryLabel: "각본상",       titleKo: null, titleEn: "I'm Still Here",  ceremonyYear: 2024, filmQid: "Q128023745", tmdbId: "1156593" },
+    { categoryLabel: "여우주연상",   titleKo: null, titleEn: "Babygirl",        ceremonyYear: 2024, filmQid: "Q128462534", tmdbId: "1037073" },
+    { categoryLabel: "특별심사위원상", titleKo: null, titleEn: "Queer",         ceremonyYear: 2024, filmQid: "Q115030826", tmdbId: "539051" },
+    { categoryLabel: "남우주연상",   titleKo: null, titleEn: "Vincent Must Die", ceremonyYear: 2024, filmQid: "Q122915012", tmdbId: "1179694" },
   ],
 };
 
 async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<FestivalWinner[]> {
+  const cacheKey = `${type}-${CACHE_VERSION}`;
+
   // 1) 메모리 캐시 (핫리로드 방지)
-  const mem = memCache.get(type);
+  const mem = memCache.get(cacheKey);
   if (mem && Date.now() - mem.at < MEM_TTL_MS) return mem.data;
 
-  // 2) DB 캐시
+  // 2) DB 캐시 — 버전이 바뀌면 키가 달라져서 자동으로 재조회된다
   try {
-    const cached = await db.cachedAwardWinners.findUnique({ where: { id: type } });
+    const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
     if (cached && Date.now() - cached.updatedAt.getTime() < DB_CACHE_TTL_MS) {
       const data = cached.winners as unknown as FestivalWinner[];
-      memCache.set(type, { data, at: Date.now() });
+      memCache.set(cacheKey, { data, at: Date.now() });
       return data;
     }
   } catch (err) {
@@ -250,7 +259,7 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
     if ((err as { code?: string }).code === "P2021") {
       console.warn("[wikidata] CachedAwardWinners 테이블 없음 — 폴백 사용 (npx prisma db push 필요)");
       const data = FALLBACK_WINNERS[type];
-      memCache.set(type, { data, at: Date.now() });
+      memCache.set(cacheKey, { data, at: Date.now() });
       return data;
     }
     console.warn("[wikidata] DB 캐시 조회 실패:", err);
@@ -263,20 +272,21 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
   // 4) DB에 저장
   try {
     await db.cachedAwardWinners.upsert({
-      where: { id: type },
-      create: { id: type, winners: data as unknown as object[] },
+      where: { id: cacheKey },
+      create: { id: cacheKey, winners: data as unknown as object[] },
       update: { winners: data as unknown as object[] },
     });
   } catch (err) {
     console.warn("[wikidata] DB 캐시 저장 실패:", err);
   }
 
-  memCache.set(type, { data, at: Date.now() });
+  memCache.set(cacheKey, { data, at: Date.now() });
   return data;
 }
 
 // ── 공개 API ─────────────────────────────────────────────────────────────────
-const SINCE_YEAR = new Date().getFullYear() - 3;
+// 최근 2년치만 조회 — 각 부문마다 가장 최신 연도를 자동으로 선택한다
+const SINCE_YEAR = new Date().getFullYear() - 2;
 
 export async function fetchLatestAcademyWinners(): Promise<FestivalWinner[]> {
   return fetchWithCache("academy", SINCE_YEAR);
