@@ -10,18 +10,17 @@ import type { TmdbSeriesDetails } from "../../_lib/tmdb";
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 function toRowMovies(series: TmdbSeriesDetails[]) {
-  return series
-    .filter((s) => s.posterUrl)
-    .map((s) => ({
-      id: `tmdb-tv-${s.tmdbId}`,
-      title: s.name,
-      posterUrl: s.posterUrl,
-      gradient: FALLBACK_GRADIENT,
-      isNowShowing: false,
-      genre: null,
-      allGenres: [] as string[],
-      firstAirDate: s.firstAirDate,
-    }));
+  // posterUrl 없어도 gradient 배경으로 표시 (API 키 없거나 포스터 미등록 시리즈)
+  return series.map((s) => ({
+    id: `tmdb-tv-${s.tmdbId}`,
+    title: s.name,
+    posterUrl: s.posterUrl,
+    gradient: FALLBACK_GRADIENT,
+    isNowShowing: false,
+    genre: null,
+    allGenres: [] as string[],
+    firstAirDate: s.firstAirDate,
+  }));
 }
 
 export async function GET(request: Request) {
@@ -51,29 +50,32 @@ export async function GET(request: Request) {
   }
 
   // 키워드 텍스트 검색: 시리즈 제목 + 배우/인물 병렬 조회
-  const [titleResults, personResults] = await Promise.all([
+  let foundPersonName: string | null = null;
+  const [titleResults, personResultsRaw] = await Promise.all([
     searchTmdbSeries(q),
     (async () => {
       const people = await searchTmdbPerson(q);
-      if (people.length === 0) return [];
+      if (people.length === 0) return { credits: [], name: null };
       const credits = await getTmdbPersonTvCredits(people[0].tmdbId);
-      return credits;
+      return { credits, name: people[0].name };
     })(),
   ]);
 
   const seen = new Set<string>();
   const merged: TmdbSeriesDetails[] = [];
-  for (const s of [...titleResults, ...personResults]) {
+  for (const s of [...titleResults, ...personResultsRaw.credits]) {
     if (!seen.has(s.tmdbId)) {
       seen.add(s.tmdbId);
       merged.push(s);
     }
   }
 
-  const personName = personResults.length > 0 ? (await searchTmdbPerson(q))[0]?.name ?? null : null;
+  if (titleResults.length === 0 && personResultsRaw.name) {
+    foundPersonName = personResultsRaw.name;
+  }
 
   return NextResponse.json({
     results: toRowMovies(merged),
-    foundPerson: titleResults.length === 0 && personName ? personName : null,
+    foundPerson: foundPersonName,
   });
 }
