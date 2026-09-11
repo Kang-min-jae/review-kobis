@@ -57,11 +57,12 @@ function isRatable(movie: RowMovie): boolean {
 }
 
 function ReviewPanel({ movie, currentRatable }: { movie: RowMovie; currentRatable: boolean }) {
-  const reviews = useSyncExternalStore(
+  const allReviews = useSyncExternalStore(
     subscribe,
-    () => getReviewsSnapshot(movie.id, "short").slice(0, 3),
-    () => getSeedReviewsSnapshot(movie.id, "short").slice(0, 3),
+    () => getReviewsSnapshot(movie.id, "short"),
+    () => getSeedReviewsSnapshot(movie.id, "short"),
   );
+  const reviews = allReviews.slice(0, 3);
   const avgRating = useSyncExternalStore(
     subscribe,
     () => getAverageRating(movie.id, "short"),
