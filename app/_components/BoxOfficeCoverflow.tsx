@@ -155,7 +155,7 @@ export default function BoxOfficeCoverflow({
 
   const current = movies[active];
   const { rank: currentRank, detail: currentDetail } = parseBadge(current.badge);
-  const isCurrentRatable = current.id.startsWith("kobis-");
+  const isCurrentRatable = current.id.startsWith("kobis-") || current.id.startsWith("wikidata-") || current.id.startsWith("tmdb-tv-");
 
   return (
     <section className="px-5 py-6">
@@ -252,9 +252,9 @@ export default function BoxOfficeCoverflow({
                             🎫 예매
                           </Link>
                         )}
-                        {movie.id.startsWith("kobis-") ? (
+                        {movie.id.startsWith("kobis-") || movie.id.startsWith("wikidata-") || movie.id.startsWith("tmdb-tv-") ? (
                           <Link
-                            href={`/movies/${movie.id}/rate`}
+                            href={movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`}
                             className="flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
                           >
                             ★ 평점
@@ -275,7 +275,10 @@ export default function BoxOfficeCoverflow({
 
         <div className="mt-5 text-center">
           {isCurrentRatable ? (
-            <Link href={`/movies/${current.id}/rate`} className="text-lg font-bold text-text hover:underline">
+            <Link
+              href={current.id.startsWith("tmdb-tv-") ? `/series/${current.id}/rate` : `/movies/${current.id}/rate`}
+              className="text-lg font-bold text-text hover:underline"
+            >
               {current.title}
             </Link>
           ) : (

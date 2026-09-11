@@ -4,7 +4,7 @@ import MyPageView from "../_components/MyPageView";
 import { auth } from "../../auth";
 import { db } from "../_lib/db";
 
-export const metadata = { title: "마이페이지" };
+export const metadata = { title: "계정설정" };
 
 export default async function MyPage() {
   const session = await auth();

@@ -98,7 +98,47 @@ export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
   return results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
 }
 
+// 사용자 평점 수 기준 인기 시리즈 행 — 데이터 부족 시 TMDB 인기 순으로 폴백.
 export async function getPopularSeriesRow(): Promise<RowMovie[]> {
+  let topRated: { movieCd: string; _count: { movieCd: number } }[] = [];
+  try {
+    topRated = await db.categoryRating.groupBy({
+      by: ["movieCd"],
+      _count: { movieCd: true },
+      orderBy: { _count: { movieCd: "desc" } },
+      take: 80,
+    });
+  } catch {
+    // DB 오류 — 폴백으로 진행
+  }
+
+  const tvRated = topRated.filter((r) => r.movieCd.startsWith("tmdb-tv-"));
+
+  if (tvRated.length >= 3) {
+    const tmdbIds = tvRated.map((r) => r.movieCd.slice("tmdb-tv-".length));
+    const cachedList = await db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []);
+    const byId = new Map(cachedList.map((c) => [c.tmdbId, c]));
+
+    const results: RowMovie[] = [];
+    for (const r of tvRated) {
+      const tmdbId = r.movieCd.slice("tmdb-tv-".length);
+      const cached = byId.get(tmdbId);
+      if (!cached?.posterUrl) continue;
+      const all = splitGenres(cached.genreAlt);
+      results.push({
+        id: r.movieCd,
+        title: cached.name,
+        posterUrl: cached.posterUrl,
+        gradient: FALLBACK_GRADIENT,
+        isNowShowing: false,
+        genre: all.length > 0 ? all.slice(0, 2).join(" · ") : null,
+        allGenres: all,
+      });
+    }
+    if (results.length >= 3) return results;
+  }
+
+  // 폴백: TMDB 인기 목록
   const list = await getTmdbPopularSeries();
   return list
     .filter((s) => s.posterUrl !== null)
@@ -113,12 +153,52 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
     }));
 }
 
-// 순위 배지(1위~10위)를 붙인 인기 시리즈 TOP 10 — TV 탭 캐러셀용.
-// TMDB /tv/popular 실패(API 키 없음·네트워크 오류) 시 큐레이션 목록으로 폴백.
+// 사용자 평점 등록 수 기준 TOP 10 시리즈 — TV 탭 캐러셀용.
+// 평점 데이터가 부족(3개 미만)하면 TMDB 인기 목록 → 큐레이션 순으로 폴백.
 export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
+  // 1. DB에서 평점 수 많은 순으로 tmdb-tv-* movieCd 조회
+  let topRated: { movieCd: string; _count: { movieCd: number } }[] = [];
+  try {
+    topRated = await db.categoryRating.groupBy({
+      by: ["movieCd"],
+      _count: { movieCd: true },
+      orderBy: { _count: { movieCd: "desc" } },
+      take: 60,
+    });
+  } catch {
+    // P2021(테이블 없음) 등 DB 오류 — 폴백으로 진행
+  }
+
+  const tvTopRated = topRated.filter((r) => r.movieCd.startsWith("tmdb-tv-"));
+
+  if (tvTopRated.length >= 3) {
+    const tmdbIds = tvTopRated.map((r) => r.movieCd.slice("tmdb-tv-".length));
+    const cachedList = await db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []);
+    const byId = new Map(cachedList.map((c) => [c.tmdbId, c]));
+
+    const results: RowMovie[] = [];
+    for (const r of tvTopRated) {
+      if (results.length >= 10) break;
+      const tmdbId = r.movieCd.slice("tmdb-tv-".length);
+      const cached = byId.get(tmdbId);
+      if (!cached?.posterUrl) continue;
+      results.push({
+        id: r.movieCd,
+        title: cached.name,
+        posterUrl: cached.posterUrl,
+        gradient: FALLBACK_GRADIENT,
+        isNowShowing: false,
+        badge: `${results.length + 1}위`,
+        genre: null,
+        allGenres: [],
+      });
+    }
+    if (results.length >= 3) return results;
+  }
+
+  // 폴백 1: TMDB 인기 목록 (top10)
   const popular = await getTmdbPopularSeries();
   const filtered = popular.filter((s) => s.posterUrl !== null).slice(0, 10);
-
   if (filtered.length > 0) {
     return filtered.map((s, i) => ({
       id: `tmdb-tv-${s.tmdbId}`,
@@ -132,7 +212,7 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
     }));
   }
 
-  // 폴백: 큐레이션 목록을 DB 캐시에서 가져와 순위 배지 부여
+  // 폴백 2: 큐레이션 목록
   const curatedResults = await Promise.all(CURATED_SERIES_IDS.map(getOrFetchSeries));
   return curatedResults
     .filter((r): r is RowMovie => r !== null && r.posterUrl !== null)

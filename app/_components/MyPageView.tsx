@@ -36,16 +36,9 @@ function maskEmail(email: string): string {
   return `${visible}***@${domain}`;
 }
 
-function formatRelativeDate(isoString: string): string {
+function formatJoinDate(isoString: string): string {
   const date = new Date(isoString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "오늘";
-  if (diffDays < 30) return `${diffDays}일 전`;
-  const diffMonths = Math.floor(diffDays / 30);
-  if (diffMonths < 12) return `${diffMonths}개월 전`;
-  return `${Math.floor(diffMonths / 12)}년 전`;
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 가입`;
 }
 
 // ── 모달 래퍼 ────────────────────────────────────────────────────────────────
@@ -335,33 +328,41 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
     } catch {}
   }
 
-  const joinedAt = formatRelativeDate(user.createdAt);
+  const joinedAt = formatJoinDate(user.createdAt);
   const initial = (user.nickname ?? "U").slice(0, 1).toUpperCase();
 
   return (
     <div className="px-5 py-6 space-y-4 max-w-lg mx-auto pb-10">
       <BackBar />
 
-      {/* 프로필 헤더 */}
-      <div className="flex items-center gap-4 py-4">
-        <div className="relative shrink-0">
-          {user.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={user.image} alt="" className="h-16 w-16 rounded-full object-cover" />
-          ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-star text-2xl font-bold text-black">
-              {initial}
-            </div>
-          )}
-        </div>
-        <div>
-          <p className="text-lg font-bold text-text">{user.nickname}</p>
-          <p className="text-xs text-muted mt-0.5">
-            {joinedAt} 가입 · 평점 남긴 영화{" "}
-            <span className="font-semibold text-brand">{ratingCount}</span>편
-          </p>
-        </div>
+      {/* 페이지 제목 */}
+      <div className="pt-2">
+        <h1 className="text-2xl font-bold text-text">마이페이지</h1>
+        <p className="mt-1 text-sm text-muted">계정 정보와 설정을 관리해요</p>
       </div>
+
+      {/* 프로필 헤더 카드 */}
+      <Card>
+        <div className="flex items-center gap-4">
+          <div className="relative shrink-0">
+            {user.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={user.image} alt="" className="h-16 w-16 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-star text-2xl font-bold text-black">
+                {initial}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-lg font-bold text-text">{user.nickname}</p>
+            <p className="text-xs text-muted mt-0.5">
+              {joinedAt} · 평점 남긴 영화{" "}
+              <span className="font-semibold text-brand">{ratingCount}</span>편
+            </p>
+          </div>
+        </div>
+      </Card>
 
       {/* 프로필 */}
       <Card>
@@ -415,7 +416,13 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
                   {linked ? (
                     <>
                       <span className="text-xs text-green-400 font-semibold">연결됨</span>
-                      {/* 연결 해제는 복잡한 OAuth flow가 필요해서 현재 버전은 안내만 표시 */}
+                      <button
+                        type="button"
+                        className="rounded-lg border border-star/60 px-3 py-1.5 text-xs font-semibold text-star hover:bg-star/10 transition-colors"
+                        onClick={() => {}}
+                      >
+                        연결 해제
+                      </button>
                     </>
                   ) : (
                     <>

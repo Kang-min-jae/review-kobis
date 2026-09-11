@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import CoverflowCarousel from "./CoverflowCarousel";
+import BoxOfficeCoverflow from "./BoxOfficeCoverflow";
 import type { RowMovie } from "../_lib/movie-rows";
 
 export type AwardTab = {
@@ -24,16 +24,15 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
 
   if (!activeTab || activeTab.movies.length === 0) return null;
 
-  return (
-    <section className="px-5 py-6">
-      <h2 className="text-lg font-bold text-text">수상작으로 보기</h2>
-      <p className="mt-1 text-sm text-muted">세계 3대 영화제 · 아카데미 시상식의 최근 수상작</p>
+  const { emoji } = TAB_ICONS[activeTab.id];
 
+  return (
+    <div>
       {/* 원형 영화제 탭 */}
-      <div className="mt-5 flex justify-center gap-6">
+      <div className="flex justify-center gap-6 px-5 pt-6">
         {tabs.map((tab) => {
           const isActive = tab.id === activeId;
-          const { emoji, color } = TAB_ICONS[tab.id];
+          const { emoji: tabEmoji, color } = TAB_ICONS[tab.id];
           return (
             <button
               key={tab.id}
@@ -48,7 +47,7 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
                     : "bg-neutral-800 opacity-60 hover:opacity-90"
                 }`}
               >
-                {emoji}
+                {tabEmoji}
               </span>
               <span
                 className={`text-[11px] font-semibold transition-colors ${
@@ -62,12 +61,13 @@ export default function AwardWinnersSection({ tabs }: { tabs: AwardTab[] }) {
         })}
       </div>
 
-      {/* 수상작 캐러셀 */}
-      <CoverflowCarousel
+      {/* 수상작 캐러셀 — BoxOfficeCoverflow 재사용 */}
+      <BoxOfficeCoverflow
         key={activeId}
+        title={`${emoji} ${activeTab.name} 수상작`}
+        subtitle="최근 수상작"
         movies={activeTab.movies}
-        hint="카드를 드래그하거나 화살표로 넘겨보세요"
       />
-    </section>
+    </div>
   );
 }

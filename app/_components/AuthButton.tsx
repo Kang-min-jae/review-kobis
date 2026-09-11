@@ -33,18 +33,11 @@ export default function AuthButton({ session }: { session: Session | null }) {
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <div className="absolute right-0 z-20 mt-2 w-40 rounded-lg border border-neutral-700 bg-surface p-2 shadow-lg">
               <Link
-                href={`/users/${session.user.id}`}
-                onClick={() => setOpen(false)}
-                className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-black/30"
-              >
-                내 프로필
-              </Link>
-              <Link
                 href="/mypage"
                 onClick={() => setOpen(false)}
                 className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-black/30"
               >
-                마이페이지
+                계정설정
               </Link>
               <button
                 type="button"
