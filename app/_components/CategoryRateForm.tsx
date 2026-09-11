@@ -194,8 +194,6 @@ export default function CategoryRateForm({
         ))}
       </div>
 
-      <p className="mt-3 text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
-
       <form onSubmit={handleSubmitReview} className="mt-4 space-y-4">
         <div>
           <div className="flex items-center gap-3">
@@ -231,19 +229,25 @@ export default function CategoryRateForm({
               placeholder={`${category}에 대해 한 줄로 남겨보세요 (최대 2문장)`}
               className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
             />
-            <p className={`mt-1 text-xs ${tooManySentences ? "text-brand" : "text-muted"}`}>
-              {sentenceCount}/{SHORT_MAX_SENTENCES}문장
-              {tooManySentences && " · 한줄평은 2문장까지만 가능해요"}
-            </p>
+            <div className="mt-1 flex items-center justify-between">
+              <p className={`text-xs ${tooManySentences ? "text-brand" : "text-muted"}`}>
+                {sentenceCount}/{SHORT_MAX_SENTENCES}문장
+                {tooManySentences && " · 한줄평은 2문장까지만 가능해요"}
+              </p>
+              <p className="text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
+            </div>
           </div>
         ) : (
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={8}
-            placeholder={`${category}에 대한 자세한 감상평을 남겨주세요`}
-            className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
-          />
+          <div>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={8}
+              placeholder={`${category}에 대한 자세한 감상평을 남겨주세요`}
+              className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
+            />
+            <p className="mt-1 text-right text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
+          </div>
         )}
 
         <button
