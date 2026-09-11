@@ -144,6 +144,7 @@ model User {
   followers           Follow[]             @relation("Followers")
   watchTriggers       WatchTrigger[]       @relation("Reader")
   passwordResetTokens PasswordResetToken[]
+  awardVotes          AwardVote[]
 
   createdAt DateTime @default(now())
 }
@@ -331,4 +332,22 @@ model PersonIdentityMapping {
   createdAt     DateTime @default(now())
 
   @@unique([personName, role])
+}
+
+// 수상작 투표 — 사용자가 특정 영화제·시상 부문에 직접 투표한 영화.
+// 1인 1표(userId + festival + awardCategory unique).
+model AwardVote {
+  id            String   @id @default(cuid())
+  userId        String
+  festival      String   // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String   // "작품상" | "감독상" | ...
+  movieId       String   // kobis-* | wikidata-* 등
+  movieTitle    String
+  posterUrl     String?
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, festival, awardCategory])
+  @@index([festival, awardCategory])
 }
