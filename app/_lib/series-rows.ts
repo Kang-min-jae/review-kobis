@@ -24,7 +24,16 @@ const CURATED_SERIES_IDS = [
 ];
 
 async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
-  const cached = await db.cachedSeries.findUnique({ where: { tmdbId } });
+  let cached = null;
+  let dbAvailable = true;
+
+  try {
+    cached = await db.cachedSeries.findUnique({ where: { tmdbId } });
+  } catch {
+    // P2021 (테이블 없음) 등 DB 오류 — DB 없이 TMDB 직접 호출로 폴백
+    dbAvailable = false;
+  }
+
   const isStale = !cached || Date.now() - cached.updatedAt.getTime() > CACHE_TTL_MS;
 
   if (cached && !isStale) {
@@ -43,28 +52,34 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
   const details = await getTmdbSeriesDetails(tmdbId);
   if (!details) return null;
 
-  await db.cachedSeries.upsert({
-    where: { tmdbId },
-    update: {
-      name: details.name,
-      originalName: details.originalName,
-      posterUrl: details.posterUrl,
-      overview: details.overview,
-      firstAirDate: details.firstAirDate,
-      genreAlt: details.genre,
-      seasonCount: details.seasonCount,
-    },
-    create: {
-      tmdbId,
-      name: details.name,
-      originalName: details.originalName,
-      posterUrl: details.posterUrl,
-      overview: details.overview,
-      firstAirDate: details.firstAirDate,
-      genreAlt: details.genre,
-      seasonCount: details.seasonCount,
-    },
-  });
+  if (dbAvailable) {
+    try {
+      await db.cachedSeries.upsert({
+        where: { tmdbId },
+        update: {
+          name: details.name,
+          originalName: details.originalName,
+          posterUrl: details.posterUrl,
+          overview: details.overview,
+          firstAirDate: details.firstAirDate,
+          genreAlt: details.genre,
+          seasonCount: details.seasonCount,
+        },
+        create: {
+          tmdbId,
+          name: details.name,
+          originalName: details.originalName,
+          posterUrl: details.posterUrl,
+          overview: details.overview,
+          firstAirDate: details.firstAirDate,
+          genreAlt: details.genre,
+          seasonCount: details.seasonCount,
+        },
+      });
+    } catch {
+      // DB 쓰기 실패는 무시 — 이번 렌더에서 데이터는 반환 가능
+    }
+  }
 
   const all = splitGenres(details.genre);
   return {

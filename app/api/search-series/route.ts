@@ -1,12 +1,27 @@
 import { NextResponse } from "next/server";
 import {
   searchTmdbSeries,
+  searchTmdbMulti,
   discoverTmdbSeriesByGenre,
   getTmdbPersonTvCredits,
   searchTmdbPerson,
   normalizeTitleStr,
 } from "../../_lib/tmdb";
-import type { TmdbSeriesDetails } from "../../_lib/tmdb";
+import type { TmdbSeriesDetails, TmdbMultiHit } from "../../_lib/tmdb";
+
+// TmdbMultiHit(TV)를 TmdbSeriesDetails 형태로 변환 — searchTmdbSeries 폴백용
+function multiHitToSeriesDetails(h: TmdbMultiHit): TmdbSeriesDetails {
+  return {
+    tmdbId: h.tmdbId,
+    name: h.title,
+    originalName: null,
+    posterUrl: h.posterUrl,
+    overview: null,
+    firstAirDate: h.year ? `${h.year}-01-01` : null,
+    seasonCount: null,
+    genre: null,
+  };
+}
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -52,9 +67,11 @@ export async function GET(request: Request) {
 
   // 키워드 텍스트 검색: 시리즈 제목(3단계 폴백) + 배우/인물 병렬 조회
   let foundPersonName: string | null = null;
-  const [rawTitleResults, personResultsRaw] = await Promise.all([
-    // 1단계: ko-KR + en-US 병렬 검색 (searchTmdbSeries 내부에서 처리)
+  const [rawTitleResultsFromSearch, multiResults, personResultsRaw] = await Promise.all([
+    // 1-A단계: /search/tv (ko-KR + en-US 병렬)
     searchTmdbSeries(q),
+    // 1-B단계: /search/multi TV 필터 — /search/tv 실패 시 폴백
+    searchTmdbMulti(q),
     (async () => {
       const people = await searchTmdbPerson(q);
       if (people.length === 0) return { credits: [], name: null };
@@ -62,7 +79,18 @@ export async function GET(request: Request) {
       return { credits, name: people[0].name };
     })(),
   ]);
-  console.log(`[search-series] TMDB 1단계(ko+en) "${q}": ${rawTitleResults.length}건`);
+
+  // /search/tv 결과가 비어있으면 /search/multi TV 결과로 채운다
+  const multiTvAsDetails = multiResults
+    .filter((h) => h.mediaType === "tv")
+    .map(multiHitToSeriesDetails);
+
+  const rawTitleResults =
+    rawTitleResultsFromSearch.length > 0 ? rawTitleResultsFromSearch : multiTvAsDetails;
+
+  console.log(
+    `[search-series] /search/tv "${q}": ${rawTitleResultsFromSearch.length}건, /search/multi TV: ${multiTvAsDetails.length}건 → 사용: ${rawTitleResults.length}건`
+  );
 
   // 2단계: 클라이언트 측 느슨한 매칭 — 공백·특수문자를 제거해 비교
   // "밴드오브" → "밴드오브" ⊂ "밴드오브브라더스" 로 매칭

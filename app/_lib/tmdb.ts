@@ -51,7 +51,12 @@ function releaseSlot(): void {
   }
 }
 
-async function tmdbFetch<T>(path: string, params: Record<string, string> = {}, lang = "ko-KR"): Promise<T | null> {
+async function tmdbFetch<T>(
+  path: string,
+  params: Record<string, string> = {},
+  lang = "ko-KR",
+  noCache = false,
+): Promise<T | null> {
   const key = apiKey();
   if (!key) return null;
 
@@ -64,8 +69,10 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}, l
   try {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
+        // noCache=true 일 때는 Next.js 데이터 캐시를 건너뛴다 — 서버 컴포넌트에서
+        // TV 시리즈 엔드포인트를 호출할 때 실패 응답이 24h 동안 캐시되는 문제를 방지.
         const res = await fetch(url, {
-          next: { revalidate: 60 * 60 * 24 },
+          ...(noCache ? { cache: "no-store" } : { next: { revalidate: 60 * 60 * 24 } }),
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         if (!res.ok) {
@@ -271,7 +278,7 @@ export type TmdbSeriesDetails = {
 };
 
 export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
-  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`);
+  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true);
   if (!details) return null;
   return {
     tmdbId: String(details.id),
@@ -378,7 +385,7 @@ export async function searchTmdbMulti(query: string): Promise<TmdbMultiHit[]> {
 }
 
 export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
-  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular");
+  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular", {}, "ko-KR", true);
   return (data?.results ?? [])
     .filter((r) => r.name || r.original_name)
     .slice(0, 20)
