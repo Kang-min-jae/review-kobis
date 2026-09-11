@@ -287,7 +287,12 @@ export async function searchTmdbSeries(query: string): Promise<TmdbSeriesDetails
       merged.push(rawToSeriesDetails(r));
     }
   }
-  return merged.slice(0, 10);
+  return merged.slice(0, 20);
+}
+
+// 공백·특수문자를 제거한 소문자 문자열 — 느슨한 제목 매칭에 사용
+export function normalizeTitleStr(s: string): string {
+  return s.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
 }
 
 export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
