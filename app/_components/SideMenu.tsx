@@ -75,7 +75,7 @@ function PlaceholderItem({
   );
 }
 
-export default function SideMenu({ session }: { session: Session | null }) {
+export default function SideMenu({ session, nickname }: { session: Session | null; nickname?: string | null }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
@@ -114,7 +114,9 @@ export default function SideMenu({ session }: { session: Session | null }) {
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
 
-  const displayName = session?.user?.name ?? session?.user?.email ?? guestName;
+  const rawFallback = session?.user?.name ?? session?.user?.email ?? null;
+  const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
+  const displayName = nickname ?? fallback ?? guestName;
   const avatarUrl = session?.user?.image ?? null;
 
   const totalLikes = myReviews.reduce((sum, r) => sum + getReviewVote(votesState, r.id).likes, 0);

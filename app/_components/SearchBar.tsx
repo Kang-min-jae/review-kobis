@@ -18,7 +18,7 @@ export default async function SearchBar() {
 
   return (
     <div className="flex items-center gap-2 px-5 pt-5 pb-5">
-      <SideMenu session={session} />
+      <SideMenu session={session} nickname={nickname} />
       <SearchInput />
       <AuthButton session={session} nickname={nickname} />
     </div>
