@@ -6,6 +6,7 @@ import {
   fetchLatestBerlinWinners,
   fetchLatestVeniceWinners,
   type FestivalWinner,
+  type FestivalType,
 } from "./wikidata";
 import { searchTmdbMovie, getTmdbMoviePosterById, searchTmdbMoviePosterLoose } from "./tmdb";
 import { searchKmdbMovie } from "./kmdb";
@@ -13,45 +14,62 @@ import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
-async function getPosterUrl(winner: FestivalWinner): Promise<string | null> {
-  // 1) Wikidata P4947 TMDB ID — 가장 정확, 텍스트 검색 불필요
+// 포스터 검색 5단계 폴백.
+// 각 단계 실패 시 콘솔에 로그를 남겨 어느 단계에서 실패하는지 추적 가능.
+async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Promise<string | null> {
+  const ctx = `[award-tmdb][${festival}] "${winner.titleKo ?? winner.titleEn}" (${winner.ceremonyYear}) [${winner.categoryLabel}]`;
+
+  // 1) Wikidata P4947 TMDB ID 직접 조회 — 가장 정확
   if (winner.tmdbId) {
     const poster = await getTmdbMoviePosterById(winner.tmdbId);
     if (poster) return poster;
+    console.warn(`${ctx} P4947 tmdbId=${winner.tmdbId} 포스터 null`);
   }
 
   const displayTitle = winner.titleKo ?? winner.titleEn;
   const yearHint = String(winner.ceremonyYear - 1);
 
-  // 2) 제목 exact match 검색 (ko-KR → en-US 순)
+  // 2) 제목 exact match: ko-KR → en-US
   const tmdb = await searchTmdbMovie(displayTitle, yearHint, winner.titleEn);
   if (tmdb?.posterUrl) return tmdb.posterUrl;
+  console.warn(`${ctx} exact match 실패 (displayTitle="${displayTitle}", titleEn="${winner.titleEn}")`);
 
-  // 3) 느슨한 매칭 — 유럽·비영어권 아트하우스 영화는 TMDB 한글 표기가
-  //    Wikidata 레이블과 달라 exact match가 실패하는 경우가 많다.
-  //    영어 레이블 + 연도 필터로 TMDB 첫 결과를 채택한다.
+  // 3) 느슨한 매칭: en 제목 + primary_release_year (연도 ±2 순차 시도)
+  //    유럽·비영어권 아트하우스 영화는 TMDB 한글 표기가 Wikidata 레이블과
+  //    달라 exact match가 항상 실패하는 경우가 있다.
   if (winner.titleEn) {
     const loose = await searchTmdbMoviePosterLoose(winner.titleEn, winner.ceremonyYear);
     if (loose) return loose;
+    console.warn(`${ctx} loose(en) 실패`);
   }
 
-  // 4) KMDb 폴백 (국내 영화 위주)
+  // 4) 느슨한 매칭: ko 제목 + 연도 (한국어 제목 있을 때 추가 시도)
+  if (winner.titleKo && winner.titleKo !== displayTitle) {
+    const looseKo = await searchTmdbMoviePosterLoose(winner.titleKo, winner.ceremonyYear);
+    if (looseKo) return looseKo;
+    console.warn(`${ctx} loose(ko) 실패`);
+  }
+
+  // 5) KMDb 폴백 — 한국 개봉 영화 위주
   const kmdb = await searchKmdbMovie(displayTitle, yearHint, { titleEn: winner.titleEn });
-  return kmdb?.posterUrl ?? null;
+  if (kmdb?.posterUrl) return kmdb.posterUrl;
+
+  console.warn(`${ctx} 모든 단계 실패 — 포스터 없음`);
+  return null;
 }
 
-async function winnersToRows(winners: FestivalWinner[]): Promise<AwardMovieRow[]> {
+async function winnersToRows(winners: FestivalWinner[], festival: FestivalType): Promise<AwardMovieRow[]> {
   // 같은 영화가 여러 부문에 오를 수 있어 중복 포스터 요청을 방지하기 위해 캐시한다.
   const posterCache = new Map<string, string | null>();
 
   const results: AwardMovieRow[] = [];
   for (const winner of winners) {
-    const cacheKey = winner.filmQid; // QID 기준으로 캐시 — 제목이 다른 표기여도 같은 영화
+    const cacheKey = winner.filmQid;
     let posterUrl: string | null;
     if (posterCache.has(cacheKey)) {
       posterUrl = posterCache.get(cacheKey)!;
     } else {
-      posterUrl = await getPosterUrl(winner);
+      posterUrl = await getPosterUrl(winner, festival);
       posterCache.set(cacheKey, posterUrl);
     }
 
@@ -77,20 +95,20 @@ export type AwardMovieRow = {
 
 export async function getLatestAcademyWinnerRows(): Promise<AwardMovieRow[]> {
   const winners = await fetchLatestAcademyWinners();
-  return winnersToRows(winners);
+  return winnersToRows(winners, "academy");
 }
 
 export async function getLatestCannesWinnerRows(): Promise<AwardMovieRow[]> {
   const winners = await fetchLatestCannesWinners();
-  return winnersToRows(winners);
+  return winnersToRows(winners, "cannes");
 }
 
 export async function getLatestBerlinWinnerRows(): Promise<AwardMovieRow[]> {
   const winners = await fetchLatestBerlinWinners();
-  return winnersToRows(winners);
+  return winnersToRows(winners, "berlin");
 }
 
 export async function getLatestVeniceWinnerRows(): Promise<AwardMovieRow[]> {
   const winners = await fetchLatestVeniceWinners();
-  return winnersToRows(winners);
+  return winnersToRows(winners, "venice");
 }
