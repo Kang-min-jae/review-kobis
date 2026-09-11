@@ -12,7 +12,10 @@ export default function AuthButton({ session, nickname }: { session: Session | n
   const pathname = usePathname();
 
   if (session?.user) {
-    const displayName = nickname ?? session.user.name ?? session.user.email ?? "사용자";
+    // nickname(DB) 우선 → OAuth name → email에서 @ 앞부분만 → 기본값
+    const rawFallback = session.user.name ?? session.user.email ?? null;
+    const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
+    const displayName = nickname ?? fallback ?? "사용자";
 
     return (
       <div className="relative shrink-0">

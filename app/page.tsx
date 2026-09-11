@@ -7,6 +7,7 @@ import {
   type GenreLabel,
 } from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
+import GenreMovieRow from "./_components/GenreMovieRow";
 import BoxOfficeCoverflow from "./_components/BoxOfficeCoverflow";
 import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
@@ -308,8 +309,8 @@ function TvSeriesSection() {
 }
 
 async function GenreRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await getGenreRow(genre);
-  return <MovieRow title={`${genre} 영화`} movies={movies} />;
+  const movies = await getGenreRow(genre, 0, 20);
+  return <GenreMovieRow genre={genre} initialMovies={movies} />;
 }
 
 function GenreSection({ genre }: { genre: GenreLabel }) {

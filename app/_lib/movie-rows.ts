@@ -444,20 +444,29 @@ const GENRE_KEYWORDS: Record<string, string[]> = {
   뮤지컬: ["뮤지컬"],
 };
 
-export async function getGenreRow(genreLabel: string): Promise<RowMovie[]> {
+// offset/pageSize로 페이지네이션을 지원한다. KOBIS 후보를 150편으로 줄여 응답 크기를
+// 낮추고, 포스터 없는 영화가 걸러지는 걸 감안해 요청 편수보다 넉넉히(2배) 가져온 뒤
+// 슬라이스한다.
+export async function getGenreRow(
+  genreLabel: string,
+  offset = 0,
+  pageSize = 20
+): Promise<RowMovie[]> {
   const keywords = GENRE_KEYWORDS[genreLabel];
   if (!keywords) return [];
 
   const threeYearsAgo = new Date();
   threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-  const candidates = await fetchOpenedBetween(isoDate(threeYearsAgo), isoDate(new Date()), 300);
+  const candidates = await fetchOpenedBetween(isoDate(threeYearsAgo), isoDate(new Date()), 150);
 
   const matched = candidates.filter((movie) =>
     keywords.some((kw) => movie.genreAlt?.includes(kw))
   );
+
   // 포스터 없는 영화가 toRowMovies에서 빠지는 만큼 부족해지지 않도록 넉넉히 뽑아둔다.
-  const rows = await toRowMovies(matched.slice(0, 40));
-  return rows.slice(0, 20);
+  const fetchBuf = pageSize * 2;
+  const rows = await toRowMovies(matched.slice(offset, offset + fetchBuf));
+  return rows.slice(0, pageSize);
 }
 
 // 사용자 인기영화: 이 사이트에서 평점을 가장 많이 받은 영화 순서로 최대 limit편을 반환한다.

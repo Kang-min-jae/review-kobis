@@ -266,7 +266,7 @@ export async function searchKmdbMoviesByTitle(title: string, titleEn?: string | 
     acceptableTitles.add(normalizeTitle(titleEn));
   }
 
-  const results = await rawSearch(stripEdition(title), 50);
+  const results = await rawSearch(stripEdition(title), 30);
   const pool = results.filter((r) => acceptableTitles.has(normalizeTitle(stripHighlight(r.title))));
 
   const deduped = new Map<string, RawKmdbResult>();
@@ -299,16 +299,16 @@ export async function searchKmdbMovie(
     acceptableTitles.add(normalizeTitle(extra.titleEn));
   }
 
-  const byKorean = await rawSearch(stripEdition(title), 50);
+  const byKorean = await rawSearch(stripEdition(title), 30);
   let best = pickBestMatch(byKorean, acceptableTitles, yearHint);
 
   if (!best && extra?.titleEn) {
-    const byEnglish = await rawSearch(stripEdition(extra.titleEn), 50);
+    const byEnglish = await rawSearch(stripEdition(extra.titleEn), 30);
     best = pickBestMatch(byEnglish, acceptableTitles, yearHint);
   }
 
   if (!best && extra?.director) {
-    const byDirector = await rawSearch(extra.director, 50);
+    const byDirector = await rawSearch(extra.director, 30);
     best = pickBestMatch(byDirector, acceptableTitles, yearHint);
   }
 
@@ -355,10 +355,10 @@ export async function searchKmdbFilmography(
   role?: "감독" | "배우" | null,
   nameEn?: string | null
 ): Promise<KmdbMovieDetails[]> {
-  const results = await rawSearch(personName, 100);
+  const results = await rawSearch(personName, 50);
   // 외국 배우는 한글 이름 검색과 병행해 영문 이름으로도 검색 — KMDb에 영문으로만
   // 등록돼 있거나 한글 이름 검색 결과에 이 인물의 작품이 충분히 안 걸리는 경우를 보완.
-  const enResults = nameEn && nameEn !== personName ? await rawSearch(nameEn, 100) : [];
+  const enResults = nameEn && nameEn !== personName ? await rawSearch(nameEn, 50) : [];
   const allResults = enResults.length > 0
     ? Array.from(new Map([...results, ...enResults].filter(r => r.DOCID).map(r => [r.DOCID!, r])).values())
     : results;
@@ -454,11 +454,9 @@ export type KmdbPersonHit = {
 // 같은 순수 초성 검색어는 KMDb 검색엔진이 애초에 이해하지 못해 후보 자체가 안 잡힐 수
 // 있다 — 그런 경우 이 초성 비교 로직까지 갈 후보 풀 자체가 비어 있게 된다.
 export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbPersonHit[]> {
-  // 30건으론 활동량이 많은 배우/감독의 최근작이 검색 결과에 다 안 들어올 수 있다
-  // (KMDb 전문검색이 관련도순이라 최신순 정렬이 보장 안 됨) — 실제로 황정민(24개
-  // credit 확인됨)의 활동연도범위가 30건 기준으론 최근작이 빠진 채로 나온 사례가
-  // 있어서, searchKmdbFilmography와 같은 100건으로 넉넉히 늘렸다.
-  const results = await rawSearch(query, 100);
+  // 50건으로 활동량이 많은 배우/감독의 주요 작품을 커버하면서 응답 크기를 2MB 이내로 유지한다
+  // (detail=Y&listCount=100은 ~3.2MB로 Next.js 2MB 캐시 한도를 초과해 캐싱이 안 됨).
+  const results = await rawSearch(query, 50);
   if (results.length === 0) return [];
 
   const normalizedQuery = normalizeTitle(query);
@@ -557,7 +555,7 @@ export async function resolvePersonId(
   role: "감독" | "배우",
   contextYear?: string | null
 ): Promise<string | null> {
-  const results = await rawSearch(name, 100);
+  const results = await rawSearch(name, 50);
   if (results.length === 0) return null;
 
   const normalizedName = normalizeTitle(name);
