@@ -4,7 +4,6 @@ export const tabCategories = [
   "영화",
   "현재 상영중인 영화",
   "TV·시리즈물",
-  "단편·독립",
 ] as const;
 export type TabCategory = (typeof tabCategories)[number];
 export type NavActive = TabCategory | "my-list";

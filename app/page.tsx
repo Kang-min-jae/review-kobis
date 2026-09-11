@@ -344,9 +344,6 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       {category === "TV·시리즈물" && <TvSeriesSection />}
 
-      {category === "단편·독립" && (
-        <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
-      )}
     </main>
   );
 }
