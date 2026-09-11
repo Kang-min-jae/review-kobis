@@ -315,6 +315,58 @@ export function normalizeTitleStr(s: string): string {
   return s.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
 }
 
+// ── 통합 검색 (/search/multi) ─────────────────────────────────────────────────
+
+type RawTmdbMultiResult = {
+  id: number;
+  media_type: "movie" | "tv" | "person";
+  title?: string;
+  name?: string;
+  original_name?: string;
+  original_title?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+};
+
+export type TmdbMultiHit = {
+  tmdbId: string;
+  mediaType: "movie" | "tv";
+  title: string;
+  year: string | null;
+  posterUrl: string | null;
+};
+
+// 한국어·영어 두 로케일 병렬 요청 후 tmdbId+mediaType 기준 중복 제거.
+// person 결과는 제외하고 movie·tv만 반환한다.
+export async function searchTmdbMulti(query: string): Promise<TmdbMultiHit[]> {
+  const [koData, enData] = await Promise.all([
+    tmdbFetch<{ results?: RawTmdbMultiResult[] }>("/search/multi", { query, include_adult: "false" }, "ko-KR"),
+    tmdbFetch<{ results?: RawTmdbMultiResult[] }>("/search/multi", { query, include_adult: "false" }, "en-US"),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: TmdbMultiHit[] = [];
+
+  for (const r of [...(koData?.results ?? []), ...(enData?.results ?? [])]) {
+    if (r.media_type === "person") continue;
+    const key = `${r.media_type}-${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const isMovie = r.media_type === "movie";
+    merged.push({
+      tmdbId: String(r.id),
+      mediaType: r.media_type as "movie" | "tv",
+      title: isMovie ? (r.title ?? r.original_title ?? "") : (r.name ?? r.original_name ?? ""),
+      year: isMovie ? (r.release_date?.slice(0, 4) ?? null) : (r.first_air_date?.slice(0, 4) ?? null),
+      posterUrl: toImageUrl(r.poster_path),
+    });
+  }
+
+  return merged.slice(0, 20);
+}
+
 export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
   const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular");
   return (data?.results ?? [])

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMeta } from "../../_lib/movie-rate-info";
-import { searchTmdbSeries } from "../../_lib/tmdb";
+import { searchTmdbMulti } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
 // 박스오피스 등 다른 목록과 똑같이 CachedMovie(lazy cache)를 거쳐 포스터를 붙인다 —
@@ -89,12 +89,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  const [movieHits, rawPeople, seriesHits] = await Promise.all([
+  const [movieHits, rawPeople, multiHits] = await Promise.all([
     searchMoviesSince1960(query),
     searchKmdbPeople(query, 8),
-    searchTmdbSeries(query),
+    searchTmdbMulti(query),
   ]);
   const people = await withIdentityMappingOverride(rawPeople, query);
+
+  // /search/multi TV 결과를 series 필드에 매핑 (movie 결과는 KOBIS로 이미 커버됨)
+  const seriesHits = multiHits
+    .filter((h) => h.mediaType === "tv")
+    .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
   if (movieHits.length > 0 || people.length > 0 || seriesHits.length > 0) {
     const [movies, peopleWithWorks] = await Promise.all([withPosters(movieHits), withRepresentativeWorks(people)]);
@@ -107,12 +112,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  const [correctedMovieHits, rawCorrectedPeople, correctedSeriesHits] = await Promise.all([
+  const [correctedMovieHits, rawCorrectedPeople, correctedMultiHits] = await Promise.all([
     searchMoviesSince1960(suggested),
     searchKmdbPeople(suggested, 8),
-    searchTmdbSeries(suggested),
+    searchTmdbMulti(suggested),
   ]);
   const correctedPeople = await withIdentityMappingOverride(rawCorrectedPeople, suggested);
+  const correctedSeriesHits = correctedMultiHits
+    .filter((h) => h.mediaType === "tv")
+    .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
   const found = correctedMovieHits.length > 0 || correctedPeople.length > 0 || correctedSeriesHits.length > 0;
   const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
     withPosters(correctedMovieHits),

@@ -40,8 +40,8 @@ export default function SeriesKeywordSearch() {
   function handleGenreClick(genre: string) {
     setActiveGenre(genre);
     setInputValue("");
-    startTransition(() => {
-      fetchResults({ genre });
+    startTransition(async () => {
+      await fetchResults({ genre });
     });
   }
 
@@ -50,8 +50,8 @@ export default function SeriesKeywordSearch() {
     const q = inputValue.trim();
     if (!q) return;
     setActiveGenre(null);
-    startTransition(() => {
-      fetchResults({ q });
+    startTransition(async () => {
+      await fetchResults({ q });
     });
   }
 

@@ -37,6 +37,7 @@ export default function SearchInput() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // 이 컴포넌트가 클라이언트에서 실제로 마운트(하이드레이션)되는지 확인용.
   useEffect(() => {
@@ -48,9 +49,16 @@ export default function SearchInput() {
     console.debug("[search] runSearch 호출:", trimmed);
     if (!trimmed) return;
 
+    // 이전 요청이 아직 진행 중이면 취소한다.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     try {
-      const res = await fetch(`/api/search-movies?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`/api/search-movies?q=${encodeURIComponent(trimmed)}`, {
+        signal: controller.signal,
+      });
       console.debug("[search] 응답 status:", res.status);
       if (!res.ok) throw new Error(`검색 요청 실패: HTTP ${res.status}`);
       const data: { movies?: MovieHit[]; series?: SeriesHit[]; people?: PersonHit[]; correctedQuery?: string | null } =
@@ -62,6 +70,7 @@ export default function SearchInput() {
       setCorrectedQuery(data.correctedQuery ?? null);
       setError(false);
     } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") return; // stale 요청 — 무시
       console.error("[search] 요청 실패:", err);
       setMovies([]);
       setSeries([]);
@@ -230,11 +239,12 @@ export default function SearchInput() {
                         <span className="text-xs font-bold text-white/70">{hit.name.slice(0, 1)}</span>
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-text">{hit.name}</p>
-                      <p className="text-[10px] text-muted">
-                        시리즈{hit.firstAirDate ? ` · ${hit.firstAirDate.slice(0, 4)}` : ""}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-neutral-700 px-1 py-0.5 text-[9px] font-semibold text-muted">시리즈</span>
+                        {hit.firstAirDate && <span className="text-[10px] text-muted">{hit.firstAirDate.slice(0, 4)}</span>}
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -258,9 +268,12 @@ export default function SearchInput() {
                         <span className="text-xs font-bold text-white/70">{hit.title.slice(0, 1)}</span>
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-text">{hit.title}</p>
-                      <p className="text-[10px] text-muted">{hit.releaseDate?.slice(0, 4)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-neutral-700 px-1 py-0.5 text-[9px] font-semibold text-muted">영화</span>
+                        {hit.releaseDate && <span className="text-[10px] text-muted">{hit.releaseDate.slice(0, 4)}</span>}
+                      </div>
                     </div>
                   </Link>
                 ))}
