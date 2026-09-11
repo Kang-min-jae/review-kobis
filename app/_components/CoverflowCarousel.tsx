@@ -4,10 +4,11 @@
 // 외부에서 title/subtitle을 제어하고, 이 컴포넌트는 3D 카드 배열 + 드래그 + 아래
 // 메타정보만 담당한다.
 
-import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
-import RatingSummary from "./RatingSummary";
+import StarRating from "./StarRating";
+import { subscribe, getReviewsSnapshot, getSeedReviewsSnapshot, getAverageRating, getSeedAverageRating } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
 const SPACING_PX = 190;
@@ -53,6 +54,63 @@ function rateHref(movie: RowMovie): string {
 
 function isRatable(movie: RowMovie): boolean {
   return movie.id.startsWith("kobis-") || movie.id.startsWith("tmdb-tv-");
+}
+
+function ReviewPanel({ movie, currentRatable }: { movie: RowMovie; currentRatable: boolean }) {
+  const reviews = useSyncExternalStore(
+    subscribe,
+    () => getReviewsSnapshot(movie.id, "short").slice(0, 3),
+    () => getSeedReviewsSnapshot(movie.id, "short").slice(0, 3),
+  );
+  const avgRating = useSyncExternalStore(
+    subscribe,
+    () => getAverageRating(movie.id, "short"),
+    () => getSeedAverageRating(movie.id, "short"),
+  );
+
+  return (
+    <div className="mt-3 rounded-xl bg-surface px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-text">평론</span>
+          {avgRating !== null && (
+            <StarRating rating={avgRating} scale={10} size="h-3.5 w-3.5" />
+          )}
+        </div>
+        {currentRatable && (
+          <Link
+            href={rateHref(movie)}
+            className="rounded-full bg-star px-3 py-1 text-[10px] font-bold text-black transition-opacity hover:opacity-80"
+          >
+            ★ 평점 주기
+          </Link>
+        )}
+      </div>
+
+      {reviews.length === 0 ? (
+        <p className="mt-2 text-center text-xs text-muted">아직 평론이 없어요. 첫 평론을 남겨보세요!</p>
+      ) : (
+        <div className="mt-2 space-y-2.5">
+          {reviews.map((r) => (
+            <div key={r.id} className="flex gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[11px] font-semibold text-text">
+                {r.authorName.slice(0, 1)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-text">{r.authorName}</span>
+                  <span className="text-[10px] font-bold text-star">★ {r.rating}</span>
+                </div>
+                {r.content && (
+                  <p className="mt-0.5 line-clamp-2 text-xs text-muted">{r.content}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function CoverflowCarousel({
@@ -183,17 +241,9 @@ export default function CoverflowCarousel({
                   )}
                   {!isActiveCard && <div className="absolute inset-0 bg-black/35" />}
 
-                  {/* 활성 카드의 평점/예매 바로가기 */}
+                  {/* 활성 카드 평점 바로가기 */}
                   {isActiveCard && (
-                    <div className="absolute inset-x-0 bottom-0 flex gap-1.5 bg-gradient-to-t from-black/80 to-transparent p-3 pt-8" data-no-drag>
-                      {movie.isNowShowing && (
-                        <Link
-                          href={`/theaters?movie=${movie.id}`}
-                          className="flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
-                        >
-                          🎫 예매
-                        </Link>
-                      )}
+                    <div className="absolute inset-x-0 bottom-0 flex bg-gradient-to-t from-black/80 to-transparent p-3 pt-8" data-no-drag>
                       {currentRatable ? (
                         <Link
                           href={rateHref(movie)}
@@ -215,7 +265,7 @@ export default function CoverflowCarousel({
         </div>
       </div>
 
-      {/* 현재 카드 제목 + 배지 + 평점 */}
+      {/* 현재 카드 제목 + 배지 */}
       <div className="mt-5 text-center">
         {currentRatable ? (
           <Link href={rateHref(current)} className="text-lg font-bold text-text hover:underline">
@@ -231,10 +281,10 @@ export default function CoverflowCarousel({
             {currentSecondary}
           </p>
         )}
-        <div className="mt-2 flex justify-center">
-          <RatingSummary movieId={current.id} />
-        </div>
       </div>
+
+      {/* 평론 패널 */}
+      <ReviewPanel movie={current} currentRatable={currentRatable} />
 
       {/* 점 인디케이터 */}
       <div className="mt-4 flex justify-center gap-1.5">
