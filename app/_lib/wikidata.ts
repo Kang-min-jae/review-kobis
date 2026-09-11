@@ -1,7 +1,14 @@
 // Wikidata SPARQL API 연동 — 세계 주요 영화제 최신 수상작 조회.
 //
-// UNION 쿼리는 Wikidata에서 느리므로, 영화-레벨(P166 직접)과 인물-레벨(P166+P1686)을
-// 각각 별도 쿼리로 실행하고 TypeScript에서 합친다.
+// 캐싱 계층:
+//   1) 모듈 메모리 캐시 — 개발 핫리로드 중 중복 호출 방지 (5분 TTL)
+//   2) DB 캐시(CachedAwardWinners) — 24시간 TTL, 배포 환경에서 Wikidata 반복 호출 방지
+//   3) Wikidata SPARQL — 캐시가 없거나 만료됐을 때만 실제 호출
+//
+// 429 처리: Retry-After 헤더 우선 사용, 없으면 지수 백오프(3s → 9s → 27s), 최대 3회.
+// TMDB ID: Wikidata P4947 프로퍼티로 TMDB 영화 ID를 같이 조회해 포스터 직접 접근.
+
+import { db } from "./db";
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 
@@ -13,6 +20,7 @@ export type FestivalWinner = {
   titleEn: string;
   ceremonyYear: number;
   filmQid: string;
+  tmdbId: string | null; // Wikidata P4947 — 포스터 직접 조회용
 };
 
 const FESTIVAL_FILTERS: Record<FestivalType, string> = {
@@ -22,35 +30,101 @@ const FESTIVAL_FILTERS: Record<FestivalType, string> = {
   venice: `(STRSTARTS(LCASE(?awardLabelEn), "golden lion") || STRSTARTS(LCASE(?awardLabelEn), "silver lion") || CONTAINS(LCASE(?awardLabelEn), "venice film festival award"))`,
 };
 
-async function sparqlFetch(query: string): Promise<Record<string, { value: string }>[]> {
+// ── SPARQL fetch (429 재시도 포함) ──────────────────────────────────────────
+async function sparqlFetch(
+  query: string,
+  attempt = 1,
+): Promise<Record<string, { value: string }>[]> {
   const url = new URL(SPARQL_ENDPOINT);
   url.searchParams.set("query", query);
   url.searchParams.set("format", "json");
 
+  let res: Response;
   try {
-    const res = await fetch(url.toString(), {
+    res = await fetch(url.toString(), {
       headers: {
         Accept: "application/sparql-results+json",
         "User-Agent": "review-kobis/1.0 (https://github.com/Kang-min-jae/review-kobis)",
       },
-      next: { revalidate: 60 * 60 * 24 },
       signal: AbortSignal.timeout(40_000),
+      cache: "no-store", // DB에서 캐싱하므로 fetch 캐시는 끈다
     });
-    if (!res.ok) {
-      console.warn(`[wikidata] SPARQL 요청 실패: HTTP ${res.status}`);
+  } catch (err) {
+    console.warn(`[wikidata] SPARQL 네트워크 오류 (시도 ${attempt}):`, err);
+    return [];
+  }
+
+  if (res.status === 429) {
+    if (attempt > 3) {
+      console.warn("[wikidata] 429 재시도 초과 — 포기");
       return [];
     }
+    const retryAfter = parseInt(res.headers.get("Retry-After") ?? "0", 10);
+    const waitMs = retryAfter > 0 ? retryAfter * 1000 : 3 ** attempt * 1000;
+    console.warn(`[wikidata] 429 — ${waitMs}ms 후 재시도 (${attempt}/3)`);
+    await new Promise((r) => setTimeout(r, waitMs));
+    return sparqlFetch(query, attempt + 1);
+  }
+
+  if (!res.ok) {
+    console.warn(`[wikidata] SPARQL 요청 실패: HTTP ${res.status}`);
+    return [];
+  }
+
+  try {
     const json = (await res.json()) as { results?: { bindings?: Record<string, { value: string }>[] } };
     return json.results?.bindings ?? [];
-  } catch (err) {
-    console.warn("[wikidata] SPARQL 요청 오류:", err);
+  } catch {
     return [];
   }
 }
 
-function parseQid(uri: string): string {
-  return uri.split("/").pop() ?? "";
+// ── SPARQL 쿼리 빌더 ─────────────────────────────────────────────────────────
+function buildFilmLevelQuery(festivalFilter: string, sinceYear: number): string {
+  return `
+SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?film ?year ?filmLabelKo ?filmLabelEn ?tmdbId WHERE {
+  ?film p:P166 ?stmt .
+  ?stmt ps:P166 ?award .
+  ?stmt pq:P585 ?date .
+  FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }
+  BIND(YEAR(?date) AS ?year)
+  FILTER(?year >= ${sinceYear})
+  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
+  FILTER(${festivalFilter})
+  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
+  OPTIONAL { ?film rdfs:label ?filmLabelKo FILTER(LANG(?filmLabelKo) = "ko") }
+  OPTIONAL { ?film rdfs:label ?filmLabelEn FILTER(LANG(?filmLabelEn) = "en") }
+  OPTIONAL { ?film wdt:P4947 ?tmdbId }
 }
+ORDER BY ?award DESC(?year)
+LIMIT 300
+`.trim();
+}
+
+function buildPersonLevelQuery(festivalFilter: string, sinceYear: number): string {
+  return `
+SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?film ?year ?filmLabelKo ?filmLabelEn ?tmdbId WHERE {
+  ?person p:P166 ?stmt .
+  ?stmt ps:P166 ?award .
+  ?stmt pq:P1686 ?film .
+  ?stmt pq:P585 ?date .
+  ?person wdt:P31 wd:Q5 .
+  BIND(YEAR(?date) AS ?year)
+  FILTER(?year >= ${sinceYear})
+  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
+  FILTER(${festivalFilter})
+  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
+  OPTIONAL { ?film rdfs:label ?filmLabelKo FILTER(LANG(?filmLabelKo) = "ko") }
+  OPTIONAL { ?film rdfs:label ?filmLabelEn FILTER(LANG(?filmLabelEn) = "en") }
+  OPTIONAL { ?film wdt:P4947 ?tmdbId }
+}
+ORDER BY ?award DESC(?year)
+LIMIT 300
+`.trim();
+}
+
+// ── 결과 파싱 ────────────────────────────────────────────────────────────────
+type RawRow = Record<string, { value: string }>;
 
 function shortenLabel(labelKo: string | null, labelEn: string): string {
   if (labelKo) {
@@ -70,52 +144,11 @@ function shortenLabel(labelKo: string | null, labelEn: string): string {
     .trim() || labelEn;
 }
 
-// 경로 1: P166이 영화 엔티티에 직접 붙어 있는 수상 (작품상, 황금종려상 등)
-function buildFilmLevelQuery(festivalFilter: string, sinceYear: number): string {
-  return `
-SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?film ?year ?filmLabelKo ?filmLabelEn WHERE {
-  ?film p:P166 ?stmt .
-  ?stmt ps:P166 ?award .
-  ?stmt pq:P585 ?date .
-  FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }
-  BIND(YEAR(?date) AS ?year)
-  FILTER(?year >= ${sinceYear})
-  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
-  FILTER(${festivalFilter})
-  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
-  OPTIONAL { ?film rdfs:label ?filmLabelKo FILTER(LANG(?filmLabelKo) = "ko") }
-  OPTIONAL { ?film rdfs:label ?filmLabelEn FILTER(LANG(?filmLabelEn) = "en") }
-}
-ORDER BY ?award DESC(?year)
-LIMIT 300
-`.trim();
+function parseQid(uri: string): string {
+  return uri.split("/").pop() ?? "";
 }
 
-// 경로 2: P166이 사람에 붙고 P1686(for work)으로 영화를 참조 (감독상, 남우주연상 등)
-function buildPersonLevelQuery(festivalFilter: string, sinceYear: number): string {
-  return `
-SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?film ?year ?filmLabelKo ?filmLabelEn WHERE {
-  ?person p:P166 ?stmt .
-  ?stmt ps:P166 ?award .
-  ?stmt pq:P1686 ?film .
-  ?stmt pq:P585 ?date .
-  ?person wdt:P31 wd:Q5 .
-  BIND(YEAR(?date) AS ?year)
-  FILTER(?year >= ${sinceYear})
-  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
-  FILTER(${festivalFilter})
-  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
-  OPTIONAL { ?film rdfs:label ?filmLabelKo FILTER(LANG(?filmLabelKo) = "ko") }
-  OPTIONAL { ?film rdfs:label ?filmLabelEn FILTER(LANG(?filmLabelEn) = "en") }
-}
-ORDER BY ?award DESC(?year)
-LIMIT 300
-`.trim();
-}
-
-type RawRow = Record<string, { value: string }>;
-
-function rowsToMap(rows: RawRow[], map: Map<string, FestivalWinner & { awardLabelEn: string }>) {
+function rowsToMap(rows: RawRow[], map: Map<string, FestivalWinner>) {
   for (const row of rows) {
     const filmQid = parseQid(row.film?.value ?? "");
     const awardQid = parseQid(row.award?.value ?? "");
@@ -124,6 +157,7 @@ function rowsToMap(rows: RawRow[], map: Map<string, FestivalWinner & { awardLabe
     const titleKo = row.filmLabelKo?.value ?? null;
     const titleEn = row.filmLabelEn?.value ?? "";
     const year = parseInt(row.year?.value ?? "0", 10);
+    const tmdbId = row.tmdbId?.value ?? null;
 
     if (!filmQid || (!titleEn && !titleKo) || !awardQid || !year) continue;
 
@@ -133,9 +167,9 @@ function rowsToMap(rows: RawRow[], map: Map<string, FestivalWinner & { awardLabe
         filmQid,
         titleKo,
         titleEn: titleEn || titleKo!,
-        awardLabelEn,
         categoryLabel: shortenLabel(awardLabelKo, awardLabelEn),
         ceremonyYear: year,
+        tmdbId,
       });
     }
   }
@@ -145,13 +179,12 @@ async function fetchFestivalWinnersRaw(
   festivalFilter: string,
   sinceYear: number,
 ): Promise<FestivalWinner[]> {
-  // 두 쿼리를 병렬로 실행해 속도를 높인다
   const [filmRows, personRows] = await Promise.all([
     sparqlFetch(buildFilmLevelQuery(festivalFilter, sinceYear)),
     sparqlFetch(buildPersonLevelQuery(festivalFilter, sinceYear)),
   ]);
 
-  const byAward = new Map<string, FestivalWinner & { awardLabelEn: string }>();
+  const byAward = new Map<string, FestivalWinner>();
   rowsToMap(filmRows, byAward);
   rowsToMap(personRows, byAward);
 
@@ -160,44 +193,85 @@ async function fetchFestivalWinnersRaw(
   );
 }
 
-// SPARQL 전체 실패 시 최소한 보여줄 폴백 데이터 (하드코딩 QID 없음 — 제목만)
+// ── 캐싱 ────────────────────────────────────────────────────────────────────
+const DB_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
+
+// 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
+const MEM_TTL_MS = 5 * 60 * 1000; // 5분
+type MemEntry = { data: FestivalWinner[]; at: number };
+const g = globalThis as typeof globalThis & { __wikidataCache?: Map<string, MemEntry> };
+if (!g.__wikidataCache) g.__wikidataCache = new Map<string, MemEntry>();
+const memCache = g.__wikidataCache;
+
 const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   academy: [
-    { categoryLabel: "작품상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395" },
-    { categoryLabel: "감독상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395" },
-    { categoryLabel: "국제영화상", titleKo: "존재의 구역", titleEn: "The Zone of Interest", ceremonyYear: 2024, filmQid: "Q104070684" },
+    { categoryLabel: "작품상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395", tmdbId: "872585" },
+    { categoryLabel: "감독상", titleKo: "오펜하이머", titleEn: "Oppenheimer", ceremonyYear: 2024, filmQid: "Q171395", tmdbId: "872585" },
+    { categoryLabel: "국제영화상", titleKo: "존재의 구역", titleEn: "The Zone of Interest", ceremonyYear: 2024, filmQid: "Q104070684", tmdbId: "872906" },
   ],
   cannes: [
-    { categoryLabel: "황금종려상", titleKo: "아노라", titleEn: "Anora", ceremonyYear: 2024, filmQid: "Q125499906" },
-    { categoryLabel: "심사위원대상", titleKo: "모두가 존재를 사랑한다", titleEn: "All We Imagine as Light", ceremonyYear: 2024, filmQid: "Q124949622" },
+    { categoryLabel: "황금종려상", titleKo: "아노라", titleEn: "Anora", ceremonyYear: 2024, filmQid: "Q125499906", tmdbId: "1209290" },
+    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "All We Imagine as Light", ceremonyYear: 2024, filmQid: "Q124949622", tmdbId: "1164659" },
   ],
   berlin: [
-    { categoryLabel: "황금곰상", titleKo: "다할리아", titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185" },
+    { categoryLabel: "황금곰상", titleKo: null, titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185", tmdbId: "1239586" },
   ],
   venice: [
-    { categoryLabel: "황금사자상", titleKo: "에이프릴", titleEn: "April", ceremonyYear: 2024, filmQid: "Q124831397" },
+    { categoryLabel: "황금사자상", titleKo: null, titleEn: "April", ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
   ],
 };
 
-async function fetchWithFallback(type: FestivalType, sinceYear: number): Promise<FestivalWinner[]> {
-  const results = await fetchFestivalWinnersRaw(FESTIVAL_FILTERS[type], sinceYear);
-  if (results.length > 0) return results;
-  console.warn(`[wikidata] ${type} SPARQL 결과 없음 — 폴백 사용`);
-  return FALLBACK_WINNERS[type];
+async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<FestivalWinner[]> {
+  // 1) 메모리 캐시 (핫리로드 방지)
+  const mem = memCache.get(type);
+  if (mem && Date.now() - mem.at < MEM_TTL_MS) return mem.data;
+
+  // 2) DB 캐시
+  try {
+    const cached = await db.cachedAwardWinners.findUnique({ where: { id: type } });
+    if (cached && Date.now() - cached.updatedAt.getTime() < DB_CACHE_TTL_MS) {
+      const data = cached.winners as unknown as FestivalWinner[];
+      memCache.set(type, { data, at: Date.now() });
+      return data;
+    }
+  } catch (err) {
+    console.warn("[wikidata] DB 캐시 조회 실패:", err);
+  }
+
+  // 3) Wikidata SPARQL
+  const raw = await fetchFestivalWinnersRaw(FESTIVAL_FILTERS[type], sinceYear);
+  const data = raw.length > 0 ? raw : FALLBACK_WINNERS[type];
+
+  // 4) DB에 저장
+  try {
+    await db.cachedAwardWinners.upsert({
+      where: { id: type },
+      create: { id: type, winners: data as unknown as object[] },
+      update: { winners: data as unknown as object[] },
+    });
+  } catch (err) {
+    console.warn("[wikidata] DB 캐시 저장 실패:", err);
+  }
+
+  memCache.set(type, { data, at: Date.now() });
+  return data;
 }
 
-export async function fetchLatestAcademyWinners(sinceYear = new Date().getFullYear() - 3): Promise<FestivalWinner[]> {
-  return fetchWithFallback("academy", sinceYear);
+// ── 공개 API ─────────────────────────────────────────────────────────────────
+const SINCE_YEAR = new Date().getFullYear() - 3;
+
+export async function fetchLatestAcademyWinners(): Promise<FestivalWinner[]> {
+  return fetchWithCache("academy", SINCE_YEAR);
 }
 
-export async function fetchLatestCannesWinners(sinceYear = new Date().getFullYear() - 3): Promise<FestivalWinner[]> {
-  return fetchWithFallback("cannes", sinceYear);
+export async function fetchLatestCannesWinners(): Promise<FestivalWinner[]> {
+  return fetchWithCache("cannes", SINCE_YEAR);
 }
 
-export async function fetchLatestBerlinWinners(sinceYear = new Date().getFullYear() - 3): Promise<FestivalWinner[]> {
-  return fetchWithFallback("berlin", sinceYear);
+export async function fetchLatestBerlinWinners(): Promise<FestivalWinner[]> {
+  return fetchWithCache("berlin", SINCE_YEAR);
 }
 
-export async function fetchLatestVeniceWinners(sinceYear = new Date().getFullYear() - 3): Promise<FestivalWinner[]> {
-  return fetchWithFallback("venice", sinceYear);
+export async function fetchLatestVeniceWinners(): Promise<FestivalWinner[]> {
+  return fetchWithCache("venice", SINCE_YEAR);
 }

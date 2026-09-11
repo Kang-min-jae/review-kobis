@@ -214,7 +214,7 @@ export default function BoxOfficeCoverflow({
                         movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
                       } ${isActiveCard ? "ring-2 ring-star/70" : ""}`}
                     >
-                      {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+                      {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
                       {rank && (
                         <span
                           className={`absolute left-2 top-2 rounded-full px-2 py-1 text-xs font-bold ${

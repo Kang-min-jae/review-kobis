@@ -200,6 +200,13 @@ export async function searchTmdbMovie(
   };
 }
 
+// TMDB ID를 이미 알고 있을 때 텍스트 검색 없이 바로 포스터만 가져온다
+// (Wikidata P4947 프로퍼티로 얻은 TMDB ID 활용).
+export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | null> {
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`);
+  return toImageUrl(details?.poster_path);
+}
+
 // ── TV 시리즈 ──────────────────────────────────────────────────────────────
 
 type RawTmdbTvSearchResult = {

@@ -112,6 +112,13 @@ model RereleaseClassification {
   @@index([isRerelease, status])
 }
 
+// 영화제 수상작 캐시 — Wikidata SPARQL 결과를 하루 1회 저장해 429 반복 호출을 방지한다.
+model CachedAwardWinners {
+  id        String   @id // "academy" | "cannes" | "berlin" | "venice"
+  winners   Json     // FestivalWinner[]
+  updatedAt DateTime @updatedAt
+}
+
 // ── 로그인 (Auth.js) ─────────────────────────────────────────────────────
 // User/Account/Session/VerificationToken은 Auth.js의 PrismaAdapter가 요구하는
 // 정확한 형태 그대로다 — 필드명을 바꾸면 어댑터가 못 찾는다. nickname/totalLikes만

@@ -8,10 +8,12 @@ export default function PosterImage({
   src,
   alt,
   sizes = "200px",
+  priority = false,
 }: {
   src: string;
   alt: string;
   sizes?: string;
+  priority?: boolean;
 }) {
   return (
     <div
@@ -25,6 +27,7 @@ export default function PosterImage({
         fill
         draggable={false}
         sizes={sizes}
+        priority={priority}
         className="select-none object-cover"
       />
       <div className="absolute inset-0" />

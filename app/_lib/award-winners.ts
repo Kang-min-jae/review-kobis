@@ -7,17 +7,22 @@ import {
   fetchLatestVeniceWinners,
   type FestivalWinner,
 } from "./wikidata";
-import { searchTmdbMovie } from "./tmdb";
+import { searchTmdbMovie, getTmdbMoviePosterById } from "./tmdb";
 import { searchKmdbMovie } from "./kmdb";
 import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 async function getPosterUrl(winner: FestivalWinner): Promise<string | null> {
-  const displayTitle = winner.titleKo ?? winner.titleEn;
-  const yearHint = String(winner.ceremonyYear - 1); // 시상식은 전년도 작품을 수상하는 경우가 많다
+  // Wikidata P4947로 받은 TMDB ID가 있으면 직접 조회 (텍스트 검색보다 정확)
+  if (winner.tmdbId) {
+    const poster = await getTmdbMoviePosterById(winner.tmdbId);
+    if (poster) return poster;
+  }
 
-  // TMDB 먼저, 없으면 KMDb로 폴백
+  const displayTitle = winner.titleKo ?? winner.titleEn;
+  const yearHint = String(winner.ceremonyYear - 1);
+
   const tmdb = await searchTmdbMovie(displayTitle, yearHint, winner.titleEn);
   if (tmdb?.posterUrl) return tmdb.posterUrl;
 
