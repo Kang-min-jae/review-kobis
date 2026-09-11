@@ -267,7 +267,7 @@ async function CuratedSeriesSection() {
 async function PopularSeriesSection() {
   const movies = await getPopularSeriesRow();
   if (movies.length === 0) return null;
-  return <MovieRow title="인기 시리즈물" subtitle="TMDB 현재 인기 시리즈 — 넷플릭스 · 디즈니+ · 드라마 전체" movies={movies} />;
+  return <MovieRow title="인기 시리즈물" subtitle="출처: TMDB" movies={movies} />;
 }
 
 async function Top10SeriesData() {
@@ -289,7 +289,7 @@ function TvSeriesSection() {
       </section>
       <section className="px-5 pb-2 pt-4">
         <h2 className="text-lg font-bold text-text">인기 작품 10선</h2>
-        <p className="mt-1 text-sm text-muted">TMDB 현재 인기 시리즈 TOP 10</p>
+        <p className="mt-1 text-sm text-muted">출처: TMDB</p>
         <Suspense fallback={
           <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
             {Array.from({ length: 5 }).map((_, i) => (
