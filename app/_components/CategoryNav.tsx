@@ -6,7 +6,7 @@ export const tabCategories = [
   "TV·시리즈물",
 ] as const;
 export type TabCategory = (typeof tabCategories)[number];
-export type NavActive = TabCategory | "my-list";
+export type NavActive = TabCategory | "my-list" | "awards";
 
 export const genreLabels = [
   "전체",
@@ -60,6 +60,16 @@ export default function CategoryNav({
             {category}
           </Link>
         ))}
+        <Link
+          href="/awards"
+          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+            active === "awards"
+              ? "border-star font-bold text-text"
+              : "border-transparent font-medium text-text/80 hover:text-text"
+          }`}
+        >
+          수상작 투표
+        </Link>
       </nav>
 
       {active !== "my-list" && active !== "TV·시리즈물" && (
