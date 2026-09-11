@@ -214,6 +214,23 @@ export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | n
   return toImageUrl(details?.poster_path);
 }
 
+// TMDB ID로 영화 전체 상세 정보를 가져온다 — 수상작처럼 이미 tmdbId를 알고 있을 때
+// 텍스트 검색 없이 바로 개요·런타임·장르·개봉일을 채우는 데 쓴다.
+export async function getTmdbMovieDetailsById(tmdbId: string): Promise<TmdbMovieDetails | null> {
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`);
+  if (!details) return null;
+  return {
+    tmdbId: String(details.id),
+    title: details.title ?? "",
+    originalTitle: details.original_title?.trim() || null,
+    posterUrl: toImageUrl(details.poster_path),
+    overview: details.overview?.trim() || null,
+    releaseDate: details.release_date?.trim() || null,
+    runtimeMinutes: details.runtime ?? null,
+    genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
+  };
+}
+
 // 수상작 포스터 전용 느슨한 검색 — 제목 exact match 없이 연도 필터를 API에 넘겨
 // 첫 번째 결과를 채택한다. 비영어권 유럽 아트하우스 영화처럼 TMDB의 한글/영문 제목이
 // Wikidata 레이블과 달라 exact match가 항상 실패하는 경우의 마지막 수단.

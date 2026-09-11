@@ -1,6 +1,6 @@
 import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
-import { searchTmdbMovie, resolveTmdbPersonIdByName } from "./tmdb";
+import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById } from "./tmdb";
 import { db } from "./db";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -327,6 +327,26 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
   if (id.startsWith("wikidata-")) {
     const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
     if (!cached) return null;
+
+    // award-winners.ts가 포스터만 저장하고 개요·개봉일·런타임을 채우지 않은 경우,
+    // tmdbId가 있으면 TMDB에서 상세 정보를 가져와 캐시를 보완한다.
+    if (cached.tmdbId && !cached.overview && !cached.releaseDate) {
+      const tmdb = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
+      if (tmdb) {
+        const update = {
+          overview: tmdb.overview ?? null,
+          releaseDate: tmdb.releaseDate ?? null,
+          runtimeMinutes: tmdb.runtimeMinutes ?? null,
+          genreAlt: tmdb.genre ?? null,
+          posterUrl: tmdb.posterUrl ?? cached.posterUrl,
+          titleEn: tmdb.originalTitle ?? cached.titleEn,
+        };
+        await db.cachedMovie.update({ where: { movieCd: id }, data: update }).catch(() => null);
+        const updated = { ...cached, ...update };
+        return { movieId: id, ...rowToMeta(updated), boxOffice: null };
+      }
+    }
+
     return { movieId: id, ...rowToMeta(cached), boxOffice: null };
   }
 
