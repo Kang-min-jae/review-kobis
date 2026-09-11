@@ -6,13 +6,13 @@ import Link from "next/link";
 import type { Session } from "next-auth";
 import { signOutAction } from "../_lib/auth-actions";
 
-export default function AuthButton({ session }: { session: Session | null }) {
+export default function AuthButton({ session, nickname }: { session: Session | null; nickname?: string | null }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   if (session?.user) {
-    const displayName = session.user.name ?? session.user.email ?? "사용자";
+    const displayName = nickname ?? session.user.name ?? session.user.email ?? "사용자";
 
     return (
       <div className="relative shrink-0">

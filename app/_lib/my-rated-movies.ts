@@ -4,17 +4,19 @@ import { getMovieMeta } from "./movie-rate-info";
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 export type MyRatedMovie = {
-  id: string; // "kobis-<movieCd>"
+  id: string;
   title: string;
   posterUrl: string | null;
   gradient: string;
   rating: number; // 0~10
-  ratedAt: string; // ISO — 처음 평점을 남긴 시각(무비 다이어리 날짜로 씀)
+  ratedAt: string; // ISO
 };
 
-// 실제 로그인 계정으로 남긴 "전체" 평점(CategoryRateForm) — 남기는 순간 자동으로
-// 무비 다이어리(그 날짜 칸)와 나만의 영화 리스트의 "내가 평점 남긴 영화" 칸에 반영된다.
-// 게스트 모드 리뷰(reviews-store.ts, localStorage)와는 별개의 데이터라 여기서 따로 조회한다.
+function movieIdFromCd(movieCd: string): string {
+  if (movieCd.startsWith("tmdb-tv-") || movieCd.startsWith("wikidata-")) return movieCd;
+  return `kobis-${movieCd}`;
+}
+
 export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> {
   const ratings = await db.categoryRating.findMany({
     where: { userId, category: "전체" },
@@ -22,13 +24,52 @@ export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> 
   });
   if (ratings.length === 0) return [];
 
-  const metas = await Promise.all(ratings.map((r) => getMovieMeta(r.movieCd)));
-  return ratings.map((r, i) => ({
-    id: `kobis-${r.movieCd}`,
-    title: metas[i]?.movieTitle ?? r.movieCd,
-    posterUrl: metas[i]?.posterUrl ?? null,
-    gradient: FALLBACK_GRADIENT,
-    rating: r.score,
-    ratedAt: r.createdAt.toISOString(),
-  }));
+  // KOBIS 코드(숫자)만 movie-rate-info로 메타 조회; 시리즈/wikidata는 DB 캐시 직접 조회
+  const kobisRatings = ratings.filter((r) => /^\d+$/.test(r.movieCd));
+  const metas = await Promise.all(kobisRatings.map((r) => getMovieMeta(r.movieCd)));
+  const kobishMetaMap = new Map(kobisRatings.map((r, i) => [r.movieCd, metas[i]]));
+
+  const seriesIds = ratings
+    .filter((r) => r.movieCd.startsWith("tmdb-tv-"))
+    .map((r) => r.movieCd.slice("tmdb-tv-".length));
+  const seriesCache = seriesIds.length > 0
+    ? await db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } } }).catch(() => [])
+    : [];
+  const seriesMap = new Map(seriesCache.map((s) => [`tmdb-tv-${s.tmdbId}`, s]));
+
+  const wikidataIds = ratings
+    .filter((r) => r.movieCd.startsWith("wikidata-"))
+    .map((r) => r.movieCd);
+  const wikidataCache = wikidataIds.length > 0
+    ? await db.cachedMovie.findMany({ where: { movieCd: { in: wikidataIds } } }).catch(() => [])
+    : [];
+  const wikidataMap = new Map(wikidataCache.map((m) => [m.movieCd, m]));
+
+  return ratings.map((r) => {
+    let title = r.movieCd;
+    let posterUrl: string | null = null;
+
+    if (r.movieCd.startsWith("tmdb-tv-")) {
+      const s = seriesMap.get(r.movieCd);
+      title = s?.name ?? r.movieCd;
+      posterUrl = s?.posterUrl ?? null;
+    } else if (r.movieCd.startsWith("wikidata-")) {
+      const m = wikidataMap.get(r.movieCd);
+      title = m?.title ?? r.movieCd;
+      posterUrl = m?.posterUrl ?? null;
+    } else {
+      const meta = kobishMetaMap.get(r.movieCd);
+      title = meta?.movieTitle ?? r.movieCd;
+      posterUrl = meta?.posterUrl ?? null;
+    }
+
+    return {
+      id: movieIdFromCd(r.movieCd),
+      title,
+      posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      rating: r.score,
+      ratedAt: r.createdAt.toISOString(),
+    };
+  });
 }
