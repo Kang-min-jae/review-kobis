@@ -28,7 +28,11 @@ export default async function MyPage() {
       where: { userId },
       select: { provider: true },
     }),
-    db.categoryRating.count({ where: { userId, category: "전체" } }),
+    db.review.findMany({
+      where: { userId, category: "전체" },
+      distinct: ["movieCd"],
+      select: { movieCd: true },
+    }).then((rows) => rows.length),
   ]);
 
   if (!user) redirect("/login");

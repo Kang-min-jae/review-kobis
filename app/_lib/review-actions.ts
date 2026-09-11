@@ -84,11 +84,16 @@ export async function submitReviewAction(input: {
     update: { rating: input.rating, content: input.content, hasSpoiler },
   });
 
-  if (input.category === "전체" && input.type === "SHORT") {
+  // "전체" 카테고리 리뷰는 타입(한줄평/장문평)에 관계없이 CategoryRating에 동기화해
+  // 다이어리·마이리스트·마이페이지 카운트에 반영한다.
+  // 한줄평은 0~10 그대로, 장문평은 0~100 → 0~10으로 정규화한다.
+  // CategoryRating이 이미 있으면 현재 리뷰 평점으로 덮어쓴다(upsert).
+  if (input.category === "전체") {
+    const score = input.type === "SHORT" ? input.rating : Math.round((input.rating / 100) * 10 * 10) / 10;
     await db.categoryRating.upsert({
       where: { userId_movieCd_category: { userId, movieCd: input.movieCd, category: "전체" } },
-      create: { userId, movieCd: input.movieCd, category: "전체", score: input.rating },
-      update: { score: input.rating },
+      create: { userId, movieCd: input.movieCd, category: "전체", score },
+      update: { score },
     });
   }
 
