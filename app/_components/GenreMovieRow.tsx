@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import MovieCard from "./MovieCard";
+import ScrollRow from "./ScrollRow";
 import type { RowMovie } from "../_lib/movie-rows";
 
 const PAGE_SIZE = 20;
@@ -16,7 +17,6 @@ export default function GenreMovieRow({
   const [movies, setMovies] = useState<RowMovie[]>(initialMovies);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialMovies.length >= PAGE_SIZE);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   async function loadMore() {
     if (loading || !hasMore) return;
@@ -29,10 +29,6 @@ export default function GenreMovieRow({
       const next: RowMovie[] = await res.json();
       setMovies((prev) => [...prev, ...next]);
       if (next.length < PAGE_SIZE) setHasMore(false);
-      // 스크롤을 끝까지 밀어서 새로 추가된 카드가 보이게 한다
-      setTimeout(() => {
-        scrollRef.current?.scrollBy({ left: 9999, behavior: "smooth" });
-      }, 50);
     } catch {
       // 에러 시 버튼만 다시 활성화
     } finally {
@@ -46,7 +42,7 @@ export default function GenreMovieRow({
     <section className="px-5 py-6">
       <h2 className="text-lg font-bold text-text">{genre} 영화</h2>
 
-      <div ref={scrollRef} className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
+      <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
         {movies.map((movie) => (
           <MovieCard key={movie.id} movie={movie} />
         ))}
@@ -62,7 +58,7 @@ export default function GenreMovieRow({
             {loading ? "…" : "더 보기"}
           </button>
         )}
-      </div>
+      </ScrollRow>
     </section>
   );
 }

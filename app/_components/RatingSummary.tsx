@@ -13,14 +13,11 @@ function RatingRow({
   rating: number | null;
   scale: number;
 }) {
+  if (rating === null) return null;
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-9 shrink-0 text-[10px] text-muted">{label}</span>
-      {rating === null ? (
-        <span className="text-[10px] text-muted">평점 없음</span>
-      ) : (
-        <StarRating rating={rating} scale={scale} size="h-3 w-3" />
-      )}
+      <StarRating rating={rating} scale={scale} size="h-3 w-3" />
     </div>
   );
 }
