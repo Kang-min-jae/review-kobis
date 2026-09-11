@@ -49,7 +49,7 @@ function rateHref(movie: RowMovie): string {
 }
 
 function isRatable(movie: RowMovie): boolean {
-  return movie.id.startsWith("kobis-") || movie.id.startsWith("tmdb-tv-");
+  return movie.id.startsWith("kobis-") || movie.id.startsWith("tmdb-tv-") || movie.id.startsWith("wikidata-");
 }
 
 // 카드 뒤집기 시 보이는 뒷면 — 실제 사용자 리뷰 + 평점 버튼

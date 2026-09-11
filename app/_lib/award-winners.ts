@@ -10,6 +10,7 @@ import {
 } from "./wikidata";
 import { searchTmdbMovie, getTmdbMoviePosterById, searchTmdbMoviePosterLoose } from "./tmdb";
 import { searchKmdbMovie } from "./kmdb";
+import { db } from "./db";
 import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -75,6 +76,31 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
     } else {
       posterUrl = await getPosterUrl(winner, festival);
       posterCache.set(winner.filmQid, posterUrl);
+    }
+
+    // 평점 페이지가 영화 정보(제목·포스터)를 조회할 수 있도록 CachedMovie에 미리 저장.
+    // movieCd로 wikidata ID를 그대로 쓴다 — KOBIS 코드가 없는 해외 수상작 전용.
+    try {
+      await db.cachedMovie.upsert({
+        where: { movieCd: `wikidata-${winner.filmQid}` },
+        update: {
+          title: winner.titleKo ?? winner.titleEn ?? "",
+          titleEn: winner.titleEn ?? null,
+          posterUrl,
+          tmdbId: winner.tmdbId ?? null,
+        },
+        create: {
+          movieCd: `wikidata-${winner.filmQid}`,
+          title: winner.titleKo ?? winner.titleEn ?? "",
+          titleEn: winner.titleEn ?? null,
+          posterUrl,
+          tmdbId: winner.tmdbId ?? null,
+          cast: [],
+          source: "tmdb",
+        },
+      });
+    } catch {
+      // DB 오류는 무시 — 포스터·목록은 정상 표시됨
     }
 
     results.push({

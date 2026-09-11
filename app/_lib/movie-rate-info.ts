@@ -323,6 +323,13 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
 // 줄거리/감독·출연/박스오피스)를 만든다. 상세정보는 캐시를 거치고, 박스오피스 순위는
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
 export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInfo | null> {
+  // wikidata 수상작 — CachedMovie에서 조회 (award-winners.ts가 홈 화면 렌더 시 미리 저장)
+  if (id.startsWith("wikidata-")) {
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    if (!cached) return null;
+    return { movieId: id, ...rowToMeta(cached), boxOffice: null };
+  }
+
   if (!id.startsWith("kobis-")) return null;
 
   const movieCd = id.slice("kobis-".length);
