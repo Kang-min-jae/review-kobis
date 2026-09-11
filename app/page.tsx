@@ -31,8 +31,9 @@ import {
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
 } from "./_lib/award-winners";
-import { getCuratedSeriesRow, getPopularSeriesRow } from "./_lib/series-rows";
+import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "./_lib/series-rows";
 import SeriesKeywordSearch from "./_components/SeriesKeywordSearch";
+import CoverflowCarousel from "./_components/CoverflowCarousel";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -269,6 +270,12 @@ async function PopularSeriesSection() {
   return <MovieRow title="인기 시리즈물" subtitle="TMDB 현재 인기 시리즈 — 넷플릭스 · 디즈니+ · 드라마 전체" movies={movies} />;
 }
 
+async function Top10SeriesData() {
+  const movies = await getTop10PopularSeriesRow();
+  if (movies.length === 0) return null;
+  return <CoverflowCarousel movies={movies} hint="카드를 드래그하거나 화살표로 넘겨보세요" />;
+}
+
 function TvSeriesSection() {
   return (
     <>
@@ -279,6 +286,19 @@ function TvSeriesSection() {
         <h2 className="text-lg font-bold text-text">키워드로 찾기</h2>
         <p className="mt-1 text-sm text-muted">장르, 배우 이름, 시리즈 제목으로 바로 검색하세요</p>
         <SeriesKeywordSearch />
+      </section>
+      <section className="px-5 pb-2 pt-4">
+        <h2 className="text-lg font-bold text-text">인기 작품 10선</h2>
+        <p className="mt-1 text-sm text-muted">TMDB 현재 인기 시리즈 TOP 10</p>
+        <Suspense fallback={
+          <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="aspect-2/3 w-28 shrink-0 animate-pulse rounded-lg bg-neutral-800" />
+            ))}
+          </div>
+        }>
+          <Top10SeriesData />
+        </Suspense>
       </section>
       <Suspense fallback={<RowSkeleton />}>
         <PopularSeriesSection />

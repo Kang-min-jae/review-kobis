@@ -97,3 +97,21 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
       allGenres: [],
     }));
 }
+
+// 순위 배지(1위~10위)를 붙인 인기 시리즈 TOP 10 — TV 탭 캐러셀용
+export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
+  const list = await getTmdbPopularSeries();
+  return list
+    .filter((s) => s.posterUrl !== null)
+    .slice(0, 10)
+    .map((s, i) => ({
+      id: `tmdb-tv-${s.tmdbId}`,
+      title: s.name,
+      posterUrl: s.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: false,
+      badge: `${i + 1}위`,
+      genre: null,
+      allGenres: [],
+    }));
+}
