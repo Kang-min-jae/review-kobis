@@ -27,7 +27,7 @@ const FESTIVAL_FILTERS: Record<FestivalType, string> = {
   academy: `STRSTARTS(LCASE(?awardLabelEn), "academy award for")`,
   cannes: `(STRSTARTS(LCASE(?awardLabelEn), "palme") || CONTAINS(LCASE(?awardLabelEn), "cannes film festival"))`,
   berlin: `(STRSTARTS(LCASE(?awardLabelEn), "golden bear") || STRSTARTS(LCASE(?awardLabelEn), "silver bear"))`,
-  venice: `(STRSTARTS(LCASE(?awardLabelEn), "golden lion") || STRSTARTS(LCASE(?awardLabelEn), "silver lion") || CONTAINS(LCASE(?awardLabelEn), "venice film festival award"))`,
+  venice: `(STRSTARTS(LCASE(?awardLabelEn), "golden lion") || STRSTARTS(LCASE(?awardLabelEn), "silver lion") || CONTAINS(LCASE(?awardLabelEn), "venice film festival") || CONTAINS(LCASE(?awardLabelEn), "volpi cup") || STRSTARTS(LCASE(?awardLabelEn), "marcello mastroianni"))`,
 };
 
 // ── SPARQL fetch (429 재시도 포함) ──────────────────────────────────────────
@@ -217,7 +217,17 @@ const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
     { categoryLabel: "황금곰상", titleKo: null, titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185", tmdbId: "1239586" },
   ],
   venice: [
+    // 2024 (제81회)
     { categoryLabel: "황금사자상", titleKo: null, titleEn: "April", ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
+    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Vermiglio", ceremonyYear: 2024, filmQid: "Q127028023", tmdbId: "1352009" },
+    { categoryLabel: "감독상", titleKo: null, titleEn: "The Brutalist", ceremonyYear: 2024, filmQid: "Q108851477", tmdbId: "1023919" },
+    { categoryLabel: "각본상", titleKo: null, titleEn: "I'm Still Here", ceremonyYear: 2024, filmQid: "Q128023745", tmdbId: "1156593" },
+    { categoryLabel: "여우주연상", titleKo: null, titleEn: "Babygirl", ceremonyYear: 2024, filmQid: "Q128462534", tmdbId: "1037073" },
+    { categoryLabel: "특별심사위원상", titleKo: null, titleEn: "Queer", ceremonyYear: 2024, filmQid: "Q115030826", tmdbId: "539051" },
+    // 2023 (제80회)
+    { categoryLabel: "황금사자상", titleKo: "가여운 것들", titleEn: "Poor Things", ceremonyYear: 2023, filmQid: "Q119701505", tmdbId: "792307" },
+    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Evil Does Not Exist", ceremonyYear: 2023, filmQid: "Q117095625", tmdbId: "1139558" },
+    { categoryLabel: "감독상", titleKo: null, titleEn: "Io Capitano", ceremonyYear: 2023, filmQid: "Q117386499", tmdbId: "1062809" },
   ],
 };
 
