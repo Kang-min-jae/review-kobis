@@ -60,13 +60,19 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
 }
 
 async function winnersToRows(winners: FestivalWinner[], festival: FestivalType): Promise<AwardMovieRow[]> {
+  if (winners.length === 0) return [];
+
+  // 가장 최근 시상식 연도만 표시 — 여러 해 데이터가 섞여 있어도 최신 것만 보여준다.
+  const maxYear = Math.max(...winners.map((w) => w.ceremonyYear));
+  const recentWinners = winners.filter((w) => w.ceremonyYear === maxYear);
+
   // 같은 영화가 여러 부문에 오를 수 있다 — 포스터 중복 요청 방지와
   // React key 중복(wikidata-Q...) 방지를 위해 filmQid 기준으로 첫 번째 부문만 남긴다.
   const seenQids = new Set<string>();
   const posterCache = new Map<string, string | null>();
 
   const results: AwardMovieRow[] = [];
-  for (const winner of winners) {
+  for (const winner of recentWinners) {
     if (seenQids.has(winner.filmQid)) continue;
     seenQids.add(winner.filmQid);
 
