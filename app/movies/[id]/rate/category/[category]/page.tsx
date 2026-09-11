@@ -74,8 +74,6 @@ export default async function CategoryRatePage({
             movieCd={info.movieCd}
             category={category}
             isLoggedIn={Boolean(userId)}
-            categoryAverage={categoryAverage}
-            myScore={myScore}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
             myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
           />

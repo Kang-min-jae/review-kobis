@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import StarRating from "./StarRating";
 import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
-import { submitCategoryRatingAction, submitReviewAction } from "../_lib/review-actions";
+import { submitReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
@@ -108,8 +108,6 @@ export default function CategoryRateForm({
   movieCd,
   category,
   isLoggedIn,
-  categoryAverage,
-  myScore,
   reviews,
   myReviews,
 }: {
@@ -117,33 +115,14 @@ export default function CategoryRateForm({
   movieCd: string;
   category: RatingCategory;
   isLoggedIn: boolean;
-  categoryAverage: { average: number | null; count: number };
-  myScore: number | null;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
 }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [value, setValue] = useState(myScore ?? 8);
-  const [submittingScore, setSubmittingScore] = useState(false);
-
   function goToSignIn() {
     router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
-  }
-
-  async function handleSubmitCategoryRating() {
-    if (!isLoggedIn) {
-      goToSignIn();
-      return;
-    }
-    setSubmittingScore(true);
-    try {
-      await submitCategoryRatingAction(movieId, movieCd, category, value);
-      router.refresh();
-    } finally {
-      setSubmittingScore(false);
-    }
   }
 
   const [activeTab, setActiveTab] = useState<ReviewTab>("SHORT");
@@ -159,9 +138,9 @@ export default function CategoryRateForm({
   const scale = activeTab === "SHORT" ? 10 : 100;
   const sentenceCount = activeTab === "SHORT" ? countSentences(content) : 0;
   const tooManySentences = activeTab === "SHORT" && sentenceCount > SHORT_MAX_SENTENCES;
-  const canSubmitReview = content.trim().length > 0 && !tooManySentences;
+  const canSubmitReview = !tooManySentences;
   const myReview = myReviews[activeTab];
-  const activeReviews = reviews[activeTab];
+  const activeReviews = reviews[activeTab].filter((r) => r.content.trim().length > 0);
 
   async function handleSubmitReview(e: FormEvent) {
     e.preventDefault();
@@ -198,61 +177,7 @@ export default function CategoryRateForm({
         </p>
       )}
 
-      <div className="rounded-lg border border-neutral-700 bg-surface p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-text">{category} 평점 남기기</h2>
-          <span className="text-sm text-muted">
-            평균{" "}
-            <span className="font-bold text-star">
-              {categoryAverage.average !== null ? categoryAverage.average.toFixed(1) : "-"}
-            </span>
-            {categoryAverage.count > 0 && ` (${categoryAverage.count}명)`}
-          </span>
-        </div>
-        {category === "전체" && (
-          <p className="mt-1 text-[11px] text-muted">
-            리뷰 없이 평점만 남겨도 한줄평 평점에 같이 기록돼요
-          </p>
-        )}
-
-        <div className="mt-4">
-          <StarRating rating={value} scale={10} size="h-6 w-6" />
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={10}
-              step={0.1}
-              value={value}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (!Number.isNaN(next)) {
-                  setValue(Math.round(clamp(next, 0, 10) * 10) / 10);
-                }
-              }}
-              className="w-24 rounded-lg border border-neutral-700 bg-bg px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
-            />
-            <span className="text-xs text-muted">/ 10.0 (소수점 첫째 자리까지)</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSubmitCategoryRating}
-          disabled={submittingScore}
-          className="mt-6 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {myScore !== null ? "평점 수정하기" : "평점 등록하기"}
-        </button>
-
-        {myScore !== null && (
-          <p className="mt-2 text-center text-xs text-muted">
-            내가 남긴 {category} 평점: {myScore.toFixed(1)}
-          </p>
-        )}
-      </div>
-
-      <div className="mt-6 flex gap-2">
+      <div className="flex gap-2">
         {tabs.map((tab) => (
           <button
             key={tab.type}
@@ -269,7 +194,9 @@ export default function CategoryRateForm({
         ))}
       </div>
 
-      <form onSubmit={handleSubmitReview} className="mt-6 space-y-4">
+      <p className="mt-3 text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
+
+      <form onSubmit={handleSubmitReview} className="mt-4 space-y-4">
         <div>
           <div className="flex items-center gap-3">
             <StarRating rating={reviewRating} scale={scale} size="h-5 w-5" />

@@ -63,6 +63,7 @@ export async function deleteAccountRatingAction(movieCd: string) {
 
 // 한줄평/장문평 등록/수정. 같은 사람이 같은 영화·항목·타입에 이미 남긴 리뷰가
 // 있으면 그 리뷰를 덮어쓴다(한 사람당 한 항목엔 리뷰 하나).
+// "전체" 한줄평을 남기면 CategoryRating도 함께 동기화해 다이어리·리스트에 반영한다.
 export async function submitReviewAction(input: {
   movieId: string;
   movieCd: string;
@@ -82,6 +83,14 @@ export async function submitReviewAction(input: {
     create: { ...key, rating: input.rating, content: input.content, hasSpoiler },
     update: { rating: input.rating, content: input.content, hasSpoiler },
   });
+
+  if (input.category === "전체" && input.type === "SHORT") {
+    await db.categoryRating.upsert({
+      where: { userId_movieCd_category: { userId, movieCd: input.movieCd, category: "전체" } },
+      create: { userId, movieCd: input.movieCd, category: "전체", score: input.rating },
+      update: { score: input.rating },
+    });
+  }
 
   revalidatePath(categoryPath(input.movieId, input.category));
 }
