@@ -1,9 +1,5 @@
 "use client";
 
-// BoxOfficeCoverflow에서 공통 캐러셀 로직을 추출한 컴포넌트.
-// 외부에서 title/subtitle을 제어하고, 이 컴포넌트는 3D 카드 배열 + 드래그 + 아래
-// 메타정보만 담당한다.
-
 import { useCallback, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
@@ -56,7 +52,8 @@ function isRatable(movie: RowMovie): boolean {
   return movie.id.startsWith("kobis-") || movie.id.startsWith("tmdb-tv-");
 }
 
-function ReviewPanel({ movie, currentRatable }: { movie: RowMovie; currentRatable: boolean }) {
+// 카드 뒤집기 시 보이는 뒷면 — 실제 사용자 리뷰 + 평점 버튼
+function CardBack({ movie, currentRatable }: { movie: RowMovie; currentRatable: boolean }) {
   const allReviews = useSyncExternalStore(
     subscribe,
     () => getReviewsSnapshot(movie.id, "short"),
@@ -70,46 +67,57 @@ function ReviewPanel({ movie, currentRatable }: { movie: RowMovie; currentRatabl
   );
 
   return (
-    <div className="mt-3 rounded-xl bg-surface px-4 py-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-text">평론</span>
-          {avgRating !== null && (
-            <StarRating rating={avgRating} scale={10} size="h-3.5 w-3.5" />
-          )}
-        </div>
-        {currentRatable && (
-          <Link
-            href={rateHref(movie)}
-            className="rounded-full bg-star px-3 py-1 text-[10px] font-bold text-black transition-opacity hover:opacity-80"
-          >
-            ★ 평점 주기
-          </Link>
-        )}
+    <div className="absolute inset-0 flex flex-col overflow-hidden rounded-xl bg-surface p-3 shadow-2xl ring-2 ring-star/70 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-bold text-text">평론</p>
+        {avgRating !== null && <StarRating rating={avgRating} scale={10} size="h-3 w-3" />}
       </div>
 
-      {reviews.length === 0 ? (
-        <p className="mt-2 text-center text-xs text-muted">아직 평론이 없어요. 첫 평론을 남겨보세요!</p>
-      ) : (
-        <div className="mt-2 space-y-2.5">
-          {reviews.map((r) => (
-            <div key={r.id} className="flex gap-2.5">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[11px] font-semibold text-text">
+      <div className="mt-2 flex-1 space-y-2.5 overflow-y-auto">
+        {reviews.length === 0 ? (
+          <p className="mt-2 text-center text-xs text-muted">아직 평론이 없어요.</p>
+        ) : (
+          reviews.map((r) => (
+            <div key={r.id} className="flex gap-2">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-[10px] font-semibold text-text">
                 {r.authorName.slice(0, 1)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-text">{r.authorName}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-text">{r.authorName}</span>
                   <span className="text-[10px] font-bold text-star">★ {r.rating}</span>
                 </div>
                 {r.content && (
-                  <p className="mt-0.5 line-clamp-2 text-xs text-muted">{r.content}</p>
+                  <p className="line-clamp-2 text-[10px] leading-relaxed text-muted">{r.content}</p>
                 )}
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
+
+      <div className="mt-2 flex gap-1.5" data-no-drag>
+        {movie.isNowShowing && (
+          <Link
+            href={`/theaters?movie=${movie.id}`}
+            className="flex-1 whitespace-nowrap rounded-full border border-brand px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+          >
+            🎫 예매
+          </Link>
+        )}
+        {currentRatable ? (
+          <Link
+            href={rateHref(movie)}
+            className="flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
+          >
+            ★ 평점
+          </Link>
+        ) : (
+          <span className="flex-1 whitespace-nowrap rounded-full border border-neutral-600 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
+            평점 준비중
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -119,9 +127,10 @@ export default function CoverflowCarousel({
   hint,
 }: {
   movies: RowMovie[];
-  hint?: string; // 하단 보조 안내 문구
+  hint?: string;
 }) {
   const [active, setActive] = useState(0);
+  const [flipped, setFlipped] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
   const dragStartXRef = useRef<number | null>(null);
@@ -131,6 +140,7 @@ export default function CoverflowCarousel({
   const length = movies.length;
 
   const changeActive = useCallback((next: number) => {
+    setFlipped(false);
     setActive(next);
   }, []);
 
@@ -144,7 +154,11 @@ export default function CoverflowCarousel({
   if (length === 0) return null;
 
   const handleCardPress = (i: number, offset: number) => {
-    if (offset !== 0) changeActive(i);
+    if (offset === 0) {
+      setFlipped((f) => !f);
+    } else {
+      changeActive(i);
+    }
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -216,50 +230,58 @@ export default function CoverflowCarousel({
             const offset = circularOffset(i, active, length);
             const { primary } = parseBadge(movie.badge);
             const isActiveCard = offset === 0;
+            const isFlippedCard = isActiveCard && flipped;
 
             return (
               <div
                 key={movie.id}
                 data-card-index={i}
                 data-card-offset={offset}
-                className="absolute inset-0 cursor-pointer"
+                className="absolute inset-0 cursor-pointer [transform-style:preserve-3d]"
                 style={cardStyle(offset, dragOffsetPx, !dragging)}
               >
-                <div
-                  className={`relative h-full w-full overflow-hidden rounded-xl shadow-2xl ${
-                    movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
-                  } ${isActiveCard ? "ring-2 ring-star/70" : ""}`}
-                >
-                  {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
-                  {primary && (
-                    <span
-                      className={`absolute left-2 top-2 rounded-full px-2 py-1 text-xs font-bold ${
-                        isActiveCard ? "bg-star text-black" : "bg-black/70 text-star"
+                {isActiveCard ? (
+                  // 가운데 카드: 뒤집기 래퍼 (앞/뒷면 분리)
+                  <div
+                    className="relative h-full w-full transition-transform duration-500 [transform-style:preserve-3d]"
+                    style={{ transform: isFlippedCard ? "rotateY(180deg)" : "rotateY(0deg)" }}
+                  >
+                    {/* 앞면 */}
+                    <div
+                      className={`absolute inset-0 overflow-hidden rounded-xl shadow-2xl [backface-visibility:hidden] ring-2 ring-star/70 ${
+                        movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
                       }`}
                     >
-                      {primary}
-                    </span>
-                  )}
-                  {!isActiveCard && <div className="absolute inset-0 bg-black/35" />}
-
-                  {/* 활성 카드 평점 바로가기 */}
-                  {isActiveCard && (
-                    <div className="absolute inset-x-0 bottom-0 flex bg-gradient-to-t from-black/80 to-transparent p-3 pt-8" data-no-drag>
-                      {currentRatable ? (
-                        <Link
-                          href={rateHref(movie)}
-                          className="flex-1 whitespace-nowrap rounded-full border border-star bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
-                        >
-                          ★ 평점
-                        </Link>
-                      ) : (
-                        <span className="flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
-                          평점 준비중
+                      {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
+                      {primary && (
+                        <span className="absolute left-2 top-2 rounded-full bg-star px-2 py-1 text-xs font-bold text-black">
+                          {primary}
                         </span>
                       )}
+                      {/* 클릭 유도 힌트 오버레이 */}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-8 text-center text-[10px] text-white/70">
+                        눌러서 평론 보기
+                      </div>
                     </div>
-                  )}
-                </div>
+                    {/* 뒷면 */}
+                    <CardBack movie={movie} currentRatable={currentRatable} />
+                  </div>
+                ) : (
+                  // 옆 카드: 앞면만
+                  <div
+                    className={`relative h-full w-full overflow-hidden rounded-xl shadow-2xl ${
+                      movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
+                    }`}
+                  >
+                    {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
+                    {primary && (
+                      <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-star">
+                        {primary}
+                      </span>
+                    )}
+                    <div className="absolute inset-0 bg-black/35" />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -283,9 +305,6 @@ export default function CoverflowCarousel({
           </p>
         )}
       </div>
-
-      {/* 평론 패널 */}
-      <ReviewPanel movie={current} currentRatable={currentRatable} />
 
       {/* 점 인디케이터 */}
       <div className="mt-4 flex justify-center gap-1.5">
