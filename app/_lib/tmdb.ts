@@ -210,21 +210,31 @@ export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | n
 // 수상작 포스터 전용 느슨한 검색 — 제목 exact match 없이 연도 필터를 API에 넘겨
 // 첫 번째 결과를 채택한다. 비영어권 유럽 아트하우스 영화처럼 TMDB의 한글/영문 제목이
 // Wikidata 레이블과 달라 exact match가 항상 실패하는 경우의 마지막 수단.
-// 연도를 하나 앞뒤로도 시도해 시상식 수상연도와 개봉연도가 어긋나는 경우를 커버한다.
+// releaseYear(수상 영화의 실제 개봉연도 추정)를 가장 먼저 시도해 동명 타 영화를 잘못
+// 선택하는 것을 방지한다. 마지막엔 연도 제약을 풀고 전체 결과에서 포스터 있는 첫 항목을 채택.
 export async function searchTmdbMoviePosterLoose(
   title: string,
-  ceremonyYear: number
+  releaseYear: number
 ): Promise<string | null> {
-  for (const year of [ceremonyYear - 1, ceremonyYear, ceremonyYear - 2]) {
+  // 연도 있는 탐색: releaseYear부터 시작 — 수상연도 == 개봉연도인 경우가 가장 흔하다
+  for (const year of [releaseYear, releaseYear - 1, releaseYear + 1]) {
     const data = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
       "/search/movie",
       { query: title, primary_release_year: String(year) },
       "en-US"
     );
-    const first = data?.results?.[0];
-    if (first?.poster_path) return toImageUrl(first.poster_path);
+    const hit = data?.results?.find((r) => r.poster_path);
+    if (hit?.poster_path) return toImageUrl(hit.poster_path);
   }
-  return null;
+
+  // 연도 제약 없는 마지막 시도 — 개봉연도가 예상과 크게 다른 경우 포스터 있는 첫 결과 채택
+  const noYear = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
+    "/search/movie",
+    { query: title },
+    "en-US"
+  );
+  const fallback = noYear?.results?.find((r) => r.poster_path);
+  return fallback?.poster_path ? toImageUrl(fallback.poster_path) : null;
 }
 
 // ── TV 시리즈 ──────────────────────────────────────────────────────────────
