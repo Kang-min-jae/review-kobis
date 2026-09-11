@@ -59,18 +59,22 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
 }
 
 async function winnersToRows(winners: FestivalWinner[], festival: FestivalType): Promise<AwardMovieRow[]> {
-  // 같은 영화가 여러 부문에 오를 수 있어 중복 포스터 요청을 방지하기 위해 캐시한다.
+  // 같은 영화가 여러 부문에 오를 수 있다 — 포스터 중복 요청 방지와
+  // React key 중복(wikidata-Q...) 방지를 위해 filmQid 기준으로 첫 번째 부문만 남긴다.
+  const seenQids = new Set<string>();
   const posterCache = new Map<string, string | null>();
 
   const results: AwardMovieRow[] = [];
   for (const winner of winners) {
-    const cacheKey = winner.filmQid;
+    if (seenQids.has(winner.filmQid)) continue;
+    seenQids.add(winner.filmQid);
+
     let posterUrl: string | null;
-    if (posterCache.has(cacheKey)) {
-      posterUrl = posterCache.get(cacheKey)!;
+    if (posterCache.has(winner.filmQid)) {
+      posterUrl = posterCache.get(winner.filmQid)!;
     } else {
       posterUrl = await getPosterUrl(winner, festival);
-      posterCache.set(cacheKey, posterUrl);
+      posterCache.set(winner.filmQid, posterUrl);
     }
 
     results.push({
