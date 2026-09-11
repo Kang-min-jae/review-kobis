@@ -75,7 +75,15 @@ function PlaceholderItem({
   );
 }
 
-export default function SideMenu({ session, nickname }: { session: Session | null; nickname?: string | null }) {
+export default function SideMenu({
+  session,
+  nickname,
+  monthlyRatingCount,
+}: {
+  session: Session | null;
+  nickname?: string | null;
+  monthlyRatingCount?: number;
+}) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
 
@@ -123,10 +131,12 @@ export default function SideMenu({ session, nickname }: { session: Session | nul
   const tier = getBadge(totalLikes);
 
   const now = new Date();
-  const thisMonthCount = myReviews.filter((r) => {
+  const thisMonthLocalCount = myReviews.filter((r) => {
     const d = new Date(r.createdAt);
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   }).length;
+  // 로그인 사용자는 DB 평점 수(서버에서 전달)를 우선 사용하고, 비로그인 시 localStorage 수를 쓴다.
+  const thisMonthCount = monthlyRatingCount ?? thisMonthLocalCount;
 
   // 같은 영화에 여러 리뷰를 남겼으면 그 중 가장 높은 점수(0~10 정규화)로 대표해서
   // 평균을 낸다 — my-list-store의 getMyMovieRatingsSnapshot과 같은 계산 방식.

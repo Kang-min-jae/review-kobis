@@ -8,17 +8,24 @@ export default async function SearchBar() {
   const session = await auth();
 
   let nickname: string | null = null;
+  let monthlyRatingCount: number | undefined;
   if (session?.user?.id) {
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { nickname: true },
-    });
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const [user, count] = await Promise.all([
+      db.user.findUnique({ where: { id: session.user.id }, select: { nickname: true } }),
+      db.categoryRating.count({
+        where: { userId: session.user.id, category: "전체", createdAt: { gte: monthStart, lt: monthEnd } },
+      }),
+    ]);
     nickname = user?.nickname ?? null;
+    monthlyRatingCount = count;
   }
 
   return (
     <div className="flex items-center gap-2 px-5 pt-5 pb-5">
-      <SideMenu session={session} nickname={nickname} />
+      <SideMenu session={session} nickname={nickname} monthlyRatingCount={monthlyRatingCount} />
       <SearchInput />
       <AuthButton session={session} nickname={nickname} />
     </div>
