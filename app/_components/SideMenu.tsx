@@ -28,15 +28,10 @@ import {
   getServerVotesSnapshot,
   getReviewVote,
 } from "../_lib/review-votes-store";
-import {
-  subscribe as subscribeMyList,
-  getMyListSnapshot,
-  getServerMyListSnapshot,
-} from "../_lib/my-list-store";
+
 import { getBadge } from "../_lib/tier";
 import {
   DiaryIcon,
-  HeartIcon,
   CollectionIcon,
   PersonIcon,
   GearIcon,
@@ -45,11 +40,6 @@ import {
   HelpIcon,
   LogoutIcon,
 } from "./MenuIcons";
-
-function average(nums: number[]): number | null {
-  if (nums.length === 0) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
 
 // 실제 기능이 아직 없는 항목(컬렉션/팔로잉 목록/계정 설정/알림/고객센터)은 엉뚱한
 // 페이지로 보내는 링크 대신, 메뉴만 닫히는 버튼으로 둔다 — 없는 기능을 있는 것처럼
@@ -79,10 +69,12 @@ export default function SideMenu({
   session,
   nickname,
   monthlyRatingCount,
+  followerCount = 0,
 }: {
   session: Session | null;
   nickname?: string | null;
   monthlyRatingCount?: number;
+  followerCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -120,7 +112,7 @@ export default function SideMenu({
 
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
-  const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
+
 
   const rawFallback = session?.user?.name ?? session?.user?.email ?? null;
   const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
@@ -138,16 +130,6 @@ export default function SideMenu({
   // 로그인 사용자는 DB 평점 수(서버에서 전달)를 우선 사용하고, 비로그인 시 localStorage 수를 쓴다.
   const thisMonthCount = monthlyRatingCount ?? thisMonthLocalCount;
 
-  // 같은 영화에 여러 리뷰를 남겼으면 그 중 가장 높은 점수(0~10 정규화)로 대표해서
-  // 평균을 낸다 — my-list-store의 getMyMovieRatingsSnapshot과 같은 계산 방식.
-  const bestByMovie = new Map<string, number>();
-  for (const r of myReviews) {
-    const scale = r.type === "short" ? 10 : 100;
-    const normalized = (r.rating / scale) * 10;
-    const existing = bestByMovie.get(r.movieId);
-    if (existing === undefined || normalized > existing) bestByMovie.set(r.movieId, normalized);
-  }
-  const avgRating = average(Array.from(bestByMovie.values()));
 
   return (
     <>
@@ -183,7 +165,7 @@ export default function SideMenu({
                   </span>
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted">
-                  이번 달 {thisMonthCount}편 관람 · 평균 별점 {avgRating !== null ? avgRating.toFixed(1) : "-"}
+                  이번 달 {thisMonthCount}편 관람 · 팔로워 {followerCount}
                 </p>
               </div>
             </div>
@@ -199,22 +181,21 @@ export default function SideMenu({
                 다이어리
               </Link>
               <Link
-                href="/my-list"
+                href="/my-list#collections"
                 onClick={close}
-                className="flex items-center justify-between rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
-                <span className="flex items-center gap-3">
-                  <HeartIcon />
-                  찜한 영화
-                </span>
-                {myListIds.length > 0 && (
-                  <span className="rounded-full bg-star px-2 py-0.5 text-[10px] font-bold text-black">
-                    {myListIds.length}
-                  </span>
-                )}
+                <CollectionIcon />
+                컬렉션
               </Link>
-              <PlaceholderItem icon={<CollectionIcon />} label="컬렉션" onClose={close} />
-              <PlaceholderItem icon={<PersonIcon />} label="팔로잉 목록" onClose={close} />
+              <Link
+                href="/my-list#following"
+                onClick={close}
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <PersonIcon />
+                팔로잉 목록
+              </Link>
             </nav>
 
             <p className="mt-6 px-2 text-xs font-semibold text-muted">설정</p>

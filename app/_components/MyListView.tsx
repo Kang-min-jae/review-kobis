@@ -40,14 +40,20 @@ import {
   getServerSocialSnapshot,
   getViewsSnapshot,
   getServerViewsSnapshot,
-  getFollowerCount,
-  getLikeCount,
-  toggleFollow,
-  toggleLike,
   recordView,
 } from "../_lib/list-social-store";
 
-export default function MyListView({ myRatedMovies }: { myRatedMovies: MyRatedMovie[] }) {
+type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
+
+export default function MyListView({
+  myRatedMovies,
+  followerCount = 0,
+  followingList = [],
+}: {
+  myRatedMovies: MyRatedMovie[];
+  followerCount?: number;
+  followingList?: FollowingUser[];
+}) {
   useEffect(() => {
     recordView();
   }, []);
@@ -65,7 +71,6 @@ export default function MyListView({ myRatedMovies }: { myRatedMovies: MyRatedMo
   );
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
-  const social = useSyncExternalStore(subscribeSocial, getSocialSnapshot, getServerSocialSnapshot);
   const views = useSyncExternalStore(subscribeSocial, getViewsSnapshot, getServerViewsSnapshot);
 
   const reviewedById = new Map(reviewedMovies.map((m) => [m.id, m]));
@@ -98,33 +103,12 @@ export default function MyListView({ myRatedMovies }: { myRatedMovies: MyRatedMo
           <span className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-white">
             🏅 {myTier}
           </span>
-          <span className="rounded-full border border-star px-3 py-1.5 text-xs font-semibold text-star">
-            👍 평점 누적 좋아요 {totalReviewLikes}
+          <span className="rounded-full border border-brand px-3 py-1.5 text-xs font-semibold text-brand">
+            팔로워 {followerCount}
           </span>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={toggleFollow}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                social.following
-                  ? "border-brand bg-brand text-white"
-                  : "border-brand text-brand hover:bg-brand hover:text-white"
-              }`}
-            >
-              {social.following ? "팔로잉" : "팔로우"} {getFollowerCount(social)}
-            </button>
-            <button
-              type="button"
-              onClick={toggleLike}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                social.liked
-                  ? "border-star bg-star text-black"
-                  : "border-star text-star hover:bg-star hover:text-black"
-              }`}
-            >
-              ♥ {getLikeCount(social)}
-            </button>
-          </div>
+          <span className="rounded-full border border-star px-3 py-1.5 text-xs font-semibold text-star">
+            ♥ {totalReviewLikes}
+          </span>
         </div>
       </div>
 
@@ -231,7 +215,37 @@ export default function MyListView({ myRatedMovies }: { myRatedMovies: MyRatedMo
         )}
       </div>
 
-      <CustomListsSection />
+      <div id="collections">
+        <CustomListsSection />
+      </div>
+
+      {followingList.length > 0 && (
+        <div id="following" className="mt-6">
+          <h2 className="text-sm font-bold text-text">팔로잉 목록</h2>
+          <div className="mt-3 space-y-2">
+            {followingList.map((user) => {
+              const name = user.nickname ?? user.name ?? "사용자";
+              return (
+                <Link
+                  key={user.id}
+                  href={`/user/${user.id}`}
+                  className="flex items-center gap-3 rounded-lg bg-surface p-3 transition-colors hover:bg-surface/80"
+                >
+                  {user.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.image} alt="" className="h-8 w-8 shrink-0 rounded-full" />
+                  ) : (
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
+                      {name.slice(0, 1)}
+                    </div>
+                  )}
+                  <span className="flex-1 truncate text-sm text-text">{name}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
