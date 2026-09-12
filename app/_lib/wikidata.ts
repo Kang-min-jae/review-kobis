@@ -196,14 +196,27 @@ async function fetchFestivalWinnersRaw(
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
 // 버전을 올리면 기존 DB 캐시를 무시하고 Wikidata를 즉시 재조회한다.
 const CACHE_VERSION = "v3";
-const DB_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
-const MEM_TTL_MS = 5 * 60 * 1000; // 5분
+const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 (시상식 데이터는 자주 안 바뀜)
 type MemEntry = { data: FestivalWinner[]; at: number };
 const g = globalThis as typeof globalThis & { __wikidataCache?: Map<string, MemEntry> };
 if (!g.__wikidataCache) g.__wikidataCache = new Map<string, MemEntry>();
 const memCache = g.__wikidataCache;
+
+// 각 영화제 다음 시상식 예정 월 — 캐시 만료 기준
+const CEREMONY_MONTHS: Record<FestivalType, number> = {
+  academy: 3,  // 3월
+  cannes:  5,  // 5월
+  berlin:  2,  // 2월
+  venice:  9,  // 9월
+};
+
+// 캐시된 maxYear 기준으로 다음 시상식 예정일 계산
+function nextCeremonyDate(type: FestivalType, maxYear: number): Date {
+  const m = CEREMONY_MONTHS[type];
+  return new Date(`${maxYear + 1}-${String(m).padStart(2, "0")}-01T00:00:00Z`);
+}
 
 // 폴백은 Wikidata 연결 실패 시에만 사용된다. 최신 데이터는 항상 Wikidata에서 온다.
 const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
@@ -241,21 +254,36 @@ const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
 async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<FestivalWinner[]> {
   const cacheKey = `${type}-${CACHE_VERSION}`;
 
-  // 1) 메모리 캐시 (핫리로드 방지)
+  // 1) 메모리 캐시
   const mem = memCache.get(cacheKey);
   if (mem && Date.now() - mem.at < MEM_TTL_MS) return mem.data;
 
-  // 2) DB 캐시 — 버전이 바뀌면 키가 달라져서 자동으로 재조회된다
+  // 2) DB 캐시 — 다음 시상식 예정일 전이면 무기한 사용
   try {
     const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
-    if (cached && Date.now() - cached.updatedAt.getTime() < DB_CACHE_TTL_MS) {
-      const data = cached.winners as unknown as FestivalWinner[];
-      memCache.set(cacheKey, { data, at: Date.now() });
-      return data;
+    if (cached) {
+      const winners = cached.winners as unknown as FestivalWinner[];
+      if (winners.length > 0) {
+        const maxYear = Math.max(...winners.map((w) => w.ceremonyYear));
+        const next = nextCeremonyDate(type, maxYear);
+        const now = Date.now();
+
+        if (now < next.getTime()) {
+          // 다음 시상식 전 — 재조회 불필요, 캐시 그대로 사용
+          memCache.set(cacheKey, { data: winners, at: now });
+          return winners;
+        }
+        if (cached.updatedAt.getTime() >= next.getTime()) {
+          // 이미 시상식 이후에 한 번 갱신된 캐시 — 신규 데이터 반영됨
+          memCache.set(cacheKey, { data: winners, at: now });
+          return winners;
+        }
+        // 시상식 이후인데 캐시가 그 전 데이터 → 아래에서 Wikidata 재조회
+        console.info(`[wikidata] ${type} 새 시상식 이후 — Wikidata 재조회`);
+      }
     }
   } catch (err) {
     // P2021: 테이블 자체가 없음 → npx prisma db push 미실행 상태.
-    // 이 경우 SPARQL까지 40초 기다리지 않고 폴백을 즉시 메모리 캐시에 올려 반환한다.
     if ((err as { code?: string }).code === "P2021") {
       console.warn("[wikidata] CachedAwardWinners 테이블 없음 — 폴백 사용 (npx prisma db push 필요)");
       const data = FALLBACK_WINNERS[type];
