@@ -337,20 +337,37 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
 
     // award-winners.ts가 포스터만 저장하고 개요·개봉일·런타임을 채우지 않은 경우,
     // tmdbId가 있으면 TMDB에서 상세 정보를 가져와 캐시를 보완한다.
+    // Wikidata P4947 TMDB ID가 잘못된 영화를 가리킬 수 있어서, 제목을 검증한 뒤 사용한다.
     if (cached.tmdbId && !cached.overview && !cached.releaseDate) {
       const tmdb = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
       if (tmdb) {
-        const update = {
-          overview: tmdb.overview ?? null,
-          releaseDate: tmdb.releaseDate ?? null,
-          runtimeMinutes: tmdb.runtimeMinutes ?? null,
-          genreAlt: tmdb.genre ?? null,
-          posterUrl: tmdb.posterUrl ?? cached.posterUrl,
-          titleEn: tmdb.originalTitle ?? cached.titleEn,
-        };
-        await db.cachedMovie.update({ where: { movieCd: movieCd }, data: update }).catch(() => null);
-        const updated = { ...cached, ...update };
-        return { movieId: id, ...rowToMeta(updated), boxOffice: null };
+        const norm = (s: string | null | undefined) =>
+          (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const expectedEn = norm(cached.titleEn ?? cached.title);
+        const tmdbTitle = norm(tmdb.title);
+        const tmdbOrig = norm(tmdb.originalTitle);
+        const titleMatched =
+          expectedEn.length >= 2 &&
+          (tmdbTitle.includes(expectedEn) || expectedEn.includes(tmdbTitle) ||
+           tmdbOrig.includes(expectedEn) || expectedEn.includes(tmdbOrig));
+
+        if (!titleMatched) {
+          // 잘못된 TMDB ID — DB에서 제거해 이후 오염 방지, 이번 요청에도 null로 처리
+          await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null } }).catch(() => null);
+          return { movieId: id, ...rowToMeta({ ...cached, tmdbId: null }), boxOffice: null };
+        } else {
+          const update = {
+            overview: tmdb.overview ?? null,
+            releaseDate: tmdb.releaseDate ?? null,
+            runtimeMinutes: tmdb.runtimeMinutes ?? null,
+            genreAlt: tmdb.genre ?? null,
+            posterUrl: tmdb.posterUrl ?? cached.posterUrl,
+            titleEn: tmdb.originalTitle ?? cached.titleEn,
+          };
+          await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
+          const updated = { ...cached, ...update };
+          return { movieId: id, ...rowToMeta(updated), boxOffice: null };
+        }
       }
     }
 

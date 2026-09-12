@@ -67,7 +67,7 @@ export default function MovieInfoHeader({
             <span className="ml-2 text-sm font-normal text-muted">
               {releaseDate && `| 개봉연도 ${releaseDate}`}
               {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
-              {runtimeMinutes && ` · 러닝타임 ${runtimeMinutes}분`}
+              {runtimeMinutes != null && runtimeMinutes > 0 && ` · 러닝타임 ${runtimeMinutes}분`}
               {boxOffice && ` · 누적 관객수 ${formatCount(boxOffice.audiAcc)}`}
               {boxOffice && ` · 누적 흥행 수익 ${formatWon(boxOffice.salesAcc)}`}
             </span>

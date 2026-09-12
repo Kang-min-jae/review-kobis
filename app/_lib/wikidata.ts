@@ -456,28 +456,37 @@ export async function fetchMovieAwardWins(
   const cacheKey = tmdbId ? `movie-tmdb-${tmdbId}` : titleEn ? `movie-title-${titleEn.toLowerCase()}` : null;
   if (!cacheKey) return [];
 
-  // 1) 메모리 캐시
+  // 1) 메모리 캐시 — 빈 결과는 잘못된 tmdbId로 인한 캐시일 수 있어 재조회
   const mem = movieAwardsMemCache.get(cacheKey);
-  if (mem && Date.now() - mem.at < MOVIE_AWARD_MEM_TTL_MS) return mem.data;
+  if (mem && mem.data.length > 0 && Date.now() - mem.at < MOVIE_AWARD_MEM_TTL_MS) return mem.data;
 
   // 2) DB 캐시 (CachedAwardWinners 테이블 재사용, key = "movie-tmdb-{tmdbId}")
+  // 빈 결과는 잘못된 tmdbId로 인한 캐시일 수 있어 신뢰하지 않고 재조회
   try {
     const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
     if (cached) {
       const data = cached.winners as unknown as MovieAwardEntry[];
-      movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
-      return data;
+      if (data.length > 0) {
+        movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
+        return data;
+      }
     }
   } catch {
     // 테이블 없으면 통과
   }
 
-  // 3) Wikidata SPARQL — tmdbId 우선, 없으면 영문 제목으로
-  const query = tmdbId
-    ? buildMovieAwardsQuery(tmdbId)
-    : buildMovieAwardsByTitleQuery(titleEn!);
+  // 3) Wikidata SPARQL — tmdbId 우선, 결과 없으면 영문 제목으로 폴백
+  let rows: Record<string, { value: string }>[] = [];
+  if (tmdbId) {
+    rows = await sparqlFetch(buildMovieAwardsQuery(tmdbId));
+    // tmdbId가 잘못된 경우(Wikidata P4947 오매핑) 결과가 비어있을 수 있음 — 제목으로 재시도
+    if (rows.length === 0 && titleEn) {
+      rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
+    }
+  } else if (titleEn) {
+    rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
+  }
 
-  const rows = await sparqlFetch(query);
   const data = parseMovieAwardRows(rows);
 
   // 4) DB 캐시 저장
