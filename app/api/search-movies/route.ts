@@ -119,6 +119,76 @@ async function withIdentityMappingOverride(people: KmdbPersonHit[], query: strin
   return result;
 }
 
+// ── LLM 오타 교정 ─────────────────────────────────────────────────────────────
+// 1차 검색 결과가 0건일 때만 호출한다(비용·지연 최소화).
+// Claude Haiku로 교정 단어 + 영문 키워드 배열을 추출한다.
+// API 키 미설정 또는 오류 시 null 반환 → 기존 KMDb 폴백으로 이어짐.
+
+type LlmCorrection = {
+  isValid: boolean;
+  isCorrected: boolean;
+  originalQuery: string;
+  correctedQuery: string;
+  didYouMean: string | null;
+  searchKeywords: string[];
+};
+
+async function correctQueryWithLlm(query: string): Promise<LlmCorrection | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const systemPrompt = `당신은 한국어/영어 영화 및 영화인(배우, 감독) 이름 표준화 및 오타 교정 전문 AI 엔진입니다.
+사용자가 입력한 검색어(query)를 분석하여, 실제 존재하는 올바른 인물명이나 영화 제목으로 교정하고 대체 검색 키워드를 반환하세요.
+
+[Rules]
+1. 오타, 발음 변형, 맞춤법 오류, 영문-한글 혼용을 분석하세요. (예: "젠데이야" -> "젠데이아", "티모시샬라메" -> "티모시 샬라메", "돈룩백인앵거" -> "돈 룩 백 인 앵거")
+2. 사용자의 입력이 오타/변형 표기로 판단되면 isCorrected: true로 설정하고 올바른 표준 명칭을 correctedQuery에 넣으세요.
+3. 한국어 표기뿐만 아니라 영문 공식 명칭(English Title/Name)도 searchKeywords 배열에 포함하세요.
+4. 검색어가 이미 완벽히 올바르다면 isCorrected: false, correctedQuery는 원본 그대로 유지하세요.
+5. 오답 처리나 모호한 입력(예: 단순 외마디 초성, 의미 없는 문자열)일 경우 isValid: false로 응답하세요.
+6. 오직 JSON 형식으로만 응답하며 다른 설명은 절대 추가하지 마세요.
+
+[Output JSON Schema]
+{
+  "isValid": boolean,
+  "isCorrected": boolean,
+  "originalQuery": string,
+  "correctedQuery": string,
+  "didYouMean": string | null,
+  "searchKeywords": string[]
+}
+
+[Example 1]
+Input: "젠데이야"
+Output: {"isValid":true,"isCorrected":true,"originalQuery":"젠데이야","correctedQuery":"젠데이아","didYouMean":"젠데이아","searchKeywords":["젠데이아","Zendaya"]}
+
+[Example 2]
+Input: "봉준호"
+Output: {"isValid":true,"isCorrected":false,"originalQuery":"봉준호","correctedQuery":"봉준호","didYouMean":null,"searchKeywords":["봉준호","Bong Joon-ho"]}`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        temperature: 0.1,
+        system: systemPrompt,
+        messages: [{ role: "user", content: `"${query}"` }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { content?: { text: string }[] };
+    const text = data.content?.[0]?.text ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    return JSON.parse(match[0]) as LlmCorrection;
+  } catch {
+    return null;
+  }
+}
+
 // ── 결과 조립 헬퍼 ────────────────────────────────────────────────────────────
 // 외부 API 결과 + DB 캐시 결과를 합치되, movieCd 기준으로 중복 제거한다.
 // 외부 API 결과가 더 신선하므로 우선순위가 높다.
@@ -171,35 +241,71 @@ export async function GET(request: Request) {
     return NextResponse.json(result);
   }
 
-  // 결과가 아예 없으면 오타 교정 시도
-  const suggested = await suggestSimilarTitle(query);
-  if (!suggested) {
+  // 결과가 아예 없으면 LLM 오타 교정 시도.
+  // LLM이 반환한 searchKeywords(한글 교정어 + 영문명)를 순서대로 검색해
+  // 처음 결과가 나오는 키워드로 최종 응답을 만든다.
+  // LLM을 쓸 수 없는 환경(API 키 없음·오류)에서는 기존 KMDb 기반 교정으로 폴백한다.
+  const llmCorrection = await correctQueryWithLlm(query);
+
+  let keywordsToTry: string[] = [];
+  let didYouMean: string | null = null;
+
+  if (llmCorrection?.isValid && llmCorrection.searchKeywords.length > 0) {
+    // 원본 쿼리와 동일한 키워드(대소문자 무시)는 이미 시도했으니 제외
+    keywordsToTry = llmCorrection.searchKeywords.filter(
+      (k) => k.toLowerCase() !== query.toLowerCase()
+    );
+    didYouMean = llmCorrection.isCorrected ? (llmCorrection.didYouMean ?? llmCorrection.correctedQuery) : null;
+  }
+
+  // LLM 키워드가 없으면 KMDb 유사 제목 교정으로 폴백
+  if (keywordsToTry.length === 0) {
+    const suggested = await suggestSimilarTitle(query);
+    if (suggested) {
+      keywordsToTry = [suggested];
+      didYouMean = suggested;
+    }
+  }
+
+  if (keywordsToTry.length === 0) {
     const empty = { movies: [], series: [], people: [], correctedQuery: null };
     setCache(cacheKey, empty);
     return NextResponse.json(empty);
   }
 
-  const [correctedMovieHits, rawCorrectedPeople, correctedMultiHits] = await Promise.all([
-    searchMoviesSince1960(suggested),
-    searchKmdbPeople(suggested, 8),
-    searchTmdbMulti(suggested),
-  ]);
-  const correctedPeople = await withIdentityMappingOverride(rawCorrectedPeople, suggested);
-  const correctedSeriesHits = correctedMultiHits
-    .filter((h) => h.mediaType === "tv")
-    .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
-  const found = correctedMovieHits.length > 0 || correctedPeople.length > 0 || correctedSeriesHits.length > 0;
-  const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
-    withPosters(correctedMovieHits),
-    withRepresentativeWorks(correctedPeople),
-  ]);
+  // 키워드를 순서대로 시도 — 결과가 나오는 첫 번째 키워드에서 멈춘다
+  for (const keyword of keywordsToTry) {
+    const [dbCorrectedHits, correctedMovieHits, rawCorrectedPeople, correctedMultiHits] = await Promise.all([
+      searchCachedMovies(keyword),
+      searchMoviesSince1960(keyword),
+      searchKmdbPeople(keyword, 8),
+      searchTmdbMulti(keyword),
+    ]);
+    const correctedPeople = await withIdentityMappingOverride(rawCorrectedPeople, keyword);
+    const correctedSeriesHits = correctedMultiHits
+      .filter((h) => h.mediaType === "tv")
+      .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-  const correctedResult = {
-    movies: correctedMovies,
-    series: correctedSeriesHits,
-    people: correctedPeopleWithWorks,
-    correctedQuery: found ? suggested : null,
-  };
-  setCache(cacheKey, correctedResult);
-  return NextResponse.json(correctedResult);
+    const found = correctedMovieHits.length > 0 || correctedPeople.length > 0 || correctedSeriesHits.length > 0 || dbCorrectedHits.length > 0;
+    if (!found) continue;
+
+    const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
+      withPosters(correctedMovieHits),
+      withRepresentativeWorks(correctedPeople),
+    ]);
+    const correctedResult = {
+      movies: mergeMovieHits(correctedMovies, dbCorrectedHits),
+      series: correctedSeriesHits,
+      people: correctedPeopleWithWorks,
+      // 교정 표시어: LLM이 제안한 한글 단어 우선, 없으면 실제로 히트한 키워드
+      correctedQuery: didYouMean ?? keyword,
+    };
+    setCache(cacheKey, correctedResult);
+    return NextResponse.json(correctedResult);
+  }
+
+  // 모든 키워드로도 결과 없음
+  const empty = { movies: [], series: [], people: [], correctedQuery: null };
+  setCache(cacheKey, empty);
+  return NextResponse.json(empty);
 }

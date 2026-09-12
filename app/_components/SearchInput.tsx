@@ -179,7 +179,16 @@ export default function SearchInput() {
 
             {!loading && !error && hasResults && correctedQuery && (
               <p className="border-b border-neutral-700 px-3 py-2 text-xs text-muted">
-                &quot;{correctedQuery}&quot;로 검색한 결과
+                혹시{" "}
+                <button
+                  type="button"
+                  onClick={() => { setQuery(correctedQuery); setCorrectedQuery(null); }}
+                  className="font-semibold text-brand underline underline-offset-2 hover:opacity-80"
+                >
+                  &apos;{correctedQuery}&apos;
+                </button>
+                {correctedQuery.match(/[가-힣]/) ? "(을)를" : ""}
+                {" "}찾으시나요?
               </p>
             )}
 
