@@ -20,6 +20,11 @@ import {
   getServerAffinitySnapshot,
   registerMovieIds,
 } from "../_lib/affinity-store";
+import {
+  subscribe as subscribeReviews,
+  getMyReviewsSnapshot,
+  getServerMyReviewsSnapshot,
+} from "../_lib/reviews-store";
 
 const FESTIVAL_KO: Record<string, string> = {
   academy: "아카데미상",
@@ -45,14 +50,23 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   // 브라우저에만 있어서 서버가 계산해줄 수 없으니 여기서 직접 계산한다.
   const seedGenres = useSyncExternalStore(subscribeSeedGenres, getSeedGenresSnapshot, getServerSeedGenresSnapshot);
   const affinityScores = useSyncExternalStore(subscribeAffinity, getAffinitySnapshot, getServerAffinitySnapshot);
+  const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   useEffect(() => {
     ensureSeedGenresLoaded();
     registerMovieIds([movie.id]);
   }, [movie.id]);
 
+  // 내가 이 영화에 남긴 "전체" 한줄평 평점 (있으면)
+  const myMovieRating = useMemo(() => {
+    const mine = myReviews.find(
+      (r) => r.movieId === movie.id && r.type === "short" && (r.category ?? "전체") === "전체"
+    );
+    return mine ? mine.rating : null;
+  }, [myReviews, movie.id]);
+
   // 우선순위: 서버 추천 점수 → affinity store → Jaccard 장르 근사
   const matchBadge = useMemo(() => {
-    if (movie.recommendScore != null) return `추천 ${movie.recommendScore}%`;
+    if (movie.recommendScore != null && movie.recommendScore > 0) return `추천 ${movie.recommendScore}%`;
     const affinityScore = affinityScores[movie.id];
     if (affinityScore != null && affinityScore > 0) return `추천 ${affinityScore}%`;
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
@@ -135,9 +149,11 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
             {isRatable ? (
               <Link
                 href={rateHref}
-                className="flex-1 whitespace-nowrap rounded-full border border-star bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
+                className={`flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
+                  myMovieRating !== null ? "bg-star/25 text-star" : "bg-black/50 text-star"
+                }`}
               >
-                ★ 평점
+                {myMovieRating !== null ? `★ ${myMovieRating.toFixed(1)}점` : "★ 평점"}
               </Link>
             ) : (
               <span className="flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">

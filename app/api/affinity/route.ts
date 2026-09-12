@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ scores: {} });
   }
 
-  const coldStart = myRatings.length < 5;
+  const coldStart = myRatings.length === 0;
 
   // 사용자 프로필 구축
   const ratedCds = myRatings.map((r) => r.movieId.replace(/^kobis-/, "")).filter((cd) => /^\d+$/.test(cd));

@@ -56,7 +56,7 @@ async function buildUserProfile(
   ratings: IncomingRating[],
   categoryRatings: IncomingCategoryRating[]
 ): Promise<UserProfile> {
-  const coldStart = ratings.length < 5;
+  const coldStart = ratings.length === 0;
 
   if (ratings.length === 0) {
     return {
@@ -174,15 +174,18 @@ async function getCandidates(
       }));
   }
 
-  // Fetch genre-matching candidates
+  // Fetch genre-matching + director-matching candidates
   const genreConditions = profile.preferredGenres.map((g) => ({
     genreAlt: { contains: g },
+  }));
+  const directorConditions = profile.preferredDirectors.map((d) => ({
+    directorName: d,
   }));
 
   const candidates = await db.cachedMovie.findMany({
     where: {
       posterUrl: { not: null },
-      OR: genreConditions,
+      OR: [...genreConditions, ...directorConditions],
     },
     orderBy: { updatedAt: "desc" },
     take: 200,
@@ -374,7 +377,7 @@ export async function POST(request: Request) {
     const meta = metas.get(c.movieCd);
     const llm = llmMap.get(c.movieCd);
     const rawScore = llm?.score ?? Math.round(c.totalScore * 100);
-    const recommendScore = Math.min(99, Math.max(1, rawScore));
+    const recommendScore = Math.min(99, Math.max(0, rawScore));
     const { genre, allGenres } = genreFields(meta?.genreAlt ?? c.genreAlt);
 
     return {
@@ -390,8 +393,8 @@ export async function POST(request: Request) {
     };
   });
 
-  // Filter out cards without posters
-  const withPosters = results.filter((r) => r.posterUrl !== null);
+  // Filter out cards without posters and 0-score movies (no affinity)
+  const withPosters = results.filter((r) => r.posterUrl !== null && (r.recommendScore ?? 0) > 0);
 
   return NextResponse.json({ results: withPosters });
 }
