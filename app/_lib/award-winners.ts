@@ -35,20 +35,15 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
   if (tmdb?.posterUrl) return tmdb.posterUrl;
   console.warn(`${ctx} exact match 실패 (displayTitle="${displayTitle}", titleEn="${winner.titleEn}")`);
 
-  // 3) 느슨한 매칭: en 제목 + primary_release_year (연도 ±2 순차 시도)
+  // 3) 느슨한 매칭: 한/영 제목 동시 검색 + 제목 유사도 검증
   //    유럽·비영어권 아트하우스 영화는 TMDB 한글 표기가 Wikidata 레이블과
   //    달라 exact match가 항상 실패하는 경우가 있다.
-  if (winner.titleEn) {
-    const loose = await searchTmdbMoviePosterLoose(winner.titleEn, winner.ceremonyYear);
+  if (winner.titleEn || winner.titleKo) {
+    const primaryTitle = winner.titleEn ?? winner.titleKo!;
+    const altTitle = winner.titleEn ? winner.titleKo : null;
+    const loose = await searchTmdbMoviePosterLoose(primaryTitle, winner.ceremonyYear, altTitle);
     if (loose) return loose;
-    console.warn(`${ctx} loose(en) 실패`);
-  }
-
-  // 4) 느슨한 매칭: ko 제목 + 연도 (한국어 제목 있을 때 추가 시도)
-  if (winner.titleKo && winner.titleKo !== displayTitle) {
-    const looseKo = await searchTmdbMoviePosterLoose(winner.titleKo, winner.ceremonyYear);
-    if (looseKo) return looseKo;
-    console.warn(`${ctx} loose(ko) 실패`);
+    console.warn(`${ctx} loose(한/영 병렬) 실패`);
   }
 
   // 5) KMDb 폴백 — 한국 개봉 영화 위주

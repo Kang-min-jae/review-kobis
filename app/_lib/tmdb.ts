@@ -231,33 +231,60 @@ export async function getTmdbMovieDetailsById(tmdbId: string): Promise<TmdbMovie
   };
 }
 
-// 수상작 포스터 전용 느슨한 검색 — 제목 exact match 없이 연도 필터를 API에 넘겨
-// 첫 번째 결과를 채택한다. 비영어권 유럽 아트하우스 영화처럼 TMDB의 한글/영문 제목이
-// Wikidata 레이블과 달라 exact match가 항상 실패하는 경우의 마지막 수단.
-// releaseYear(수상 영화의 실제 개봉연도 추정)를 가장 먼저 시도해 동명 타 영화를 잘못
-// 선택하는 것을 방지한다. 마지막엔 연도 제약을 풀고 전체 결과에서 포스터 있는 첫 항목을 채택.
+// 수상작 포스터 전용 느슨한 검색 — 한/영 제목을 동시에 검색하고 제목 유사도를 검증해
+// 엉뚱한 포스터가 매칭되는 것을 방지한다. titleAlt(보조 제목)가 있으면 병렬 검색.
 export async function searchTmdbMoviePosterLoose(
   title: string,
-  releaseYear: number
+  releaseYear: number,
+  titleAlt?: string | null,
 ): Promise<string | null> {
-  // 연도 있는 탐색: releaseYear부터 시작 — 수상연도 == 개봉연도인 경우가 가장 흔하다
+  const normTitle = normalizeTitle(title);
+  const normAlt = titleAlt ? normalizeTitle(titleAlt) : null;
+
+  function isTitleMatch(r: RawTmdbMovieSearchResult): boolean {
+    if (!r.poster_path) return false;
+    const t1 = r.title ? normalizeTitle(r.title) : "";
+    const t2 = r.original_title ? normalizeTitle(r.original_title) : "";
+    const matches = (norm: string) =>
+      norm.length >= 2 && (
+        t1.includes(norm) || norm.includes(t1) ||
+        t2.includes(norm) || norm.includes(t2)
+      );
+    return matches(normTitle) || (!!normAlt && matches(normAlt));
+  }
+
+  // 연도 범위 탐색 — 한/영 제목 병렬 검색 후 제목 유사도로 검증
   for (const year of [releaseYear, releaseYear - 1, releaseYear + 1]) {
-    const data = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
-      "/search/movie",
-      { query: title, primary_release_year: String(year) },
-      "en-US"
-    );
-    const hit = data?.results?.find((r) => r.poster_path);
+    const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
+      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
+        "/search/movie", { query: title, primary_release_year: String(year) }, "en-US"
+      ),
+    ];
+    if (titleAlt) {
+      queries.push(
+        tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
+          "/search/movie", { query: titleAlt, primary_release_year: String(year) }, "ko-KR"
+        )
+      );
+    }
+    const datasets = await Promise.all(queries);
+    const all = datasets.flatMap((d) => d?.results ?? []);
+    const hit = all.find(isTitleMatch);
     if (hit?.poster_path) return toImageUrl(hit.poster_path);
   }
 
-  // 연도 제약 없는 마지막 시도 — 개봉연도가 예상과 크게 다른 경우 포스터 있는 첫 결과 채택
-  const noYear = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
-    "/search/movie",
-    { query: title },
-    "en-US"
-  );
-  const fallback = noYear?.results?.find((r) => r.poster_path);
+  // 연도 제약 없는 마지막 시도
+  const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
+    tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title }, "en-US"),
+  ];
+  if (titleAlt) {
+    queries.push(
+      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleAlt }, "ko-KR")
+    );
+  }
+  const datasets = await Promise.all(queries);
+  const all = datasets.flatMap((d) => d?.results ?? []);
+  const fallback = all.find(isTitleMatch);
   return fallback?.poster_path ? toImageUrl(fallback.poster_path) : null;
 }
 
