@@ -1,26 +1,79 @@
 import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
-import { getMovieMeta } from "../../_lib/movie-rate-info";
+import { getMovieMeta, getMovieMetas } from "../../_lib/movie-rate-info";
 import { searchTmdbMulti } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
-// 박스오피스 등 다른 목록과 똑같이 CachedMovie(lazy cache)를 거쳐 포스터를 붙인다 —
-// KOBIS 카탈로그 검색 자체엔 포스터가 없어서(파일 상단 설명 참고), 그대로 두면
-// 검색 드롭다운에만 포스터가 안 뜨는 지금 버그가 생긴다. 캐시가 없는(한 번도 안 본)
-// 영화면 이 호출이 그 자리에서 KOBIS+KMDb를 조회해 캐시를 채운다 — 처음 검색될 땐
-// 조금 느릴 수 있지만, 그 다음부턴 캐시로 바로 나간다.
-async function withPosters(hits: KobisSearchHit[]): Promise<(KobisSearchHit & { posterUrl: string | null })[]> {
-  return Promise.all(
-    hits.map(async (hit) => ({ ...hit, posterUrl: (await getMovieMeta(hit.movieCd))?.posterUrl ?? null }))
-  );
+// ── 결과 타입 ─────────────────────────────────────────────────────────────────
+
+type MovieHit = KobisSearchHit & { posterUrl: string | null };
+
+// ── 인-메모리 검색 결과 캐시 (2분 TTL) ───────────────────────────────────────
+// 서버리스 환경에서도 요청 간 모듈 상태가 유지되는 동안은 살아있어, 같은 쿼리를
+// 짧은 간격으로 반복해서 보낼 때(디바운스 내 중복 요청, 뒤로가기 후 재검색 등)
+// 외부 API를 다시 호출하지 않고 즉시 응답한다.
+
+type CacheEntry = {
+  data: object;
+  expiresAt: number;
+};
+const searchCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2분
+
+function getCached(key: string): object | null {
+  const entry = searchCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    searchCache.delete(key);
+    return null;
+  }
+  return entry.data;
 }
 
-// KOFIC(KOBIS)의 별도 영화인 코드(peopleCd) 체계에서 대표작을 가져와 보조정보로
-// 붙인다. KMDb kmdbId와 KOFIC peopleCd는 서로 다른 기관의 서로 다른 코드라 직접
-// 매핑할 수 없어서, 이름으로 다시 조회한 뒤 "이 이름으로 KOFIC에도 정확히 한 명만
-// 걸리는지"를 확인했을 때만 그 대표작을 붙인다 — KOFIC 쪽에도 동명이인이 있으면
-// 어느 쪽 대표작인지 알 수 없어 그냥 비워둔다(잘못 붙이는 것보다 안전).
+function setCache(key: string, data: object) {
+  // 캐시가 너무 커지지 않도록 오래된 항목을 지운다
+  if (searchCache.size > 200) {
+    const now = Date.now();
+    for (const [k, v] of searchCache) {
+      if (now > v.expiresAt) searchCache.delete(k);
+    }
+  }
+  searchCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// ── 포스터 붙이기: 배치 조회 ──────────────────────────────────────────────────
+// 기존에는 hits.map(getMovieMeta) → N개의 개별 DB findUnique 요청이었지만,
+// getMovieMetas를 쓰면 한 번의 findMany로 캐시된 항목을 모두 가져온다.
+// 캐시 미스(처음 보는 영화)인 경우에만 각 항목별로 KOBIS+KMDb를 호출한다.
+async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
+  if (hits.length === 0) return [];
+  const metas = await getMovieMetas(hits.map((h) => h.movieCd));
+  return hits.map((hit) => ({ ...hit, posterUrl: metas.get(hit.movieCd)?.posterUrl ?? null }));
+}
+
+// ── DB 제목 검색 (빠른 경로) ──────────────────────────────────────────────────
+// CachedMovie 테이블을 로컬에서 먼저 검색한다. 이미 한 번이라도 조회된 영화(홈
+// 화면·평점 페이지 등에서 캐시된)는 외부 API 왕복 없이 바로 반환한다.
+async function searchCachedMovies(query: string): Promise<MovieHit[]> {
+  const rows = await db.cachedMovie.findMany({
+    where: { title: { contains: query, mode: "insensitive" } },
+    select: { movieCd: true, title: true, releaseDate: true, posterUrl: true },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+  });
+  return rows
+    .filter((r) => r.movieCd && !r.movieCd.startsWith("wikidata-"))
+    .map((r) => ({
+      movieCd: r.movieCd,
+      title: r.title,
+      releaseDate: r.releaseDate,
+      genre: null,
+      posterUrl: r.posterUrl,
+    }));
+}
+
+// ── KOFIC 대표작 붙이기 ───────────────────────────────────────────────────────
 async function withRepresentativeWorks(
   people: KmdbPersonHit[]
 ): Promise<(KmdbPersonHit & { representativeWorks: string[] })[]> {
@@ -34,14 +87,7 @@ async function withRepresentativeWorks(
   );
 }
 
-// searchKmdbPeople은 KMDb 관련도순 텍스트검색(최대 100건) 안에서만 인물을 찾기
-// 때문에, 그 사람의 실제 대표작들이 이 검색 텍스트("이름")로는 상위 100건 안에
-// 하나도 안 걸리는 경우 검색 자체가 그 사람을 놓칠 수 있다 — 실제로 안재홍(진짜
-// kmdbId=00012168)이 이 창으로는 전혀 안 잡히고, 대신 credit 몇 건짜리 동명이인만
-// 잡히는 사례가 확인됐다. PersonIdentityMapping(사람이 직접 확인한 이름->kmdbId)에
-// 등록된 인물이면, 검색 결과에 그 사람이 없거나(추가) 다른 코드로 잘못 잡혀 있으면
-// (교체) 확정된 코드로 강제 보정한다 — 인물 상세페이지가 이미 이 매핑을 최우선으로
-// 신뢰하는 것과 검색 결과를 일치시키기 위함이다.
+// ── PersonIdentityMapping 보정 ────────────────────────────────────────────────
 async function withIdentityMappingOverride(people: KmdbPersonHit[], query: string): Promise<KmdbPersonHit[]> {
   const mappings = await db.personIdentityMapping.findMany();
   const matching = mappings.filter(
@@ -56,19 +102,11 @@ async function withIdentityMappingOverride(people: KmdbPersonHit[], query: strin
     const nameIdx = result.findIndex((p) => p.name === mapping.personName && p.role === role);
     if (nameIdx !== -1 && result[nameIdx].kmdbId === kmdbId) continue;
 
-    // 확정된 kmdbId 기준으로 실제 참여작 수/최근작을 다시 계산한다 — searchKmdbPeople이
-    // 이름 텍스트검색으로 잡아준 값을 그대로 못 쓰므로(애초에 그게 틀렸거나 아예 없어서
-    // 이 보정이 필요한 상황이라) 999 같은 눈속임 값 대신 실제 근거 있는 값을 보여준다.
     const movies = await searchKmdbFilmography(mapping.personName, kmdbId, role);
     const years = movies.map((m) => m.prodYear).filter((y): y is string => !!y);
     const latestYear = years.length > 0 ? years.reduce((a, b) => (a > b ? a : b)) : null;
     const corrected: KmdbPersonHit = { name: mapping.personName, kmdbId, role, creditCount: movies.length, latestYear };
 
-    // 이 kmdbId를 가진 항목이 이미 결과 안에 있으면(이름 표기가 살짝 다르거나
-    // searchKmdbPeople이 이미 이 사람을 다른 이름으로 잡아둔 경우) 그 항목을
-    // 교체한다 — 그렇지 않고 무조건 새로 추가하면 같은 kmdbId를 가진 항목이 두 번
-    // 들어가서(React 목록 렌더링에서 key 중복 경고 + 화면에 같은 사람이 중복 표시)
-    // 실제로 이런 사례가 있었다.
     const kmdbIdIdx = result.findIndex((p) => p.kmdbId === kmdbId && p.role === role);
     if (kmdbIdIdx !== -1) {
       result = result.map((p, i) => (i === kmdbIdIdx ? corrected : p));
@@ -81,6 +119,16 @@ async function withIdentityMappingOverride(people: KmdbPersonHit[], query: strin
   return result;
 }
 
+// ── 결과 조립 헬퍼 ────────────────────────────────────────────────────────────
+// 외부 API 결과 + DB 캐시 결과를 합치되, movieCd 기준으로 중복 제거한다.
+// 외부 API 결과가 더 신선하므로 우선순위가 높다.
+function mergeMovieHits(apiHits: MovieHit[], dbHits: MovieHit[]): MovieHit[] {
+  const seen = new Set(apiHits.map((h) => h.movieCd));
+  const extras = dbHits.filter((h) => !seen.has(h.movieCd));
+  return [...apiHits, ...extras].slice(0, 10);
+}
+
+// ── GET /api/search-movies?q=... ─────────────────────────────────────────────
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim() ?? "";
@@ -89,27 +137,46 @@ export async function GET(request: Request) {
     return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  const [movieHits, rawPeople, multiHits] = await Promise.all([
+  // 캐시 히트: 동일 쿼리에 대해 2분 이내 결과가 있으면 즉시 반환
+  const cacheKey = query.toLowerCase();
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached);
+  }
+
+  // DB 캐시 제목 검색 + 외부 API 검색을 동시에 시작한다.
+  // DB 검색은 보통 수ms, 외부 API는 수백ms~수초 — 둘 다 기다렸다가 합쳐서 반환한다.
+  const [dbHits, movieHits, rawPeople, multiHits] = await Promise.all([
+    searchCachedMovies(query),
     searchMoviesSince1960(query),
     searchKmdbPeople(query, 8),
     searchTmdbMulti(query),
   ]);
   const people = await withIdentityMappingOverride(rawPeople, query);
 
-  // /search/multi TV 결과를 series 필드에 매핑 (movie 결과는 KOBIS로 이미 커버됨)
   const seriesHits = multiHits
     .filter((h) => h.mediaType === "tv")
     .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-  if (movieHits.length > 0 || people.length > 0 || seriesHits.length > 0) {
-    const [movies, peopleWithWorks] = await Promise.all([withPosters(movieHits), withRepresentativeWorks(people)]);
-    return NextResponse.json({ movies, series: seriesHits, people: peopleWithWorks, correctedQuery: null });
+  if (movieHits.length > 0 || people.length > 0 || seriesHits.length > 0 || dbHits.length > 0) {
+    // 외부 API 결과에 포스터 배치 조회 (1번의 findMany) + 대표작 조회를 병렬 실행
+    const [movies, peopleWithWorks] = await Promise.all([
+      withPosters(movieHits),
+      withRepresentativeWorks(people),
+    ]);
+
+    const mergedMovies = mergeMovieHits(movies, dbHits);
+    const result = { movies: mergedMovies, series: seriesHits, people: peopleWithWorks, correctedQuery: null };
+    setCache(cacheKey, result);
+    return NextResponse.json(result);
   }
 
-  // 정확히 일치하는 결과가 없으면(오타 가능성), 비슷한 제목으로 한 번 더 찾아본다.
+  // 결과가 아예 없으면 오타 교정 시도
   const suggested = await suggestSimilarTitle(query);
   if (!suggested) {
-    return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
+    const empty = { movies: [], series: [], people: [], correctedQuery: null };
+    setCache(cacheKey, empty);
+    return NextResponse.json(empty);
   }
 
   const [correctedMovieHits, rawCorrectedPeople, correctedMultiHits] = await Promise.all([
@@ -127,10 +194,12 @@ export async function GET(request: Request) {
     withRepresentativeWorks(correctedPeople),
   ]);
 
-  return NextResponse.json({
+  const correctedResult = {
     movies: correctedMovies,
     series: correctedSeriesHits,
     people: correctedPeopleWithWorks,
     correctedQuery: found ? suggested : null,
-  });
+  };
+  setCache(cacheKey, correctedResult);
+  return NextResponse.json(correctedResult);
 }
