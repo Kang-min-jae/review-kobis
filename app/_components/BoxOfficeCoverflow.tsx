@@ -4,7 +4,8 @@ import { useCallback, useRef, useState, type CSSProperties, type PointerEvent } 
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
-import StarRating from "./StarRating";
+import TopReviewsList from "./TopReviewsList";
+import { useTopReviews } from "../_lib/use-top-reviews";
 import type { RowMovie } from "../_lib/movie-rows";
 
 // 카드 사이 간격/각도 값 — 화면에 한 번에 3~4장 정도(가운데 1장 + 양옆 1~2장)만
@@ -17,15 +18,6 @@ const DRAG_ADVANCE_THRESHOLD_PX = 60;
 // 클릭인지 드래그인지 구분하는 기준(이보다 조금이라도 더 움직이면 "드래그"로 보고,
 // 손을 뗀 뒤 이어지는 클릭 이벤트로 뒤집기/카드 이동이 오작동하지 않게 막는다).
 const DRAG_MOVE_THRESHOLD_PX = 6;
-
-// 이 앱엔 아직 실제 평론가 리뷰 데이터가 없어서(KOFIC/KMDb 어느 쪽에도 없음) 카드
-// 뒷면에 보여줄 자리표시용(placeholder) 내용이다 — 모든 영화에 같은 내용이 뜬다.
-// 실제 평론 데이터 소스가 생기면 movie별로 다른 리뷰를 넣도록 바꿔야 한다.
-type CriticReview = { name: string; rating: number; comment: string };
-const PLACEHOLDER_CRITIC_REVIEWS: CriticReview[] = [
-  { name: "평론가 A", rating: 8.5, comment: "탄탄한 연출과 몰입감 있는 전개가 돋보인다." },
-  { name: "평론가 B", rating: 7.0, comment: "화려한 비주얼에 비해 이야기는 다소 평이하다." },
-];
 
 // 배열 순서(1위, 2위, ... 10위)를 원형으로 취급해서, 가운데(active)의 바로 오른쪽엔
 // 다음 순위가, 바로 왼쪽엔 배열 끝(10위 등)이 자연스럽게 오도록 최단 방향의 거리를
@@ -91,6 +83,8 @@ export default function BoxOfficeCoverflow({
   const pressedCardRef = useRef<{ index: number; offset: number } | null>(null);
 
   const length = movies.length;
+  const currentMovieCd = movies[active]?.id.startsWith("kobis-") ? movies[active].id.replace("kobis-", "") : null;
+  const { reviews: topReviews, loading: reviewsLoading } = useTopReviews(currentMovieCd);
 
   // 중심(active)이 바뀌는 모든 경로(화살표, 드래그, 다른 카드 클릭, 점 인디케이터)가
   // 공통으로 거치는 함수 — 뒤집혀 있던 카드는 중심이 바뀌기 전에 항상 앞면으로 되돌린다.
@@ -227,20 +221,14 @@ export default function BoxOfficeCoverflow({
                       {!isActiveCard && <div className="absolute inset-0 bg-black/35" />}
                     </div>
 
-                    {/* 뒷면: 평론 — backface-visibility:hidden이라 앞면이 보일 때는
-                        화면에 그려지지 않는다(가운데 카드가 아니어도 안전). */}
+                    {/* 뒷면: 한줄평 — backface-visibility:hidden이라 앞면이 보일 때는
+                        화면에 그려지지 않는다(가운데 카드가 아니어도 안전).
+                        데이터는 active 카드에 연결된 useTopReviews에서 오므로,
+                        가운데가 아닌 카드가 우연히 보여도 늘 현재 중심 영화의 한줄평이 뜬다. */}
                     <div className="absolute inset-0 flex flex-col overflow-hidden rounded-xl bg-surface p-3 shadow-2xl ring-2 ring-star/70 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                      <p className="text-sm font-bold text-text">평론</p>
-                      <div className="mt-3 flex-1 space-y-3 overflow-y-auto">
-                        {PLACEHOLDER_CRITIC_REVIEWS.map((review) => (
-                          <div key={review.name}>
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-semibold text-text">{review.name}</span>
-                              <StarRating rating={review.rating} scale={10} size="h-3 w-3" />
-                            </div>
-                            <p className="mt-1 text-xs leading-relaxed text-muted">{review.comment}</p>
-                          </div>
-                        ))}
+                      <p className="text-sm font-bold text-text">한줄평</p>
+                      <div className="flex-1 overflow-y-auto">
+                        {isActiveCard && <TopReviewsList reviews={topReviews} loading={reviewsLoading} />}
                       </div>
 
                       <div className="mt-2 flex gap-1.5" data-no-drag>
@@ -310,7 +298,7 @@ export default function BoxOfficeCoverflow({
           ))}
         </div>
 
-        <p className="mt-2 text-center text-xs text-muted">← 드래그해서 회전 → · 가운데 카드를 클릭하면 평론이 보여요</p>
+        <p className="mt-2 text-center text-xs text-muted">← 드래그해서 회전 → · 가운데 카드를 클릭하면 한줄평이 보여요</p>
       </div>
     </section>
   );
