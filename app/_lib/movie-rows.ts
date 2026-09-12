@@ -30,6 +30,8 @@ export type RowMovie = {
   recommendScore?: number;
   // LLM이 생성한 추천 이유 한 줄 — genre 필드 대신 카드 하단에 표시한다.
   recommendReason?: string;
+  // 아카데미/칸/베를린/베니스 주요 시상식 수상 이력이 있으면 트로피 배지를 보여준다.
+  awardBadge?: true;
 };
 
 export function splitGenres(genreAlt: string | null | undefined): string[] {
@@ -106,13 +108,64 @@ export function summaryToRowMovie(summary: KobisMovieSummary, meta: { posterUrl:
   };
 }
 
+// 아카데미/칸/베를린/베니스 수상작 tmdbId 집합을 DB에서 읽어 캐시한다.
+// CachedAwardWinners에 저장된 FestivalWinner[] JSON에서 tmdbId를 추출한다.
+type FestivalWinnerJson = { tmdbId?: string | null };
+let awardTmdbIdCache: Set<string> | null = null;
+let awardCacheUpdatedAt = 0;
+const AWARD_CACHE_TTL = 10 * 60 * 1000; // 10분
+
+async function getAwardWinnerTmdbIds(): Promise<Set<string>> {
+  if (awardTmdbIdCache && Date.now() - awardCacheUpdatedAt < AWARD_CACHE_TTL) {
+    return awardTmdbIdCache;
+  }
+  try {
+    const rows = await db.cachedAwardWinners.findMany({ select: { winners: true } });
+    const ids = new Set<string>();
+    for (const row of rows) {
+      const winners = row.winners as FestivalWinnerJson[];
+      if (Array.isArray(winners)) {
+        for (const w of winners) {
+          if (w.tmdbId) ids.add(w.tmdbId);
+        }
+      }
+    }
+    awardTmdbIdCache = ids;
+    awardCacheUpdatedAt = Date.now();
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
+
+// movieCd 배열에서 주요 시상식 수상작인 것들의 Set<movieCd>를 반환한다.
+// CachedMovie.tmdbId 를 기준으로 수상작 tmdbId 집합과 교차한다.
+async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Set<string>> {
+  if (movieCds.length === 0) return new Set();
+  const awardTmdbIds = await getAwardWinnerTmdbIds();
+  if (awardTmdbIds.size === 0) return new Set();
+
+  const rows = await db.cachedMovie.findMany({
+    where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(awardTmdbIds) } },
+    select: { movieCd: true },
+  });
+  return new Set(rows.map((r) => r.movieCd));
+}
+
 // 포스터를 못 찾은 영화는 카드가 빈 회색 박스로만 보여서 화면이 지저분해지고,
 // 실제로는 KMDb에 등록조차 안 된 저예산/성인물일 가능성도 높아 아예 빼고 보여준다.
 // getMovieMetas로 캐시 존재 여부를 한 번에 확인해서, 영화를 한 편씩 조회할 때처럼
 // 편수만큼 DB 왕복이 생기지 않게 한다.
 async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> {
-  const metas = await getMovieMetas(summaries.map((s) => s.movieCd));
-  const rows = summaries.map((s) => summaryToRowMovie(s, metas.get(s.movieCd) ?? null));
+  const movieCds = summaries.map((s) => s.movieCd);
+  const [metas, awardCds] = await Promise.all([
+    getMovieMetas(movieCds),
+    findAwardWinnerMovieCds(movieCds),
+  ]);
+  const rows = summaries.map((s) => ({
+    ...summaryToRowMovie(s, metas.get(s.movieCd) ?? null),
+    ...(awardCds.has(s.movieCd) ? { awardBadge: true as const } : {}),
+  }));
   return rows.filter((row) => row.posterUrl !== null);
 }
 
@@ -171,7 +224,11 @@ type RereleaseClassificationRow = Awaited<ReturnType<typeof db.rereleaseClassifi
 async function classificationsToRows(
   rows: RereleaseClassificationRow[]
 ): Promise<{ row: RereleaseClassificationRow; movie: RowMovie }[]> {
-  const metas = await getMovieMetas(rows.map((r) => r.movieCd));
+  const movieCds = rows.map((r) => r.movieCd);
+  const [metas, awardCds] = await Promise.all([
+    getMovieMetas(movieCds),
+    findAwardWinnerMovieCds(movieCds),
+  ]);
   const result: { row: RereleaseClassificationRow; movie: RowMovie }[] = [];
   rows.forEach((r) => {
     const meta = metas.get(r.movieCd) ?? null;
@@ -191,6 +248,7 @@ async function classificationsToRows(
         isNowShowing: isRecentlyOpened(r.rereleaseDate),
         badge,
         ...genreFields(meta.genreAlt),
+        ...(awardCds.has(r.movieCd) ? { awardBadge: true as const } : {}),
       },
     });
   });
@@ -289,7 +347,11 @@ async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): 
 // 영화 상세정보 캐시를 그대로 재사용한다 — 인기작이라 어차피 평점 페이지에서도
 // 자주 조회돼 캐시가 겹친다.
 async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingEntry) => string) {
-  const metas = await getMovieMetas(entries.map((e) => e.movieCd));
+  const movieCds = entries.map((e) => e.movieCd);
+  const [metas, awardCds] = await Promise.all([
+    getMovieMetas(movieCds),
+    findAwardWinnerMovieCds(movieCds),
+  ]);
   return entries.map((entry) => {
     const meta = metas.get(entry.movieCd) ?? null;
     return {
@@ -300,6 +362,7 @@ async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingE
       isNowShowing: true,
       badge: badgeOf(entry),
       ...genreFields(meta?.genreAlt),
+      ...(awardCds.has(entry.movieCd) ? { awardBadge: true as const } : {}),
     };
   });
 }
