@@ -63,7 +63,7 @@ function RowSkeleton() {
 
 async function NowShowingRowData() {
   const movies = await getNowShowingRow();
-  return <MovieRow title="현재 상영중인 영화" subtitle="이번 주 새로 개봉한 영화" movies={movies} />;
+  return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} />;
 }
 
 async function RereleaseRowData() {
@@ -98,7 +98,7 @@ async function WeeklyBoxOfficeRowData() {
 
 async function RecentMoviesRowData() {
   const movies = await getRecentMoviesRow();
-  return <MovieRow title="최근 영화" subtitle="올해 국내 개봉한 최신 영화" movies={movies} />;
+  return <MovieRow title="최근 영화" subtitle="최근 3달 이내 국내 개봉한 영화" movies={movies} />;
 }
 
 async function MonthlyBestRowData() {
@@ -109,9 +109,9 @@ async function MonthlyBestRowData() {
 async function YearlyBestRowData() {
   const movies = await getYearlyBestRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="올해의 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="올해 개봉작 · 평점 높은 순 10편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );
@@ -120,9 +120,9 @@ async function YearlyBestRowData() {
 async function Best3YearsRowData() {
   const movies = await getBestOf3YearsRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="3년 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="최근 3년 개봉작 · 평점 높은 순 15편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );
@@ -131,9 +131,9 @@ async function Best3YearsRowData() {
 async function Best5YearsRowData() {
   const movies = await getBestOf5YearsRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="5년 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="최근 5년 개봉작 · 평점 높은 순 20편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );

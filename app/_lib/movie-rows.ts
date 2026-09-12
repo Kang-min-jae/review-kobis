@@ -2,6 +2,7 @@ import {
   searchMovieCatalog,
   getMovieDetailsByCd,
   getWeeklyBoxOffice,
+  getDailyBoxOfficeList,
   getMondaysInMonth,
   type KobisMovieSummary,
   type CatalogSearchParams,
@@ -125,15 +126,36 @@ async function findKnownRereleaseMovieCds(movieCds: string[]): Promise<Set<strin
   return new Set(rows.map((r) => r.movieCd));
 }
 
-// 현재 상영중인 영화: 최근 3주 안에 개봉했고, 재개봉이 아닌(신작) 영화.
-export async function getNowShowingRow(limit = 10): Promise<RowMovie[]> {
-  const now = new Date();
-  const windowStart = new Date(now);
-  windowStart.setDate(windowStart.getDate() - NOW_SHOWING_WINDOW_DAYS);
-  const candidates = await fetchOpenedBetween(isoDate(windowStart), isoDate(now), limit * 3);
-  const rereleaseCds = await findKnownRereleaseMovieCds(candidates.map((c) => c.movieCd));
-  const freshOnly = candidates.filter((c) => !rereleaseCds.has(c.movieCd)).slice(0, limit);
-  return toRowMovies(freshOnly);
+// 현재 상영중인 영화: 최근 3일 일별 박스오피스를 합쳐 실제 상영관에 올라 있는 영화 15편.
+// 일별 TOP10씩 최대 3일치를 합산하면 중복 제거 후 최대 ~20편의 고유 영화가 나온다.
+export async function getNowShowingRow(limit = 15): Promise<RowMovie[]> {
+  const [day1, day2, day3] = await Promise.all([
+    getDailyBoxOfficeList(1),
+    getDailyBoxOfficeList(2),
+    getDailyBoxOfficeList(3),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: KobisMovieSummary[] = [];
+  for (const entry of [...day1, ...day2, ...day3]) {
+    if (!entry.movieCd || seen.has(entry.movieCd)) continue;
+    seen.add(entry.movieCd);
+    merged.push({
+      movieCd: entry.movieCd,
+      title: entry.movieNm,
+      titleEn: null,
+      openDate: entry.openDate,
+      nationAlt: null,
+      genreAlt: null,
+      isForeign: false,
+      director: null,
+    });
+  }
+
+  const rereleaseCds = await findKnownRereleaseMovieCds(merged.map((m) => m.movieCd));
+  const freshOnly = merged.filter((m) => !rereleaseCds.has(m.movieCd));
+  const rows = await toRowMovies(freshOnly.slice(0, limit * 2));
+  return rows.slice(0, limit);
 }
 
 type RereleaseClassificationRow = Awaited<ReturnType<typeof db.rereleaseClassification.findMany>>[number];
@@ -342,11 +364,14 @@ export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise
   return toRowMovies(matched.slice(0, 8));
 }
 
-// 최근 영화: 올해 개봉작 중 최신순 20편.
+// 최근 영화: 최근 3달(90일) 개봉작 최신순 15편.
 export async function getRecentMoviesRow(): Promise<RowMovie[]> {
-  const year = new Date().getFullYear();
-  const results = await fetchOpenedBetween(`${year}-01-01`, isoDate(new Date()), 20);
-  return toRowMovies(results);
+  const now = new Date();
+  const threeMonthsAgo = new Date(now);
+  threeMonthsAgo.setDate(now.getDate() - 90);
+  const results = await fetchOpenedBetween(isoDate(threeMonthsAgo), isoDate(now), 30);
+  const rows = await toRowMovies(results);
+  return rows.slice(0, 15);
 }
 
 // 이 달의 Best: 이번 달의 매주 박스오피스(월요일 기준)를 다 모아서, 영화별 최고
@@ -389,28 +414,66 @@ export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
   return rankingRowsToCards(ranking, (e) => `누적 ${e.audiAcc.toLocaleString("ko-KR")}명`);
 }
 
-// 올해의 Best: 올해 개봉작 중 최신순 10편.
+// 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
+// 평점이 있는 영화를 먼저 보여주고, 없는 영화는 최신순으로 뒤에 붙인다.
+async function getRatingSortedMovies(
+  openDateGte: string,
+  openDateLte: string,
+  limit: number,
+): Promise<RowMovie[]> {
+  const candidates = await fetchOpenedBetween(openDateGte, openDateLte, Math.max(limit * 6, 200));
+  if (candidates.length === 0) return [];
+
+  const movieCds = candidates.map((c) => c.movieCd);
+
+  // DB에서 '전체' 카테고리 평점 평균·수 집계
+  const ratings = await db.categoryRating.groupBy({
+    by: ["movieCd"],
+    where: { movieCd: { in: movieCds }, category: "전체" },
+    _avg: { score: true },
+    _count: { _all: true },
+  });
+
+  const ratingMap = new Map(
+    ratings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
+  );
+
+  // 평점 있는 영화 먼저(평균 내림차순 → 수 내림차순), 없는 영화는 원래 순서 유지
+  const withRating = candidates
+    .filter((c) => ratingMap.has(c.movieCd))
+    .sort((a, b) => {
+      const ra = ratingMap.get(a.movieCd)!;
+      const rb = ratingMap.get(b.movieCd)!;
+      if (ra.avg !== rb.avg) return rb.avg - ra.avg;
+      return rb.count - ra.count;
+    });
+  const withoutRating = candidates.filter((c) => !ratingMap.has(c.movieCd));
+
+  const sorted = [...withRating, ...withoutRating];
+  const rows = await toRowMovies(sorted.slice(0, limit * 2));
+  return rows.slice(0, limit);
+}
+
+// 올해의 Best: 올해 개봉작 중 DB 평점 높은 순 10편.
 export async function getYearlyBestRow(): Promise<RowMovie[]> {
   const year = new Date().getFullYear();
-  const results = await fetchOpenedBetween(`${year}-01-01`, isoDate(new Date()), 10);
-  return toRowMovies(results);
+  return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10);
 }
 
-// N년 이내 개봉작 중 최신순. KOBIS엔 평점/인기도 지표가 없어 개봉일 최신순으로 정렬한다.
-async function getRecentWithinYears(years: number, limit: number): Promise<RowMovie[]> {
+// 3년 Best: 최근 3년 개봉작 중 DB 평점 높은 순 15편.
+export async function getBestOf3YearsRow(): Promise<RowMovie[]> {
   const now = new Date();
   const gte = new Date(now);
-  gte.setFullYear(now.getFullYear() - years);
-  const results = await fetchOpenedBetween(isoDate(gte), isoDate(now), limit);
-  return toRowMovies(results);
+  gte.setFullYear(now.getFullYear() - 3);
+  return getRatingSortedMovies(isoDate(gte), isoDate(now), 15);
 }
 
-export async function getBestOf3YearsRow(): Promise<RowMovie[]> {
-  return getRecentWithinYears(3, 20);
-}
-
+// 5년 Best: 최근 5년 개봉작 중 DB 평점 높은 순 20편.
 export async function getBestOf5YearsRow(): Promise<RowMovie[]> {
-  return getRecentWithinYears(5, 30);
+  const now = new Date();
+  const gte = new Date(now);
+  gte.setFullYear(now.getFullYear() - 5);
+  return getRatingSortedMovies(isoDate(gte), isoDate(now), 20);
 }
 
 export async function getAllTimeBestRow(): Promise<RowMovie[]> {
