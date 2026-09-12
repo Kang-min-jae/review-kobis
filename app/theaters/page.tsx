@@ -25,7 +25,7 @@ export default async function TheatersPage({ searchParams }: PageProps<"/theater
         {movie ? (
           <>
             <p className="mt-1 text-sm text-muted">
-              + 버튼으로 자주 가는 극장을 즐겨찾기해두면, 그 극장에서 이 영화를 상영할 때 바로 예매로 연결돼요.
+              각 극장 홈페이지로 이동해 예매하세요.
             </p>
             <div className="mt-6">
               <MovieTheaterFavorites movieId={movie.id} theaters={theaters} />
