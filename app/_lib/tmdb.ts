@@ -76,6 +76,11 @@ async function tmdbFetch<T>(
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         if (!res.ok) {
+          if (res.status === 429 && attempt < MAX_ATTEMPTS) {
+            const retryAfterSec = parseInt(res.headers.get("Retry-After") ?? "1", 10);
+            await new Promise((resolve) => setTimeout(resolve, retryAfterSec * 1000));
+            continue;
+          }
           console.warn(`[tmdb] ${path} 요청 실패: HTTP ${res.status}`);
           return null;
         }
