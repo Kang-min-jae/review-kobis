@@ -194,7 +194,7 @@ export default function SideMenu({
             <p className="mt-6 px-2 text-xs font-semibold text-muted">내 활동</p>
             <nav className="mt-2 space-y-1">
               <Link
-                href="/my-list"
+                href="/diary"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
