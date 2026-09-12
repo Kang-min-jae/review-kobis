@@ -61,26 +61,26 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
         onClick={() => setRevealed((v) => !v)}
       >
         {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
-        {/* 왼쪽: 트로피 + 추천 % 세로 스택 */}
-        {(movie.awardBadge || matchBadge) && (
-          <div className="absolute left-1.5 top-1.5 flex flex-col items-start gap-1">
+        {/* 왼쪽: 추천 % */}
+        {matchBadge && (
+          <span className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">
+            {matchBadge}
+          </span>
+        )}
+        {/* 우측 상단: 트로피 (수상작) + 순위·재개봉일 배지 세로 스택 */}
+        {(movie.awardBadge || movie.badge) && (
+          <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
             {movie.awardBadge && (
               <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
                 🏆
               </span>
             )}
-            {matchBadge && (
-              <span className="rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">
-                {matchBadge}
+            {movie.badge && (
+              <span className="rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-white/20">
+                {movie.badge}
               </span>
             )}
           </div>
-        )}
-        {/* 오른쪽: 순위·재개봉일 같은 컨텍스트 배지 */}
-        {movie.badge && (
-          <span className="absolute right-1.5 top-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-white/20">
-            {movie.badge}
-          </span>
         )}
         <HoverRating movieId={movie.id} />
 
