@@ -155,7 +155,8 @@ export async function getNowShowingRow(limit = 15): Promise<RowMovie[]> {
   const rereleaseCds = await findKnownRereleaseMovieCds(merged.map((m) => m.movieCd));
   const freshOnly = merged.filter((m) => !rereleaseCds.has(m.movieCd));
   const rows = await toRowMovies(freshOnly.slice(0, limit * 2));
-  return rows.slice(0, limit);
+  // 박스오피스에 실제로 올라 있는 영화는 openDate 포맷에 관계없이 상영중으로 강제 표시.
+  return rows.slice(0, limit).map((r) => ({ ...r, isNowShowing: true }));
 }
 
 type RereleaseClassificationRow = Awaited<ReturnType<typeof db.rereleaseClassification.findMany>>[number];
