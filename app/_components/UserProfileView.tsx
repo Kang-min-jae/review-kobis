@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { followUser, unfollowUser } from "../_lib/follow-actions";
+import { incrementProfileView } from "../_lib/profile-view-actions";
 
 type ProfileUser = { id: string; name: string | null; image: string | null; nickname: string | null };
 
@@ -19,6 +20,14 @@ export default function UserProfileView({
   const [isFollowing, setIsFollowing] = useState(initialIsFollowing);
   const [followerCount, setFollowerCount] = useState(initialFollowerCount);
   const [isPending, startTransition] = useTransition();
+
+  // 본인이 아닌 다른 사용자가 방문할 때만 조회수를 올린다.
+  useEffect(() => {
+    if (!isOwnProfile) {
+      incrementProfileView(user.id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const displayName = user.nickname ?? user.name ?? "사용자";
 

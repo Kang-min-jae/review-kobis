@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import MyRatedMovieCard from "./MyRatedMovieCard";
@@ -34,8 +34,6 @@ import {
   getServerVotesSnapshot,
   getReviewVote,
 } from "../_lib/review-votes-store";
-import { recordView } from "../_lib/list-social-store";
-
 type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
 
 export default function MyListView({
@@ -43,16 +41,14 @@ export default function MyListView({
   followerCount = 0,
   followingList = [],
   showCalendar = true,
+  profileViews = { today: 0, total: 0 },
 }: {
   myRatedMovies: MyRatedMovie[];
   followerCount?: number;
   followingList?: FollowingUser[];
   showCalendar?: boolean;
+  profileViews?: { today: number; total: number };
 }) {
-  useEffect(() => {
-    recordView();
-  }, []);
-
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
   const reviewedMovies = useSyncExternalStore(
     subscribeReviews,
@@ -87,6 +83,9 @@ export default function MyListView({
       <div className="mt-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-text">나만의 영화 리스트</h1>
+          <p className="mt-1 text-xs text-muted">
+            오늘 조회수 {profileViews.today} · 전체 조회수 {profileViews.total}
+          </p>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
