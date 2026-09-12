@@ -327,8 +327,12 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
 export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInfo | null> {
   // wikidata 수상작 — CachedMovie에서 조회 (award-winners.ts가 홈 화면 렌더 시 미리 저장)
+  // award-winners.ts가 링크 id를 "wikidata-{filmQid}-{categoryLabel}" 형태로 만들지만
+  // CachedMovie에는 "wikidata-{filmQid}" 형태로 저장되므로 카테고리 접미사를 제거한다.
   if (id.startsWith("wikidata-")) {
-    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    const baseMatch = id.match(/^(wikidata-Q\d+)/);
+    const movieCd = baseMatch ? baseMatch[1] : id;
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd } }).catch(() => null);
     if (!cached) return null;
 
     // award-winners.ts가 포스터만 저장하고 개요·개봉일·런타임을 채우지 않은 경우,
@@ -344,7 +348,7 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
           posterUrl: tmdb.posterUrl ?? cached.posterUrl,
           titleEn: tmdb.originalTitle ?? cached.titleEn,
         };
-        await db.cachedMovie.update({ where: { movieCd: id }, data: update }).catch(() => null);
+        await db.cachedMovie.update({ where: { movieCd: movieCd }, data: update }).catch(() => null);
         const updated = { ...cached, ...update };
         return { movieId: id, ...rowToMeta(updated), boxOffice: null };
       }
