@@ -23,6 +23,11 @@ import {
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
 import {
+  subscribe as subscribeDiaryLog,
+  getDiaryLogSnapshot,
+  getServerDiaryLogSnapshot,
+} from "../_lib/diary-log-store";
+import {
   subscribe as subscribeVotes,
   getVotesSnapshot,
   getServerVotesSnapshot,
@@ -112,7 +117,7 @@ export default function SideMenu({
 
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
-
+  const logEntries = useSyncExternalStore(subscribeDiaryLog, getDiaryLogSnapshot, getServerDiaryLogSnapshot);
 
   const rawFallback = session?.user?.name ?? session?.user?.email ?? null;
   const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
@@ -127,8 +132,24 @@ export default function SideMenu({
     const d = new Date(r.createdAt);
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   }).length;
-  // 로그인 사용자는 DB 평점 수(서버에서 전달)를 우선 사용하고, 비로그인 시 localStorage 수를 쓴다.
-  const thisMonthCount = monthlyRatingCount ?? thisMonthLocalCount;
+  // 다이어리 "+ 영화 추가" 로그는 localStorage에만 저장되므로 별도로 합산한다.
+  // 평점(reviews/serverRatedMovies)과 중복되지 않도록, 로그 항목 중 같은 날 같은 영화가
+  // reviews에 없는 것만 추가로 센다.
+  const thisMonthLogCount = logEntries.filter((e) => {
+    const [y, m] = e.watchedDate.split("-").map(Number);
+    if (y !== now.getFullYear() || m !== now.getMonth() + 1) return false;
+    // 같은 영화가 같은 달에 이미 review로 있으면 중복이므로 제외
+    return !myReviews.some((r) => {
+      const d = new Date(r.createdAt);
+      return (
+        r.movieId === e.movieId &&
+        d.getFullYear() === y &&
+        d.getMonth() + 1 === m
+      );
+    });
+  }).length;
+  // 로그인 사용자는 DB 평점 수(서버에서 전달) + 로그 수, 비로그인은 localStorage 수 + 로그 수
+  const thisMonthCount = (monthlyRatingCount ?? thisMonthLocalCount) + thisMonthLogCount;
 
 
   return (
