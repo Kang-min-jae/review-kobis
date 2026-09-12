@@ -72,7 +72,7 @@ export default function BoxOfficeCoverflow({
   subtitle,
   movies,
 }: {
-  title: string;
+  title?: string;
   subtitle?: string;
   movies: RowMovie[];
 }) {
@@ -159,8 +159,8 @@ export default function BoxOfficeCoverflow({
 
   return (
     <section className="px-5 py-6">
-      <h2 className="text-lg font-bold text-text">{title}</h2>
-      {subtitle && <p className="mt-1 text-sm text-muted">{subtitle} · 드래그하거나 화살표로 넘겨보세요</p>}
+      {title && <h2 className="text-lg font-bold text-text">{title}</h2>}
+      {title && subtitle && <p className="mt-1 text-sm text-muted">{subtitle} · 드래그하거나 화살표로 넘겨보세요</p>}
 
       <div className="relative mt-6">
         <button
