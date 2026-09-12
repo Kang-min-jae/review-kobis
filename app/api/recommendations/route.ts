@@ -305,9 +305,8 @@ ${JSON.stringify(candidateList, null, 2)}
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-opus-5",
-        max_tokens: 2000,
-        thinking: { type: "adaptive" },
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -349,17 +348,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ results: [] });
   }
 
-  // LLM reranking
-  let llmResults: LlmResult = [];
-  try {
-    llmResults = await callLlm(profile, candidates);
-  } catch {
-    // fallback to score-sorted order
-  }
-
-  // Build final RowMovie list
+  // LLM reranking and metadata fetch run in parallel
   const movieCds = candidates.map((c) => c.movieCd);
-  const metas = await getMovieMetas(movieCds);
+  let llmResults: LlmResult = [];
+  let metas: Awaited<ReturnType<typeof getMovieMetas>>;
+  try {
+    [llmResults, metas] = await Promise.all([
+      callLlm(profile, candidates).catch(() => [] as LlmResult),
+      getMovieMetas(movieCds),
+    ]);
+  } catch {
+    metas = await getMovieMetas(movieCds);
+  }
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
 
