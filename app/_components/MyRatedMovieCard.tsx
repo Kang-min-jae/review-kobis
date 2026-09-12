@@ -10,7 +10,7 @@ import type { MyMovieRating } from "../_lib/reviews-store";
 // 마우스를 올리면(데스크톱) 내가 그 영화에 남긴 리뷰가 옆에 뜬다. 탭/클릭은
 // 예매·평점 버튼 같은 경쟁 요소가 안에 없어서 그냥 바로 평가 페이지로 이동해도 된다 —
 // MovieCard처럼 탭을 한 번 더 가로챌 필요가 없다.
-export default function MyRatedMovieCard({ movie }: { movie: MyMovieRating }) {
+export default function MyRatedMovieCard({ movie, awardBadge }: { movie: MyMovieRating; awardBadge?: boolean }) {
   const [revealed, setRevealed] = useState(false);
 
   return (
@@ -26,6 +26,11 @@ export default function MyRatedMovieCard({ movie }: { movie: MyMovieRating }) {
         }`}
       >
         {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+        {awardBadge && (
+          <span className="absolute right-1.5 top-1.5 rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+            🏆
+          </span>
+        )}
       </Link>
       <p className="mt-2 line-clamp-2 text-xs font-medium text-text">{movie.title}</p>
       <div className="mt-1">

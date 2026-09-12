@@ -57,6 +57,11 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
               }`}
             >
               {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+              {movie.awardBadge && (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+                  🏆
+                </span>
+              )}
             </div>
             <p className="mt-2 line-clamp-2 text-xs font-medium text-text">{movie.title}</p>
             <div className="mt-1">

@@ -68,6 +68,7 @@ export default function MyListView({
     .filter((movie): movie is ReviewedMovie => Boolean(movie));
   const addableMovies = reviewedMovies.filter((m) => !myListIds.includes(m.id));
 
+  const awardMovieIds = new Set(myRatedMovies.filter((m) => m.awardBadge).map((m) => m.id));
   const topRatedMovies = [...myMovieRatings].sort((a, b) => b.rating - a.rating);
   const recentRatedMovies = [...myMovieRatings].sort((a, b) => (a.ratedAt < b.ratedAt ? 1 : -1));
   const totalReviewLikes = myReviews.reduce(
@@ -106,7 +107,7 @@ export default function MyListView({
           <h2 className="text-sm font-bold text-text">내가 높게 평가한 영화</h2>
           <div className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
             {topRatedMovies.map((movie) => (
-              <MyRatedMovieCard key={movie.id} movie={movie} />
+              <MyRatedMovieCard key={movie.id} movie={movie} awardBadge={awardMovieIds.has(movie.id)} />
             ))}
           </div>
         </div>
@@ -117,7 +118,7 @@ export default function MyListView({
           <h2 className="text-sm font-bold text-text">최근에 평가한 영화</h2>
           <div className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
             {recentRatedMovies.map((movie) => (
-              <MyRatedMovieCard key={`recent-${movie.id}`} movie={movie} />
+              <MyRatedMovieCard key={`recent-${movie.id}`} movie={movie} awardBadge={awardMovieIds.has(movie.id)} />
             ))}
           </div>
         </div>
