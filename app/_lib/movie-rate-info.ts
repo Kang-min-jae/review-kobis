@@ -19,6 +19,7 @@ export type PersonRef = { name: string; kmdbId: string | null };
 export type MovieMeta = {
   movieCd: string;
   movieTitle: string;
+  movieTitleEn: string | null;
   description: string;
   posterUrl: string | null;
   gradient: string;
@@ -136,6 +137,7 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
   return {
     movieCd: row.movieCd,
     movieTitle: row.title,
+    movieTitleEn: row.titleEn ?? null,
     description: row.overview ?? "아직 등록된 설명이 없어요.",
     posterUrl: row.posterUrl,
     gradient: FALLBACK_GRADIENT,
@@ -220,6 +222,7 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
   const meta: MovieMeta = {
     movieCd: info.movieCd,
     movieTitle: info.title,
+    movieTitleEn: info.titleEn ?? tmdbInfo?.originalTitle ?? null,
     // 개요·장르·런타임: TMDB 1차 → KMDb 폴백 → KOBIS
     description: tmdbInfo?.overview ?? kmdbInfo?.overview ?? info.overview ?? "아직 등록된 설명이 없어요.",
     posterUrl: finalPosterUrl,

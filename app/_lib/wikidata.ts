@@ -312,7 +312,7 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
   return data;
 }
 
-// ── 공개 API ─────────────────────────────────────────────────────────────────
+// ── 공개 API — 홈 화면용 최신 수상작 ────────────────────────────────────────
 // 최근 2년치만 조회 — 각 부문마다 가장 최신 연도를 자동으로 선택한다
 const SINCE_YEAR = new Date().getFullYear() - 2;
 
@@ -330,4 +330,167 @@ export async function fetchLatestBerlinWinners(): Promise<FestivalWinner[]> {
 
 export async function fetchLatestVeniceWinners(): Promise<FestivalWinner[]> {
   return fetchWithCache("venice", SINCE_YEAR);
+}
+
+// ── 특정 영화의 수상 이력 조회 ────────────────────────────────────────────────
+// tmdbId로 Wikidata에서 해당 영화가 받은 모든 4대 영화제 수상 이력을 가져온다.
+// rowsToMap과 달리 부문별 중복 제거 없이 ALL 수상작을 반환한다.
+
+export type MovieAwardEntry = {
+  festivalId: FestivalType;
+  categoryLabel: string;
+  ceremonyYear: number;
+};
+
+const ALL_FESTIVALS_FILTER = `(
+  STRSTARTS(LCASE(?awardLabelEn), "academy award for") ||
+  STRSTARTS(LCASE(?awardLabelEn), "palme") ||
+  CONTAINS(LCASE(?awardLabelEn), "cannes film festival") ||
+  STRSTARTS(LCASE(?awardLabelEn), "golden bear") ||
+  STRSTARTS(LCASE(?awardLabelEn), "silver bear") ||
+  STRSTARTS(LCASE(?awardLabelEn), "golden lion") ||
+  STRSTARTS(LCASE(?awardLabelEn), "silver lion") ||
+  CONTAINS(LCASE(?awardLabelEn), "venice film festival") ||
+  CONTAINS(LCASE(?awardLabelEn), "volpi cup") ||
+  STRSTARTS(LCASE(?awardLabelEn), "marcello mastroianni")
+)`;
+
+function detectFestival(awardLabelEn: string): FestivalType | null {
+  const s = awardLabelEn.toLowerCase();
+  if (s.startsWith("academy award for")) return "academy";
+  if (s.startsWith("palme") || s.includes("cannes film festival")) return "cannes";
+  if (s.startsWith("golden bear") || s.startsWith("silver bear")) return "berlin";
+  if (
+    s.startsWith("golden lion") ||
+    s.startsWith("silver lion") ||
+    s.includes("venice film festival") ||
+    s.includes("volpi cup") ||
+    s.startsWith("marcello mastroianni")
+  ) return "venice";
+  return null;
+}
+
+// TMDB ID로 해당 영화의 모든 수상 이력을 조회하는 SPARQL 쿼리
+function buildMovieAwardsQuery(tmdbId: string): string {
+  return `
+SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?year WHERE {
+  ?film wdt:P4947 "${tmdbId}" .
+  {
+    ?film p:P166 ?stmt .
+  } UNION {
+    ?person p:P166 ?stmt .
+    ?stmt pq:P1686 ?film .
+    ?person wdt:P31 wd:Q5 .
+  }
+  ?stmt ps:P166 ?award .
+  ?stmt pq:P585 ?date .
+  BIND(YEAR(?date) AS ?year)
+  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
+  FILTER${ALL_FESTIVALS_FILTER}
+  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
+}
+ORDER BY DESC(?year) ?awardLabelEn
+LIMIT 50
+`.trim();
+}
+
+// 영화 제목으로 조회하는 SPARQL 쿼리 (tmdbId 없을 때 폴백)
+function buildMovieAwardsByTitleQuery(titleEn: string): string {
+  const escaped = titleEn.replace(/"/g, '\\"');
+  return `
+SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?year WHERE {
+  ?film rdfs:label "${escaped}"@en .
+  FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }
+  {
+    ?film p:P166 ?stmt .
+  } UNION {
+    ?person p:P166 ?stmt .
+    ?stmt pq:P1686 ?film .
+    ?person wdt:P31 wd:Q5 .
+  }
+  ?stmt ps:P166 ?award .
+  ?stmt pq:P585 ?date .
+  BIND(YEAR(?date) AS ?year)
+  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
+  FILTER${ALL_FESTIVALS_FILTER}
+  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
+}
+ORDER BY DESC(?year) ?awardLabelEn
+LIMIT 50
+`.trim();
+}
+
+function parseMovieAwardRows(rows: RawRow[]): MovieAwardEntry[] {
+  const seen = new Set<string>();
+  const entries: MovieAwardEntry[] = [];
+  for (const row of rows) {
+    const awardLabelEn = row.awardLabelEn?.value ?? "";
+    const awardLabelKo = row.awardLabelKo?.value ?? null;
+    const year = parseInt(row.year?.value ?? "0", 10);
+    if (!awardLabelEn || !year) continue;
+    const festivalId = detectFestival(awardLabelEn);
+    if (!festivalId) continue;
+    const categoryLabel = shortenLabel(awardLabelKo, awardLabelEn);
+    const key = `${festivalId}-${year}-${categoryLabel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ festivalId, categoryLabel, ceremonyYear: year });
+  }
+  return entries;
+}
+
+// 영화별 수상 이력 메모리 캐시 (7일 TTL — 수상 이력은 거의 안 바뀜)
+const MOVIE_AWARD_MEM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const gMovieAwards = globalThis as typeof globalThis & {
+  __movieAwardsCache?: Map<string, { data: MovieAwardEntry[]; at: number }>;
+};
+if (!gMovieAwards.__movieAwardsCache) {
+  gMovieAwards.__movieAwardsCache = new Map();
+}
+const movieAwardsMemCache = gMovieAwards.__movieAwardsCache;
+
+export async function fetchMovieAwardWins(
+  tmdbId: string | null,
+  titleEn: string | null,
+): Promise<MovieAwardEntry[]> {
+  const cacheKey = tmdbId ? `movie-tmdb-${tmdbId}` : titleEn ? `movie-title-${titleEn.toLowerCase()}` : null;
+  if (!cacheKey) return [];
+
+  // 1) 메모리 캐시
+  const mem = movieAwardsMemCache.get(cacheKey);
+  if (mem && Date.now() - mem.at < MOVIE_AWARD_MEM_TTL_MS) return mem.data;
+
+  // 2) DB 캐시 (CachedAwardWinners 테이블 재사용, key = "movie-tmdb-{tmdbId}")
+  try {
+    const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
+    if (cached) {
+      const data = cached.winners as unknown as MovieAwardEntry[];
+      movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
+      return data;
+    }
+  } catch {
+    // 테이블 없으면 통과
+  }
+
+  // 3) Wikidata SPARQL — tmdbId 우선, 없으면 영문 제목으로
+  const query = tmdbId
+    ? buildMovieAwardsQuery(tmdbId)
+    : buildMovieAwardsByTitleQuery(titleEn!);
+
+  const rows = await sparqlFetch(query);
+  const data = parseMovieAwardRows(rows);
+
+  // 4) DB 캐시 저장
+  try {
+    await db.cachedAwardWinners.upsert({
+      where: { id: cacheKey },
+      create: { id: cacheKey, winners: data as unknown as object[] },
+      update: { winners: data as unknown as object[] },
+    });
+  } catch {
+    // 저장 실패는 무시 — 다음 요청 때 다시 시도
+  }
+
+  movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
+  return data;
 }

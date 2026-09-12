@@ -48,7 +48,7 @@ export default async function CategoryRatePage({
     getMovieAwardWins({
       tmdbId: info.tmdbId ?? null,
       titleKo: info.movieTitle,
-      titleEn: null,
+      titleEn: info.movieTitleEn ?? null,
     }),
   ]);
 
