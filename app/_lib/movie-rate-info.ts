@@ -1,6 +1,6 @@
 import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
-import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById } from "./tmdb";
+import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, type TmdbMovieDetails } from "./tmdb";
 import { db } from "./db";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -335,40 +335,83 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
     const cached = await db.cachedMovie.findUnique({ where: { movieCd } }).catch(() => null);
     if (!cached) return null;
 
-    // award-winners.ts가 포스터만 저장하고 개요·개봉일·런타임을 채우지 않은 경우,
-    // tmdbId가 있으면 TMDB에서 상세 정보를 가져와 캐시를 보완한다.
-    // Wikidata P4947 TMDB ID가 잘못된 영화를 가리킬 수 있어서, 제목을 검증한 뒤 사용한다.
-    if (cached.tmdbId && !cached.overview && !cached.releaseDate) {
-      const tmdb = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
-      if (tmdb) {
-        const norm = (s: string | null | undefined) =>
-          (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-        const expectedEn = norm(cached.titleEn ?? cached.title);
-        const tmdbTitle = norm(tmdb.title);
-        const tmdbOrig = norm(tmdb.originalTitle);
-        const titleMatched =
-          expectedEn.length >= 2 &&
-          (tmdbTitle.includes(expectedEn) || expectedEn.includes(tmdbTitle) ||
-           tmdbOrig.includes(expectedEn) || expectedEn.includes(tmdbOrig));
+    // 개요·개봉일·감독·출연진 중 하나라도 비어 있으면 TMDB+KMDb에서 전체 정보를 보완한다.
+    const needsEnrich = !cached.overview || !cached.releaseDate || !cached.directorName ||
+      !(Array.isArray(cached.cast) && (cached.cast as unknown[]).length > 0);
 
-        if (!titleMatched) {
-          // 잘못된 TMDB ID — DB에서 제거해 이후 오염 방지, 이번 요청에도 null로 처리
-          await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null } }).catch(() => null);
-          return { movieId: id, ...rowToMeta({ ...cached, tmdbId: null }), boxOffice: null };
-        } else {
-          const update = {
-            overview: tmdb.overview ?? null,
-            releaseDate: tmdb.releaseDate ?? null,
-            runtimeMinutes: tmdb.runtimeMinutes ?? null,
-            genreAlt: tmdb.genre ?? null,
-            posterUrl: tmdb.posterUrl ?? cached.posterUrl,
-            titleEn: tmdb.originalTitle ?? cached.titleEn,
-          };
-          await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
-          const updated = { ...cached, ...update };
-          return { movieId: id, ...rowToMeta(updated), boxOffice: null };
+    if (needsEnrich) {
+      const norm = (s: string | null | undefined) =>
+        (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      // 1) TMDB: tmdbId 직접 조회 → 제목 검증 → 실패하면 제목 검색
+      let tmdb: TmdbMovieDetails | null = null;
+      let resolvedTmdbId: string | null = cached.tmdbId;
+
+      if (cached.tmdbId) {
+        const byId = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
+        if (byId) {
+          const expectedEn = norm(cached.titleEn ?? cached.title);
+          const tTitle = norm(byId.title);
+          const tOrig = norm(byId.originalTitle);
+          const matched =
+            expectedEn.length >= 2 &&
+            (tTitle.includes(expectedEn) || expectedEn.includes(tTitle) ||
+             tOrig.includes(expectedEn) || expectedEn.includes(tOrig));
+          if (matched) {
+            tmdb = byId;
+          } else {
+            // 잘못된 P4947 ID — DB에서 제거, 제목 검색으로 대체
+            resolvedTmdbId = null;
+            await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null } }).catch(() => null);
+          }
         }
       }
+
+      if (!tmdb) {
+        const displayTitle = cached.titleEn ?? cached.title;
+        const yearHint = cached.releaseDate?.slice(0, 4) ?? null;
+        const byTitle = await searchTmdbMovie(displayTitle, yearHint, cached.titleEn).catch(() => null);
+        if (byTitle) {
+          tmdb = byTitle;
+          resolvedTmdbId = byTitle.tmdbId ?? resolvedTmdbId;
+        }
+      }
+
+      // 2) KMDb: 한국어 감독·출연진 조회 (한국 개봉작 위주)
+      const displayTitle = cached.title;
+      // titleKo 필드가 없을 경우를 대비해 cached.title 사용
+      const yearHint = (tmdb?.releaseDate ?? cached.releaseDate)?.slice(0, 4) ?? null;
+      const kmdb = await searchKmdbMovie(displayTitle, yearHint, { titleEn: cached.titleEn }).catch(() => null);
+
+      // 3) 감독·출연진 해결
+      const directorRaw = kmdb?.director ?? null;
+      const castRaw = (kmdb?.cast && kmdb.cast.length > 0 ? kmdb.cast : []).slice(0, DISPLAY_CAST_LIMIT);
+      const contextYear = yearHint;
+
+      const directorRef = toPersonRef(directorRaw);
+      const castRefs = castRaw.map(toPersonRef);
+      const [director, cast] = await Promise.all([
+        withResolvedId(directorRef, "감독", contextYear),
+        Promise.all(castRefs.map((m) => withResolvedId(m, "배우", contextYear))),
+      ]);
+      const castForStorage = cast
+        .filter((c): c is PersonRef => c !== null)
+        .map((c) => ({ name: c.name, kmdbId: c.kmdbId, tmdbId: null }));
+
+      const update = {
+        overview: tmdb?.overview ?? kmdb?.overview ?? cached.overview,
+        releaseDate: tmdb?.releaseDate ?? kmdb?.releaseDate ?? cached.releaseDate,
+        runtimeMinutes: tmdb?.runtimeMinutes ?? kmdb?.runtimeMinutes ?? cached.runtimeMinutes,
+        genreAlt: tmdb?.genre ?? kmdb?.genre ?? cached.genreAlt,
+        posterUrl: tmdb?.posterUrl ?? cached.posterUrl,
+        titleEn: tmdb?.originalTitle ?? cached.titleEn,
+        tmdbId: resolvedTmdbId,
+        directorName: director?.name ?? cached.directorName,
+        directorKmdbId: director?.kmdbId ?? cached.directorKmdbId,
+        cast: castForStorage.length > 0 ? castForStorage : cached.cast,
+      };
+      await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
+      return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
     }
 
     return { movieId: id, ...rowToMeta(cached), boxOffice: null };
