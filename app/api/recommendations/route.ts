@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../_lib/db";
 import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres } from "../../_lib/movie-rows";
@@ -259,7 +258,8 @@ type LlmResult = { movieCd: string; score: number; reason: string }[];
 async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Promise<LlmResult> {
   if (candidates.length === 0) return [];
 
-  const client = new Anthropic();
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return [];
 
   const profileSummary = {
     선호장르: profile.preferredGenres,
@@ -294,19 +294,29 @@ ${JSON.stringify(candidateList, null, 2)}
 위 사용자 프로필을 기반으로 각 영화를 재순위화하고 추천 이유를 작성해주세요.`;
 
   try {
-    const stream = await client.messages.stream({
-      model: "claude-opus-5",
-      max_tokens: 2000,
-      thinking: { type: "adaptive" },
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-5",
+        max_tokens: 2000,
+        thinking: { type: "adaptive" },
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+      }),
     });
 
-    const message = await stream.finalMessage();
-    const textContent = message.content.find((b: { type: string }) => b.type === "text");
-    if (!textContent || textContent.type !== "text") return [];
+    if (!res.ok) return [];
 
-    const raw = textContent.text.trim();
+    const json = await res.json() as { content: { type: string; text: string }[] };
+    const textBlock = json.content.find((b) => b.type === "text");
+    if (!textBlock) return [];
+
+    const raw = textBlock.text.trim();
     const jsonStr = raw.startsWith("[") ? raw : raw.slice(raw.indexOf("["));
     return JSON.parse(jsonStr) as LlmResult;
   } catch {
