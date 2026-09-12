@@ -66,15 +66,15 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
   const maxYear = Math.max(...winners.map((w) => w.ceremonyYear));
   const recentWinners = winners.filter((w) => w.ceremonyYear === maxYear);
 
-  // 같은 영화가 여러 부문에 오를 수 있다 — 포스터 중복 요청 방지와
-  // React key 중복(wikidata-Q...) 방지를 위해 filmQid 기준으로 첫 번째 부문만 남긴다.
-  const seenQids = new Set<string>();
+  // 같은 영화+부문 조합만 중복 제거 — 같은 영화가 여러 부문을 수상하면 부문별로 카드를 따로 표시.
+  const seenKeys = new Set<string>();
   const posterCache = new Map<string, string | null>();
 
   const results: AwardMovieRow[] = [];
   for (const winner of recentWinners) {
-    if (seenQids.has(winner.filmQid)) continue;
-    seenQids.add(winner.filmQid);
+    const key = `${winner.filmQid}-${winner.categoryLabel}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
 
     let posterUrl: string | null;
     if (posterCache.has(winner.filmQid)) {
@@ -112,7 +112,7 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
     results.push({
       categoryLabel: winner.categoryLabel,
       movie: {
-        id: `wikidata-${winner.filmQid}`,
+        id: `wikidata-${winner.filmQid}-${winner.categoryLabel}`,
         title: winner.titleKo ?? winner.titleEn,
         posterUrl,
         gradient: FALLBACK_GRADIENT,
