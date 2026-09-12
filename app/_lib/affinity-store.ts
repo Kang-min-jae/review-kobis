@@ -25,8 +25,10 @@ export function getAffinitySnapshot(): Record<string, number> {
   return scores;
 }
 
+const EMPTY_SCORES: Record<string, number> = {};
+
 export function getServerAffinitySnapshot(): Record<string, number> {
-  return {};
+  return EMPTY_SCORES;
 }
 
 export function isColdStart(): boolean {
