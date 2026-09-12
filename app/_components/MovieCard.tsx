@@ -14,12 +14,26 @@ import {
   getServerSeedGenresSnapshot,
   ensureSeedGenresLoaded,
 } from "../_lib/seed-genres-store";
+import {
+  subscribe as subscribeAffinity,
+  getAffinitySnapshot,
+  getServerAffinitySnapshot,
+  registerMovieIds,
+} from "../_lib/affinity-store";
+
+const FESTIVAL_KO: Record<string, string> = {
+  academy: "아카데미상",
+  cannes: "칸 영화제",
+  berlin: "베를린 영화제",
+  venice: "베니스 영화제",
+};
 
 export default function MovieCard({ movie }: { movie: RowMovie }) {
   // 데스크톱은 마우스가 올라와 있는 동안, 모바일(마우스가 없어 hover가 안 됨)은
   // 한 번 탭하면 켜져서 다시 탭할 때까지 유지된다 — 예매/평점 버튼과 인기 한줄평
   // 패널이 전부 이 하나의 상태로 같이 열리고 닫힌다.
   const [revealed, setRevealed] = useState(false);
+  const [awardTooltip, setAwardTooltip] = useState(false);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -30,21 +44,24 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   // "추천 N%"는 내가 남긴 평점의 장르와 이 영화의 장르가 겹치는 비율 — 평점은
   // 브라우저에만 있어서 서버가 계산해줄 수 없으니 여기서 직접 계산한다.
   const seedGenres = useSyncExternalStore(subscribeSeedGenres, getSeedGenresSnapshot, getServerSeedGenresSnapshot);
+  const affinityScores = useSyncExternalStore(subscribeAffinity, getAffinitySnapshot, getServerAffinitySnapshot);
   useEffect(() => {
     ensureSeedGenresLoaded();
-  }, []);
+    registerMovieIds([movie.id]);
+  }, [movie.id]);
 
-  // recommendScore from the server-side algorithm takes priority; fall back to
-  // the client-side genre Jaccard calculation if not set.
+  // 우선순위: 서버 추천 점수 → affinity store → Jaccard 장르 근사
   const matchBadge = useMemo(() => {
     if (movie.recommendScore != null) return `추천 ${movie.recommendScore}%`;
+    const affinityScore = affinityScores[movie.id];
+    if (affinityScore != null && affinityScore > 0) return `추천 ${affinityScore}%`;
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
     if (overlapCount === 0) return null;
     const percent = Math.round((overlapCount / movie.allGenres.length) * 100);
     return `추천 ${percent}%`;
-  }, [seedGenres, movie.allGenres, movie.recommendScore]);
+  }, [seedGenres, affinityScores, movie.allGenres, movie.recommendScore, movie.id]);
 
   return (
     <div
@@ -71,9 +88,23 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
         {(movie.awardBadge || movie.badge) && (
           <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
             {movie.awardBadge && (
-              <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
-                🏆
-              </span>
+              <button
+                type="button"
+                aria-label={movie.festivalAwards?.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ") ?? "영화제 수상작"}
+                className="relative cursor-pointer"
+                onMouseEnter={() => setAwardTooltip(true)}
+                onMouseLeave={() => setAwardTooltip(false)}
+                onClick={(e) => { e.stopPropagation(); setAwardTooltip((v) => !v); }}
+              >
+                <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+                  🏆
+                </span>
+                {movie.festivalAwards && movie.festivalAwards.length > 1 && (
+                  <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
+                    +{movie.festivalAwards.length - 1}
+                  </span>
+                )}
+              </button>
             )}
             {movie.badge && (
               <span className="rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-white/20">
@@ -125,6 +156,23 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
         <RatingSummary movieId={movie.id} />
         <TopLikedReview movieId={movie.id} />
       </div>
+
+      {/* 수상 내역 툴팁 — overflow-hidden 포스터 div 밖에 렌더해 클리핑 없이 보인다 */}
+      {awardTooltip && movie.festivalAwards && movie.festivalAwards.length > 0 && (
+        <div
+          className="absolute right-0 top-1 z-50 max-w-[200px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
+          onMouseEnter={() => setAwardTooltip(true)}
+          onMouseLeave={() => setAwardTooltip(false)}
+        >
+          {movie.festivalAwards.map((a, i) => (
+            <div key={i} className="py-0.5 leading-snug">
+              <span className="font-semibold">{FESTIVAL_KO[a.festival] ?? a.festival}</span>{" "}
+              <span className="text-yellow-300">{a.categoryLabel}</span>{" "}
+              <span className="text-white/60">({a.year})</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 열렸을 때 포스터 옆으로 와이드되며 뜨는 인기 한줄평 패널. 카드 레이아웃
           자체를 넓히지 않고 살짝 겹치게 띄워서 옆 카드가 밀리지 않게 한다. */}

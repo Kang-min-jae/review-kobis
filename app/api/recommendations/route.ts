@@ -228,7 +228,7 @@ async function getCandidates(
     if (dirCount >= 2) continue;
     directorCount.set(director, dirCount + 1);
 
-    const totalScore = alpha * genreScore + beta * peopleScore + gamma * genreScore;
+    const totalScore = alpha * genreScore + beta * peopleScore + gamma * peopleScore;
 
     scored.push({
       movieCd: m.movieCd,

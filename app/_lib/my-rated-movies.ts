@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { getMovieMeta } from "./movie-rate-info";
+import type { FestivalAward } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -11,6 +12,7 @@ export type MyRatedMovie = {
   rating: number; // 0~10
   ratedAt: string; // ISO
   awardBadge?: true;
+  festivalAwards?: FestivalAward[];
 };
 
 function movieIdFromCd(movieCd: string): string {
@@ -18,22 +20,34 @@ function movieIdFromCd(movieCd: string): string {
   return `kobis-${movieCd}`;
 }
 
-async function getAwardCdSet(movieCds: string[]): Promise<Set<string>> {
+async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
   try {
-    const awardRows = await db.cachedAwardWinners.findMany({ select: { winners: true } });
-    const awardTmdbIds = new Set<string>();
+    const awardRows = await db.cachedAwardWinners.findMany({ select: { id: true, winners: true } });
+    const byTmdbId = new Map<string, FestivalAward[]>();
     for (const row of awardRows) {
-      const winners = row.winners as { tmdbId?: string | null }[];
-      if (Array.isArray(winners)) for (const w of winners) if (w.tmdbId) awardTmdbIds.add(w.tmdbId);
+      const winners = row.winners as { tmdbId?: string | null; categoryLabel?: string; ceremonyYear?: number }[];
+      if (!Array.isArray(winners)) continue;
+      for (const w of winners) {
+        if (!w.tmdbId) continue;
+        const list = byTmdbId.get(w.tmdbId) ?? [];
+        list.push({ festival: row.id, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 });
+        byTmdbId.set(w.tmdbId, list);
+      }
     }
-    if (awardTmdbIds.size === 0) return new Set();
+    if (byTmdbId.size === 0) return new Map();
     const hits = await db.cachedMovie.findMany({
-      where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(awardTmdbIds) } },
-      select: { movieCd: true },
+      where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
+      select: { movieCd: true, tmdbId: true },
     });
-    return new Set(hits.map((h) => h.movieCd));
+    const result = new Map<string, FestivalAward[]>();
+    for (const h of hits) {
+      if (!h.tmdbId) continue;
+      const awards = byTmdbId.get(h.tmdbId);
+      if (awards) result.set(h.movieCd, awards);
+    }
+    return result;
   } catch {
-    return new Set();
+    return new Map();
   }
 }
 
@@ -67,7 +81,7 @@ export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> 
     : [];
   const wikidataMap = new Map(wikidataCache.map((m) => [m.movieCd, m]));
 
-  const awardCdSet = await getAwardCdSet(allMovieCds);
+  const awardCdMap = await getAwardMap(allMovieCds);
 
   return ratings.map((r) => {
     let title = r.movieCd;
@@ -94,7 +108,7 @@ export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> 
       gradient: FALLBACK_GRADIENT,
       rating: r.score,
       ratedAt: r.createdAt.toISOString(),
-      ...(awardCdSet.has(r.movieCd) ? { awardBadge: true as const } : {}),
+      ...(awardCdMap.has(r.movieCd) ? { awardBadge: true as const, festivalAwards: awardCdMap.get(r.movieCd)! } : {}),
     };
   });
 }

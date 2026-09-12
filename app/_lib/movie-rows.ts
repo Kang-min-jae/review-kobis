@@ -32,7 +32,11 @@ export type RowMovie = {
   recommendReason?: string;
   // 아카데미/칸/베를린/베니스 주요 시상식 수상 이력이 있으면 트로피 배지를 보여준다.
   awardBadge?: true;
+  // 수상 내역 상세 — 툴팁 및 +N 뱃지용.
+  festivalAwards?: FestivalAward[];
 };
+
+export type FestivalAward = { festival: string; categoryLabel: string; year: number };
 
 export function splitGenres(genreAlt: string | null | undefined): string[] {
   return genreAlt?.split(",").map((g) => g.trim()).filter(Boolean) ?? [];
@@ -108,48 +112,57 @@ export function summaryToRowMovie(summary: KobisMovieSummary, meta: { posterUrl:
   };
 }
 
-// 아카데미/칸/베를린/베니스 수상작 tmdbId 집합을 DB에서 읽어 캐시한다.
-// CachedAwardWinners에 저장된 FestivalWinner[] JSON에서 tmdbId를 추출한다.
-type FestivalWinnerJson = { tmdbId?: string | null };
-let awardTmdbIdCache: Set<string> | null = null;
+// 아카데미/칸/베를린/베니스 수상작 tmdbId → 수상 내역 맵을 DB에서 읽어 캐시한다.
+// CachedAwardWinners.id 가 festival 종류("academy"|"cannes"|"berlin"|"venice")이고
+// winners JSON 배열에 tmdbId, categoryLabel, ceremonyYear 가 들어 있다.
+type FestivalWinnerJson = { tmdbId?: string | null; categoryLabel?: string; ceremonyYear?: number };
+let awardDetailCache: Map<string, FestivalAward[]> | null = null; // tmdbId → awards
 let awardCacheUpdatedAt = 0;
 const AWARD_CACHE_TTL = 10 * 60 * 1000; // 10분
 
-async function getAwardWinnerTmdbIds(): Promise<Set<string>> {
-  if (awardTmdbIdCache && Date.now() - awardCacheUpdatedAt < AWARD_CACHE_TTL) {
-    return awardTmdbIdCache;
+async function getAwardDetailsByTmdbId(): Promise<Map<string, FestivalAward[]>> {
+  if (awardDetailCache && Date.now() - awardCacheUpdatedAt < AWARD_CACHE_TTL) {
+    return awardDetailCache;
   }
   try {
-    const rows = await db.cachedAwardWinners.findMany({ select: { winners: true } });
-    const ids = new Set<string>();
+    const rows = await db.cachedAwardWinners.findMany({ select: { id: true, winners: true } });
+    const byTmdbId = new Map<string, FestivalAward[]>();
     for (const row of rows) {
       const winners = row.winners as FestivalWinnerJson[];
-      if (Array.isArray(winners)) {
-        for (const w of winners) {
-          if (w.tmdbId) ids.add(w.tmdbId);
-        }
+      if (!Array.isArray(winners)) continue;
+      for (const w of winners) {
+        if (!w.tmdbId) continue;
+        const list = byTmdbId.get(w.tmdbId) ?? [];
+        list.push({ festival: row.id, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 });
+        byTmdbId.set(w.tmdbId, list);
       }
     }
-    awardTmdbIdCache = ids;
+    awardDetailCache = byTmdbId;
     awardCacheUpdatedAt = Date.now();
-    return ids;
+    return byTmdbId;
   } catch {
-    return new Set();
+    return new Map();
   }
 }
 
-// movieCd 배열에서 주요 시상식 수상작인 것들의 Set<movieCd>를 반환한다.
-// CachedMovie.tmdbId 를 기준으로 수상작 tmdbId 집합과 교차한다.
-async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Set<string>> {
-  if (movieCds.length === 0) return new Set();
-  const awardTmdbIds = await getAwardWinnerTmdbIds();
-  if (awardTmdbIds.size === 0) return new Set();
+// movieCd 배열 → movieCd별 수상 내역 맵. CachedMovie.tmdbId를 기준으로 교차.
+async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
+  if (movieCds.length === 0) return new Map();
+  const byTmdbId = await getAwardDetailsByTmdbId();
+  if (byTmdbId.size === 0) return new Map();
 
   const rows = await db.cachedMovie.findMany({
-    where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(awardTmdbIds) } },
-    select: { movieCd: true },
+    where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
+    select: { movieCd: true, tmdbId: true },
   });
-  return new Set(rows.map((r) => r.movieCd));
+
+  const result = new Map<string, FestivalAward[]>();
+  for (const row of rows) {
+    if (!row.tmdbId) continue;
+    const awards = byTmdbId.get(row.tmdbId);
+    if (awards) result.set(row.movieCd, awards);
+  }
+  return result;
 }
 
 // 포스터를 못 찾은 영화는 카드가 빈 회색 박스로만 보여서 화면이 지저분해지고,
@@ -158,14 +171,17 @@ async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Set<string>>
 // 편수만큼 DB 왕복이 생기지 않게 한다.
 async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> {
   const movieCds = summaries.map((s) => s.movieCd);
-  const [metas, awardCds] = await Promise.all([
+  const [metas, awardMap] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
   ]);
-  const rows = summaries.map((s) => ({
-    ...summaryToRowMovie(s, metas.get(s.movieCd) ?? null),
-    ...(awardCds.has(s.movieCd) ? { awardBadge: true as const } : {}),
-  }));
+  const rows = summaries.map((s) => {
+    const awards = awardMap.get(s.movieCd);
+    return {
+      ...summaryToRowMovie(s, metas.get(s.movieCd) ?? null),
+      ...(awards ? { awardBadge: true as const, festivalAwards: awards } : {}),
+    };
+  });
   return rows.filter((row) => row.posterUrl !== null);
 }
 

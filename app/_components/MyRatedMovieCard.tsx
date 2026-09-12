@@ -6,12 +6,22 @@ import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
 import MyReviewsPanel from "./MyReviewsPanel";
 import type { MyMovieRating } from "../_lib/reviews-store";
+import type { FestivalAward } from "../_lib/movie-rows";
+
+const FESTIVAL_KO: Record<string, string> = {
+  academy: "아카데미상",
+  cannes: "칸 영화제",
+  berlin: "베를린 영화제",
+  venice: "베니스 영화제",
+};
 
 // 마우스를 올리면(데스크톱) 내가 그 영화에 남긴 리뷰가 옆에 뜬다. 탭/클릭은
 // 예매·평점 버튼 같은 경쟁 요소가 안에 없어서 그냥 바로 평가 페이지로 이동해도 된다 —
 // MovieCard처럼 탭을 한 번 더 가로챌 필요가 없다.
-export default function MyRatedMovieCard({ movie, awardBadge }: { movie: MyMovieRating; awardBadge?: boolean }) {
+export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyMovieRating; festivalAwards?: FestivalAward[] }) {
   const [revealed, setRevealed] = useState(false);
+  const [awardTooltip, setAwardTooltip] = useState(false);
+  const hasAward = festivalAwards && festivalAwards.length > 0;
 
   return (
     <div
@@ -26,16 +36,46 @@ export default function MyRatedMovieCard({ movie, awardBadge }: { movie: MyMovie
         }`}
       >
         {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
-        {awardBadge && (
-          <span className="absolute right-1.5 top-1.5 rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
-            🏆
-          </span>
+        {hasAward && (
+          <button
+            type="button"
+            aria-label={festivalAwards!.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ")}
+            className="absolute right-1.5 top-1.5 cursor-pointer"
+            onMouseEnter={() => setAwardTooltip(true)}
+            onMouseLeave={() => setAwardTooltip(false)}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAwardTooltip((v) => !v); }}
+          >
+            <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+              🏆
+            </span>
+            {festivalAwards!.length > 1 && (
+              <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
+                +{festivalAwards!.length - 1}
+              </span>
+            )}
+          </button>
         )}
       </Link>
       <p className="mt-2 line-clamp-2 text-xs font-medium text-text">{movie.title}</p>
       <div className="mt-1">
         <StarRating rating={movie.rating} scale={10} size="h-3 w-3" />
       </div>
+
+      {awardTooltip && festivalAwards && (
+        <div
+          className="absolute right-0 top-1 z-50 max-w-[180px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
+          onMouseEnter={() => setAwardTooltip(true)}
+          onMouseLeave={() => setAwardTooltip(false)}
+        >
+          {festivalAwards.map((a, i) => (
+            <div key={i} className="py-0.5 leading-snug">
+              <span className="font-semibold">{FESTIVAL_KO[a.festival] ?? a.festival}</span>{" "}
+              <span className="text-yellow-300">{a.categoryLabel}</span>{" "}
+              <span className="text-white/60">({a.year})</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {revealed && <MyReviewsPanel movieId={movie.id} />}
     </div>
