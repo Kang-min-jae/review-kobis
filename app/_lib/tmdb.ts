@@ -216,8 +216,9 @@ export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | n
 
 // TMDB ID로 영화 전체 상세 정보를 가져온다 — 수상작처럼 이미 tmdbId를 알고 있을 때
 // 텍스트 검색 없이 바로 개요·런타임·장르·개봉일을 채우는 데 쓴다.
-export async function getTmdbMovieDetailsById(tmdbId: string): Promise<TmdbMovieDetails | null> {
-  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`);
+// lang 파라미터: 제목 검증용으로 "en-US"를 쓰면 영문 title + original_title을 돌려준다.
+export async function getTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang);
   if (!details) return null;
   return {
     tmdbId: String(details.id),
