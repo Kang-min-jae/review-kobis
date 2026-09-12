@@ -45,6 +45,7 @@ import {
   HelpIcon,
   LogoutIcon,
 } from "./MenuIcons";
+import NotificationPanel from "./NotificationPanel";
 
 // 실제 기능이 아직 없는 항목(컬렉션/팔로잉 목록/계정 설정/알림/고객센터)은 엉뚱한
 // 페이지로 보내는 링크 대신, 메뉴만 닫히는 버튼으로 둔다 — 없는 기능을 있는 것처럼
@@ -83,6 +84,7 @@ export default function SideMenu({
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   // 게스트 이름은 브라우저에서만 알 수 있어서(localStorage), reviews-store의
   // 다른 스냅샷들과 같은 방식(useSyncExternalStore)으로 읽는다 — 서버 렌더에선
@@ -154,6 +156,7 @@ export default function SideMenu({
 
   return (
     <>
+      <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
       <button
         type="button"
         aria-label="메뉴 열기"
@@ -229,7 +232,14 @@ export default function SideMenu({
                 <GearIcon />
                 계정 설정
               </Link>
-              <PlaceholderItem icon={<BellIcon />} label="알림" onClose={close} />
+              <button
+                type="button"
+                onClick={() => { close(); setNotifOpen(true); }}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <BellIcon />
+                알림
+              </button>
               <div
                 className={`flex items-center justify-between rounded-lg px-2 py-2.5 text-sm text-text ${
                   canToggleDark ? "" : "opacity-50"
