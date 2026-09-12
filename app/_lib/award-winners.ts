@@ -158,3 +158,68 @@ export async function getLatestVeniceWinnerRows(): Promise<AwardMovieRow[]> {
   const winners = await fetchLatestVeniceWinners();
   return winnersToRows(winners, "venice");
 }
+
+// ── 특정 영화의 수상 이력 조회 ────────────────────────────────────────────────
+
+export type AwardWin = {
+  festivalId: FestivalType;
+  festivalName: string;
+  category: string;
+  year: number;
+};
+
+const FESTIVAL_NAMES: Record<FestivalType, string> = {
+  academy: "아카데미 시상식",
+  cannes: "칸 영화제",
+  berlin: "베를린 영화제",
+  venice: "베니스 영화제",
+};
+
+// tmdbId 또는 영문/한글 제목으로 4개 영화제 캐시에서 수상 이력을 찾아 반환한다.
+// 캐시가 이미 메모리에 올라와 있으면 추가 API 호출 없이 즉시 반환된다.
+export async function getMovieAwardWins({
+  tmdbId,
+  titleKo,
+  titleEn,
+}: {
+  tmdbId: string | null;
+  titleKo: string | null;
+  titleEn: string | null;
+}): Promise<AwardWin[]> {
+  const festivals: FestivalType[] = ["academy", "cannes", "berlin", "venice"];
+
+  const allWinners = await Promise.all([
+    fetchLatestAcademyWinners(),
+    fetchLatestCannesWinners(),
+    fetchLatestBerlinWinners(),
+    fetchLatestVeniceWinners(),
+  ]);
+
+  const wins: AwardWin[] = [];
+
+  for (let i = 0; i < festivals.length; i++) {
+    const festivalId = festivals[i];
+    const winners = allWinners[i];
+
+    for (const w of winners) {
+      const matchByTmdb = tmdbId && w.tmdbId && w.tmdbId === tmdbId;
+      const matchByTitle =
+        !matchByTmdb &&
+        ((titleKo && w.titleKo && w.titleKo === titleKo) ||
+          (titleEn && w.titleEn && w.titleEn.toLowerCase() === titleEn.toLowerCase()));
+
+      if (matchByTmdb || matchByTitle) {
+        wins.push({
+          festivalId,
+          festivalName: FESTIVAL_NAMES[festivalId],
+          category: w.categoryLabel,
+          year: w.ceremonyYear,
+        });
+      }
+    }
+  }
+
+  // 연도 내림차순, 같은 연도면 시상식 순서대로
+  wins.sort((a, b) => b.year - a.year || festivals.indexOf(a.festivalId) - festivals.indexOf(b.festivalId));
+  return wins;
+}

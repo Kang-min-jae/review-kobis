@@ -13,6 +13,8 @@ import BackBar from "../../../../../_components/BackBar";
 import MovieInfoHeader from "../../../../../_components/MovieInfoHeader";
 import CategoryRatings from "../../../../../_components/CategoryRatings";
 import CategoryRateForm from "../../../../../_components/CategoryRateForm";
+import AwardsBanner from "../../../../../_components/AwardsBanner";
+import { getMovieAwardWins } from "../../../../../_lib/award-winners";
 
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
@@ -36,13 +38,18 @@ export default async function CategoryRatePage({
   const session = await auth();
   const userId = session?.user?.id ?? null;
 
-  const [averages, myScore, shortReviews, longReviews, myShortReview, myLongReview] = await Promise.all([
+  const [averages, myScore, shortReviews, longReviews, myShortReview, myLongReview, awardWins] = await Promise.all([
     getAllCategoryAverages(info.movieCd),
     getMyCategoryScore(userId, info.movieCd, category),
     getReviewsForCategoryType(info.movieCd, category, "SHORT", userId),
     getReviewsForCategoryType(info.movieCd, category, "LONG", userId),
     getMyReview(userId, info.movieCd, category, "SHORT"),
     getMyReview(userId, info.movieCd, category, "LONG"),
+    getMovieAwardWins({
+      tmdbId: info.tmdbId ?? null,
+      titleKo: info.movieTitle,
+      titleEn: null,
+    }),
   ]);
 
   const categoryAverage = averages.find((a) => a.category === category) ?? { average: null, count: 0 };
@@ -69,6 +76,7 @@ export default async function CategoryRatePage({
         </MovieInfoHeader>
 
         <div className="mt-6">
+          <AwardsBanner wins={awardWins} />
           <CategoryRateForm
             movieId={info.movieId}
             movieCd={info.movieCd}
