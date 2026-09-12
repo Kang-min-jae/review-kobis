@@ -291,6 +291,29 @@ export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" |
   return newReview;
 }
 
+// 서버에 저장된 리뷰를 localStorage에도 동기화한다 — 같은 영화+타입+카테고리의 기존
+// 항목을 교체하고, 없으면 새로 추가한다.
+export function upsertMyReview(
+  review: Omit<Review, "id" | "authorId" | "authorName" | "createdAt"> & { createdAt?: string }
+): void {
+  const identity = getGuestIdentity();
+  const existing = readUserReviews();
+  const idx = existing.findIndex(
+    (r) => r.movieId === review.movieId && r.type === review.type && (r.category ?? "전체") === (review.category ?? "전체")
+  );
+  const upserted: Review = {
+    ...review,
+    authorId: identity.id,
+    authorName: identity.name,
+    id: idx >= 0 ? existing[idx].id : `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: review.createdAt ?? existing[idx]?.createdAt ?? new Date().toISOString(),
+  };
+  const next = [...existing];
+  if (idx >= 0) next[idx] = upserted; else next.push(upserted);
+  writeUserReviews(next);
+  emitChange();
+}
+
 // createdAt(ISO, UTC)을 이 리뷰를 남긴 사람의 로컬 날짜 기준 "YYYY-MM-DD" 키로
 // 바꾼다 — MovieDiaryCalendar의 toLocalDateKey와 동일한 계산이다(무비 다이어리
 // 칸이 이 키로 하루를 구분하므로, 삭제도 같은 기준으로 맞춰야 한다).

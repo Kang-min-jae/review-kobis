@@ -68,7 +68,7 @@ export default function TopReviewsPanel({ movieId }: { movieId: string }) {
       )}
 
       {topOthers.length === 0 && !myReview ? (
-        <p className="mt-2 text-[11px] text-muted">아직 등록된 한줄평이 없어요.</p>
+        <p className="mt-2 text-[11px] text-muted">아직 평점이 없어요.</p>
       ) : topOthers.length > 0 ? (
         <ul className="mt-2 space-y-2">
           {topOthers.map(({ review }) => (

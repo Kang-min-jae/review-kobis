@@ -377,7 +377,10 @@ export async function POST(request: Request) {
     const meta = metas.get(c.movieCd);
     const llm = llmMap.get(c.movieCd);
     const rawScore = llm?.score ?? Math.round(c.totalScore * 100);
-    const recommendScore = Math.min(99, Math.max(0, rawScore));
+    // cold start(평점 없음): 점수 없이 섹션만 표시. non-cold-start: 최소 1% 배지.
+    const recommendScore = profile.coldStart
+      ? undefined
+      : Math.min(99, Math.max(1, rawScore));
     const { genre, allGenres } = genreFields(meta?.genreAlt ?? c.genreAlt);
 
     return {
@@ -388,8 +391,7 @@ export async function POST(request: Request) {
       isNowShowing: false,
       genre,
       allGenres,
-      // cold start: score is 0, don't attach the badge so MovieCard shows nothing
-      recommendScore: recommendScore > 0 ? recommendScore : undefined,
+      recommendScore,
       recommendReason: llm?.reason ?? undefined,
     };
   });

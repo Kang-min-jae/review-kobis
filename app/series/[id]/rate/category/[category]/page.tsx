@@ -81,6 +81,9 @@ export default async function SeriesCategoryRatePage({
           <CategoryRateForm
             movieId={info.seriesId}
             movieCd={info.movieCd}
+            movieTitle={info.title}
+            moviePosterUrl={info.posterUrl}
+            movieGradient={info.gradient}
             category={category}
             isLoggedIn={Boolean(userId)}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
