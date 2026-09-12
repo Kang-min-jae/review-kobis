@@ -226,10 +226,7 @@ export default function CategoryRateForm({
             <div className="flex items-center gap-3">
               <span className="text-xs font-semibold text-star">내 평점</span>
               <StarRating rating={myReview.rating} scale={scale} size="h-5 w-5" />
-              <span className="text-xl font-bold text-text">
-                {myReview.rating.toFixed(1)}
-                <span className="text-xs font-normal text-muted">/{scale.toFixed(1)}</span>
-              </span>
+              <span className="text-xs font-normal text-muted">/{scale.toFixed(1)}</span>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted">
@@ -324,7 +321,6 @@ export default function CategoryRateForm({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold text-text">{review.authorName}</span>
                   <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
-                  <span className="text-xs font-bold text-text">{review.rating.toFixed(1)}</span>
                   {!review.content.trim() && (
                     <span className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] text-muted">
                       평점만 남김
