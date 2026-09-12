@@ -34,14 +34,7 @@ import {
   getServerVotesSnapshot,
   getReviewVote,
 } from "../_lib/review-votes-store";
-import {
-  subscribe as subscribeSocial,
-  getSocialSnapshot,
-  getServerSocialSnapshot,
-  getViewsSnapshot,
-  getServerViewsSnapshot,
-  recordView,
-} from "../_lib/list-social-store";
+import { recordView } from "../_lib/list-social-store";
 
 type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
 
@@ -73,8 +66,6 @@ export default function MyListView({
   );
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
-  const views = useSyncExternalStore(subscribeSocial, getViewsSnapshot, getServerViewsSnapshot);
-
   const reviewedById = new Map(reviewedMovies.map((m) => [m.id, m]));
   const myListMovies = myListIds
     .map((id) => reviewedById.get(id))
@@ -96,9 +87,6 @@ export default function MyListView({
       <div className="mt-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-text">나만의 영화 리스트</h1>
-          <p className="mt-1 text-xs text-muted">
-            오늘 조회수 {views.today} · 전체 조회수 {views.total}
-          </p>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
