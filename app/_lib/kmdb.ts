@@ -8,6 +8,37 @@
 
 import { toChosung, isChosungOnly } from "./hangul";
 
+// ── 외래어 표기 변형 정규화 ───────────────────────────────────────────────────
+// 검색어와 DB 저장 이름 양쪽에 모두 적용해서 "앤소니/안소니", "쓰/스" 류를 흡수한다.
+// 모음이 짧아서 비교할 글자 수가 적은 외래어 이름은 한 글자 차이로 아예 안 잡히기 때문에
+// 정규화를 양방향으로 적용해 같은 canonical form으로 수렴시킨다.
+function normalizePhoneme(text: string): string {
+  return text
+    .replace(/앤/g, "안")   // 앤서니→안서니, 앤더슨→안더슨
+    .replace(/엔/g, "안")   // 엔드류→안드류
+    .replace(/쓰/g, "스")   // 드림웍쓰→드림웍스
+    .replace(/빼/g, "패")   // 빼트릭→패트릭
+    .replace(/까/g, "카")   // 까뮈→카뮈
+    .replace(/꾸/g, "쿠")
+    .replace(/끄/g, "크")
+    .replace(/쁘/g, "프");
+}
+
+// 검색어의 음소 변형을 최대 2개 생성한다.
+// rawSearch를 여러 변형으로 병렬 실행할 때 사용한다.
+function getPhonemeVariants(query: string): string[] {
+  const variants = new Set<string>();
+  // 앤↔안 (가장 흔한 쌍)
+  if (query.includes("앤")) variants.add(query.replace(/앤/g, "안"));
+  if (query.includes("안")) variants.add(query.replace(/안/g, "앤"));
+  // 스↔쓰
+  if (query.includes("쓰")) variants.add(query.replace(/쓰/g, "스"));
+  // 정규화 결과와 같으면 제거 (중복 쿼리 방지)
+  const normalized = normalizePhoneme(query);
+  if (normalized !== query) variants.add(normalized);
+  return Array.from(variants).filter((v) => v !== query);
+}
+
 const KMDB_API_BASE =
   "http://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json2.jsp";
 
@@ -454,12 +485,23 @@ export type KmdbPersonHit = {
 // 같은 순수 초성 검색어는 KMDb 검색엔진이 애초에 이해하지 못해 후보 자체가 안 잡힐 수
 // 있다 — 그런 경우 이 초성 비교 로직까지 갈 후보 풀 자체가 비어 있게 된다.
 export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbPersonHit[]> {
-  // 50건으로 활동량이 많은 배우/감독의 주요 작품을 커버하면서 응답 크기를 2MB 이내로 유지한다
-  // (detail=Y&listCount=100은 ~3.2MB로 Next.js 2MB 캐시 한도를 초과해 캐싱이 안 됨).
-  const results = await rawSearch(query, 50);
+  // 음소 변형 쿼리와 원본을 병렬로 KMDb에 요청한다.
+  // "앤소니 홉킨스" 입력 시 "안소니 홉킨스"로도 검색해 KMDb DB에 저장된 표기를 모두 잡는다.
+  const variants = getPhonemeVariants(query);
+  const [originalResults, ...variantResults] = await Promise.all([
+    rawSearch(query, 50),
+    ...variants.map((v) => rawSearch(v, 30)),
+  ]);
+  // DOCID 기준 중복 제거 후 합산
+  const seenDocIds = new Set(originalResults.map((r) => r.DOCID));
+  const results = [
+    ...originalResults,
+    ...variantResults.flat().filter((r) => !seenDocIds.has(r.DOCID)),
+  ];
   if (results.length === 0) return [];
 
   const normalizedQuery = normalizeTitle(query);
+  const normalizedQueryPhoneme = normalizeTitle(normalizePhoneme(query));
   const queryChosung = isChosungOnly(query) ? query.replace(/\s+/g, "") : null;
   // 키를 kmdbId 하나로만 두면, 같은 숫자 코드가 (드물게도) 감독 credit과 배우 credit
   // 양쪽에 다 등장할 때 둘이 하나로 합쳐져서 creditCount가 뒤섞이고 role은 먼저 잡힌
@@ -470,7 +512,10 @@ export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbP
 
   const matches = (korean?: string, english?: string) => {
     if (korean) {
-      if (normalizeTitle(korean).includes(normalizedQuery)) return true;
+      const normalizedKorean = normalizeTitle(korean);
+      if (normalizedKorean.includes(normalizedQuery)) return true;
+      // 음소 정규화 후 비교 — "앤소니"와 "안소니"를 같은 표기로 취급
+      if (normalizeTitle(normalizePhoneme(korean)).includes(normalizedQueryPhoneme)) return true;
       if (queryChosung && toChosung(korean).includes(queryChosung)) return true;
     }
     if (english && normalizeTitle(english).includes(normalizedQuery)) return true;
