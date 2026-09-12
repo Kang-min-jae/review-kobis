@@ -72,16 +72,16 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
 async function winnersToRows(winners: FestivalWinner[], festival: FestivalType): Promise<AwardMovieRow[]> {
   if (winners.length === 0) return [];
 
-  // 가장 최근 시상식 연도만 표시 — 여러 해 데이터가 섞여 있어도 최신 것만 보여준다.
-  const maxYear = Math.max(...winners.map((w) => w.ceremonyYear));
-  const recentWinners = winners.filter((w) => w.ceremonyYear === maxYear);
+  // rowsToMap이 이미 awardQid별 최신 연도 수상작만 남기므로 추가 연도 필터 없이
+  // 카테고리별 가장 최신 수상작을 전부 표시한다. Wikidata에 특정 부문의 최신 연도 데이터가
+  // 아직 없어도 그 부문의 바로 직전 수상작이 빠지지 않는다.
 
   // 같은 영화+부문 조합만 중복 제거 — 같은 영화가 여러 부문을 수상하면 부문별로 카드를 따로 표시.
   const seenKeys = new Set<string>();
   const posterCache = new Map<string, string | null>();
 
   const results: AwardMovieRow[] = [];
-  for (const winner of recentWinners) {
+  for (const winner of winners) {
     const key = `${winner.filmQid}-${winner.categoryLabel}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
