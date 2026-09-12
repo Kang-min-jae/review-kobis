@@ -221,12 +221,12 @@ async function AwardWinnersData() {
 function MovieCategorySection() {
   return (
     <>
+      <Suspense fallback={<RowSkeleton />}>
+        <WeeklyBoxOfficeRowData />
+      </Suspense>
       <RecommendedSection />
       <Suspense fallback={null}>
         <AwardWinnersData />
-      </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <WeeklyBoxOfficeRowData />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RecentMoviesRowData />
