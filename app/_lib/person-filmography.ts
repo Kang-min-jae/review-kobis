@@ -8,7 +8,7 @@ import {
 } from "./kobis";
 import { searchKmdbFilmography } from "./kmdb";
 import { getTmdbPersonMovieCredits, resolveTmdbPersonIdByName } from "./tmdb";
-import { isRecentlyOpened, genreFields, summaryToRowMovie, findAwardWinnerMovieCds, type RowMovie } from "./movie-rows";
+import { isRecentlyOpened, genreFields, summaryToRowMovie, type RowMovie } from "./movie-rows";
 import { getMovieMeta, getMovieMetas } from "./movie-rate-info";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -396,7 +396,7 @@ export async function getPersonFilmography(
   personId: string | null,
   role: "감독" | "배우" | null
 ): Promise<RowMovie[]> {
-  if (!personId) return enrichWithAwards(await fetchAndCacheFilmography(name, personId, role));
+  if (!personId) return fetchAndCacheFilmography(name, personId, role);
 
   const cached = await db.cachedPerson.findUnique({ where: { kmdbId: personId } });
   // tmdbId가 아직 없는 캐시는 nameEn이 새로 생겨 TMDB 재시도가 가능할 수 있으므로
@@ -409,7 +409,7 @@ export async function getPersonFilmography(
 
   // 방금 새로 계산한 결과(!isFresh)엔 findMoviesByCastKmdbId/findMoviesByCastTmdbId가
   // 이미 포함돼 있다.
-  if (!isFresh) return enrichWithAwards(base);
+  if (!isFresh) return base;
 
   // 캐시가 신선해도, "영화 상세페이지의 캐스트에서 이 사람 이름을 클릭하면 그 영화는
   // 반드시 필모그래피에 있어야 한다"는 요구사항은 캐시 TTL과 무관하게 항상 보장돼야
@@ -425,19 +425,5 @@ export async function getPersonFilmography(
   for (const row of [...liveReverseRows, ...liveTmdbReverseRows]) {
     if (!byId.has(row.id)) byId.set(row.id, row);
   }
-  return enrichWithAwards(Array.from(byId.values()));
-}
-
-async function enrichWithAwards(movies: RowMovie[]): Promise<RowMovie[]> {
-  const kobasCds = movies
-    .filter((m) => m.id.startsWith("kobis-"))
-    .map((m) => m.id.replace(/^kobis-/, ""));
-  if (kobasCds.length === 0) return movies;
-  const awardMap = await findAwardWinnerMovieCds(kobasCds);
-  if (awardMap.size === 0) return movies;
-  return movies.map((m) => {
-    const cd = m.id.replace(/^kobis-/, "");
-    const awards = awardMap.get(cd);
-    return awards ? { ...m, awardBadge: true as const, festivalAwards: awards } : m;
-  });
+  return Array.from(byId.values());
 }

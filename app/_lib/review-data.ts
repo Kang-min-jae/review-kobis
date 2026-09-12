@@ -57,9 +57,7 @@ export async function getReviewsForCategoryType(
   userId: string | null
 ): Promise<ReviewWithAuthor[]> {
   const rows = await db.review.findMany({
-    // 글 없이 평점만 남겨서 생긴 빈 한줄평(submitCategoryRatingAction 참고)은 다른
-    // 사람에게 보여줄 목록에선 뺀다 — 빈 리뷰 항목을 목록에 보여줄 필요는 없다.
-    where: { movieCd, category, type, content: { not: "" } },
+    where: { movieCd, category, type },
     orderBy: { createdAt: "desc" },
     include: {
       user: { select: { nickname: true, name: true } },
@@ -80,7 +78,7 @@ export async function getReviewsForCategoryType(
   }));
 }
 
-export type MyReview = { rating: number; content: string } | null;
+export type MyReview = { rating: number; content: string; createdAt: string } | null;
 
 // 지금 로그인한 사람이 이 영화의 이 항목·타입(한줄평/장문평)에 이미 남긴 리뷰(있으면).
 export async function getMyReview(
@@ -93,5 +91,5 @@ export async function getMyReview(
   const row = await db.review.findFirst({
     where: { userId, movieCd, category, type },
   });
-  return row ? { rating: row.rating, content: row.content } : null;
+  return row ? { rating: row.rating, content: row.content, createdAt: row.createdAt.toISOString() } : null;
 }

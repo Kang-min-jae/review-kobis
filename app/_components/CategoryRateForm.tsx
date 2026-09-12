@@ -89,6 +89,11 @@ function ReviewVoteButtons({
   );
 }
 
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}
+
 type ReviewTab = "SHORT" | "LONG";
 
 const tabs: { type: ReviewTab; label: string }[] = [
@@ -140,7 +145,10 @@ export default function CategoryRateForm({
   const tooManySentences = activeTab === "SHORT" && sentenceCount > SHORT_MAX_SENTENCES;
   const canSubmitReview = !tooManySentences;
   const myReview = myReviews[activeTab];
-  const activeReviews = reviews[activeTab].filter((r) => r.content.trim().length > 0);
+  // SHORT: 평점만 남긴 것도 포함해서 모두 표시, LONG: 텍스트 있는 것만 표시
+  const displayReviews = activeTab === "SHORT"
+    ? reviews[activeTab]
+    : reviews[activeTab].filter((r) => r.content.trim().length > 0);
 
   async function handleSubmitReview(e: FormEvent) {
     e.preventDefault();
@@ -193,6 +201,31 @@ export default function CategoryRateForm({
           </button>
         ))}
       </div>
+
+      {myReview && (
+        <div className="mt-4 rounded-lg border border-neutral-700 bg-surface px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-star">내 평점</span>
+              <StarRating rating={myReview.rating} scale={scale} size="h-5 w-5" />
+              <span className="text-xl font-bold text-text">
+                {myReview.rating.toFixed(1)}
+                <span className="text-xs font-normal text-muted">/{scale.toFixed(1)}</span>
+              </span>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted">
+                {myReview.content.trim()
+                  ? myReview.content.trim().slice(0, 24) + (myReview.content.trim().length > 24 ? "…" : "")
+                  : `${activeTab === "SHORT" ? "한줄평" : "장문평"} 없음`}
+              </p>
+              <p className="mt-0.5 text-xs text-muted">
+                {formatDate(myReview.createdAt)} 등록 · 수정
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmitReview} className="mt-4 space-y-4">
         <div>
@@ -261,27 +294,40 @@ export default function CategoryRateForm({
 
       <div className="mt-8">
         <h2 className="text-sm font-bold text-text">
-          {category} {tabs.find((t) => t.type === activeTab)?.label} ({activeReviews.length})
+          전체 {tabs.find((t) => t.type === activeTab)?.label} ({displayReviews.length})
         </h2>
-        <ul className="mt-3 space-y-3">
-          {activeReviews.map((review) => (
-            <li key={review.id} className="rounded-lg bg-surface p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-text">{review.authorName}</span>
-                <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+        <ul className="mt-3 space-y-4">
+          {displayReviews.map((review) => (
+            <li key={review.id} className="flex gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text">
+                {review.authorName.charAt(0)}
               </div>
-              <div className="mt-1.5">
-                <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
-              </div>
-              <div className="mt-2">
-                <ReviewVoteButtons
-                  reviewId={review.id}
-                  isLoggedIn={isLoggedIn}
-                  onSignInRequired={goToSignIn}
-                  initialLikeCount={review.likeCount}
-                  initialDislikeCount={review.dislikeCount}
-                  initialMyVote={review.myVote}
-                />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-text">{review.authorName}</span>
+                  <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+                  <span className="text-xs font-bold text-text">{review.rating.toFixed(1)}</span>
+                  {!review.content.trim() && (
+                    <span className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] text-muted">
+                      평점만 남김
+                    </span>
+                  )}
+                </div>
+                {review.content.trim() && (
+                  <div className="mt-1">
+                    <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
+                  </div>
+                )}
+                <div className="mt-2">
+                  <ReviewVoteButtons
+                    reviewId={review.id}
+                    isLoggedIn={isLoggedIn}
+                    onSignInRequired={goToSignIn}
+                    initialLikeCount={review.likeCount}
+                    initialDislikeCount={review.dislikeCount}
+                    initialMyVote={review.myVote}
+                  />
+                </div>
               </div>
             </li>
           ))}
