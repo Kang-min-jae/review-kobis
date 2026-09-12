@@ -146,7 +146,7 @@ async function getAwardDetailsByTmdbId(): Promise<Map<string, FestivalAward[]>> 
 }
 
 // movieCd 배열 → movieCd별 수상 내역 맵. CachedMovie.tmdbId를 기준으로 교차.
-async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
+export async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
   if (movieCds.length === 0) return new Map();
   const byTmdbId = await getAwardDetailsByTmdbId();
   if (byTmdbId.size === 0) return new Map();
