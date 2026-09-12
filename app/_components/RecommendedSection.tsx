@@ -2,19 +2,37 @@
 
 import { useEffect, useState } from "react";
 import MovieRow from "./MovieRow";
-import { getUserRatedMovieCdsSnapshot } from "../_lib/reviews-store";
+import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
+import { RATING_CATEGORIES, getMyCategoryRating } from "../_lib/category-ratings-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
-// 서버 컴포넌트는 이 브라우저의 localStorage(내가 남긴 평점)에 접근할 수 없어서,
-// 클라이언트에서 시드를 읽어 /api/recommendations로 넘기는 방식으로 구현했다.
 export default function RecommendedSection() {
   const [movies, setMovies] = useState<RowMovie[] | null>(null);
 
   useEffect(() => {
-    const movieCds = getUserRatedMovieCdsSnapshot();
-    const query = movieCds.length > 0 ? `?movieCds=${movieCds.join(",")}` : "";
+    const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
+      movieId: r.id,
+      rating: r.rating,
+      ratedAt: r.ratedAt,
+    }));
 
-    fetch(`/api/recommendations${query}`)
+    // Collect category ratings for all rated movies and all non-"전체" categories
+    const myCategoryRatings: { movieId: string; category: string; value: number }[] = [];
+    for (const r of myRatings) {
+      for (const cat of RATING_CATEGORIES) {
+        if (cat === "전체") continue;
+        const value = getMyCategoryRating(r.movieId, cat);
+        if (value !== null) {
+          myCategoryRatings.push({ movieId: r.movieId, category: cat, value });
+        }
+      }
+    }
+
+    fetch("/api/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ myRatings, myCategoryRatings }),
+    })
       .then((res) => res.json())
       .then((data: { results?: RowMovie[] }) => setMovies(data.results ?? []))
       .catch(() => setMovies([]));

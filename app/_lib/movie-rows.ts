@@ -26,6 +26,10 @@ export type RowMovie = {
   // 장르와 겹치는 비율은 클라이언트(브라우저 localStorage)만 알 수 있어서, 서버는
   // 재료(이 영화의 전체 장르)만 실어 보내고 실제 계산은 MovieCard가 한다.
   allGenres?: string[];
+  // 개인화 추천 알고리즘이 계산한 추천 점수(0~100). 이 값이 있으면 matchBadge 대신 쓴다.
+  recommendScore?: number;
+  // LLM이 생성한 추천 이유 한 줄 — genre 필드 대신 카드 하단에 표시한다.
+  recommendReason?: string;
 };
 
 export function splitGenres(genreAlt: string | null | undefined): string[] {

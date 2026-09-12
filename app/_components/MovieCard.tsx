@@ -34,14 +34,17 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
     ensureSeedGenresLoaded();
   }, []);
 
+  // recommendScore from the server-side algorithm takes priority; fall back to
+  // the client-side genre Jaccard calculation if not set.
   const matchBadge = useMemo(() => {
+    if (movie.recommendScore != null) return `추천 ${movie.recommendScore}%`;
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
     if (overlapCount === 0) return null;
     const percent = Math.round((overlapCount / movie.allGenres.length) * 100);
     return `추천 ${percent}%`;
-  }, [seedGenres, movie.allGenres]);
+  }, [seedGenres, movie.allGenres, movie.recommendScore]);
 
   return (
     <div
@@ -111,7 +114,9 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
 
       <div className="mt-2.5 space-y-1.5 px-0.5 pb-1">
         <p className="line-clamp-2 text-sm font-bold text-text">{movie.title}</p>
-        {movie.genre && <p className="text-xs text-sky-400">{movie.genre}</p>}
+        {(movie.recommendReason ?? movie.genre) && (
+          <p className="text-xs text-sky-400">{movie.recommendReason ?? movie.genre}</p>
+        )}
         <RatingSummary movieId={movie.id} />
         <TopLikedReview movieId={movie.id} />
       </div>
