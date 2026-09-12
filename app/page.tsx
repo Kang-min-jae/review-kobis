@@ -268,7 +268,7 @@ async function CuratedSeriesSection() {
 async function PopularSeriesSection() {
   const movies = await getPopularSeriesRow();
   if (movies.length === 0) return null;
-  return <MovieRow title="인기 시리즈물" subtitle="사용자 평점 등록 많은 순" movies={movies} />;
+  return <MovieRow title="Best 시리즈물" subtitle="사용자 평점 높은 순" movies={movies} />;
 }
 
 async function Top10SeriesData() {

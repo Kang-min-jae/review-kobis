@@ -98,14 +98,15 @@ export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
   return results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
 }
 
-// 사용자 평점 수 기준 인기 시리즈 행 — 데이터 부족 시 TMDB 인기 순으로 폴백.
+// 사용자 평균 평점(전체) 기준 Best 시리즈 행 — 데이터 부족 시 TMDB 인기 순으로 폴백.
 export async function getPopularSeriesRow(): Promise<RowMovie[]> {
-  let topRated: { movieCd: string; _count: { movieCd: number } }[] = [];
+  let topRated: { movieCd: string; _avg: { score: number | null } }[] = [];
   try {
     topRated = await db.categoryRating.groupBy({
       by: ["movieCd"],
-      _count: { movieCd: true },
-      orderBy: { _count: { movieCd: "desc" } },
+      where: { category: "전체" },
+      _avg: { score: true },
+      orderBy: { _avg: { score: "desc" } },
       take: 80,
     });
   } catch {
