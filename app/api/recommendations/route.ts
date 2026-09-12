@@ -388,13 +388,14 @@ export async function POST(request: Request) {
       isNowShowing: false,
       genre,
       allGenres,
-      recommendScore,
+      // cold start: score is 0, don't attach the badge so MovieCard shows nothing
+      recommendScore: recommendScore > 0 ? recommendScore : undefined,
       recommendReason: llm?.reason ?? undefined,
     };
   });
 
-  // Filter out cards without posters and 0-score movies (no affinity)
-  const withPosters = results.filter((r) => r.posterUrl !== null && (r.recommendScore ?? 0) > 0);
+  // Filter out cards without posters; keep cold-start (score=undefined) and scored movies
+  const withPosters = results.filter((r) => r.posterUrl !== null);
 
   return NextResponse.json({ results: withPosters });
 }
