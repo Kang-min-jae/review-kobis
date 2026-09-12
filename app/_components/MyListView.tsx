@@ -49,10 +49,12 @@ export default function MyListView({
   myRatedMovies,
   followerCount = 0,
   followingList = [],
+  showCalendar = true,
 }: {
   myRatedMovies: MyRatedMovie[];
   followerCount?: number;
   followingList?: FollowingUser[];
+  showCalendar?: boolean;
 }) {
   useEffect(() => {
     recordView();
@@ -89,7 +91,7 @@ export default function MyListView({
 
   return (
     <div className="px-5 py-6">
-      <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} />
+      {showCalendar && <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} />}
 
       <div className="mt-6 flex items-start justify-between gap-4">
         <div>

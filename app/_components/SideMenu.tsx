@@ -202,7 +202,7 @@ export default function SideMenu({
                 다이어리
               </Link>
               <Link
-                href="/my-list#collections"
+                href="/collection"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
