@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { RATING_CATEGORIES, type RatingCategory } from "./category-ratings-store";
+import { getBadge } from "./tier";
 
 export type CategoryAverage = { category: RatingCategory; average: number | null; count: number };
 
@@ -42,6 +43,7 @@ export type ReviewWithAuthor = {
   hasSpoiler: boolean;
   authorId: string;
   authorName: string;
+  authorTier: string; // 관객 / 씨네필 / 평론가 / 거장
   createdAt: string;
   likeCount: number;
   dislikeCount: number;
@@ -60,7 +62,7 @@ export async function getReviewsForCategoryType(
     where: { movieCd, category, type },
     orderBy: { createdAt: "desc" },
     include: {
-      user: { select: { nickname: true, name: true } },
+      user: { select: { nickname: true, name: true, totalLikes: true } },
       likes: userId ? { where: { userId }, select: { type: true } } : false,
     },
   });
@@ -71,6 +73,7 @@ export async function getReviewsForCategoryType(
     hasSpoiler: r.hasSpoiler,
     authorId: r.userId,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
+    authorTier: getBadge(r.user.totalLikes),
     createdAt: r.createdAt.toISOString(),
     likeCount: r.likeCount,
     dislikeCount: r.dislikeCount,

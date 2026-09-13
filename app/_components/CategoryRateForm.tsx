@@ -15,6 +15,22 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+const TIER_STYLES: Record<string, { label: string; className: string }> = {
+  관객:   { label: "관객",   className: "border-neutral-600 text-muted" },
+  씨네필: { label: "씨네필", className: "border-sky-500/60 text-sky-400" },
+  평론가: { label: "평론가", className: "border-violet-500/60 text-violet-400" },
+  거장:   { label: "거장",   className: "border-yellow-400/60 text-yellow-300" },
+};
+
+function TierBadge({ tier }: { tier: string }) {
+  const style = TIER_STYLES[tier] ?? TIER_STYLES["관객"];
+  return (
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${style.className}`}>
+      {style.label}
+    </span>
+  );
+}
+
 // 리뷰 하나에 대한 좋아요/싫어요 버튼. 낙관적으로 먼저 화면을 바꾸고, 서버 액션이
 // 실패하면 원래대로 되돌린다 — 매 클릭마다 router.refresh()로 페이지 전체를 다시
 // 그리진 않아 반응이 즉각적이다(카운트는 이 컴포넌트 안에서만 갱신되고, 다음 페이지
@@ -320,6 +336,7 @@ export default function CategoryRateForm({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold text-text">{review.authorName}</span>
+                  <TierBadge tier={review.authorTier} />
                   <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
                   {!review.content.trim() && (
                     <span className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] text-muted">
