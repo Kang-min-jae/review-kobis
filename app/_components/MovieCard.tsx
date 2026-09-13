@@ -73,7 +73,8 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
     if (overlapCount === 0) return null;
-    const percent = Math.round((overlapCount / movie.allGenres.length) * 100);
+    // 분모를 사용자 선호 장르 수로: "내 취향 장르 중 몇 %를 이 영화가 커버하는가"
+    const percent = Math.round((overlapCount / seedGenres.length) * 100);
     return `추천 ${percent}%`;
   }, [seedGenres, affinityScores, movie.allGenres, movie.recommendScore, movie.id]);
 
