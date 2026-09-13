@@ -157,9 +157,8 @@ async function filmographyFromTmdb(
   const credits = await getTmdbPersonMovieCredits(tmdbId, role);
   if (credits.length === 0) return { rows: [], tmdbId };
 
-  // KOBIS movieCd를 찾아 KOFIC/KMDb 포스터를 가져온다 — TMDB 포스터 URL은 절대
-  // 사용하지 않는다. originalTitle(영문 원제)을 titleEn 힌트로 넘겨 외화에서
-  // KOBIS 매칭 성공률을 높인다.
+  // KOBIS movieCd를 찾아 KMDb 포스터를 우선 쓰고, KMDb에 없으면 TMDB 포스터로 보완.
+  // originalTitle(영문 원제)을 titleEn 힌트로 넘겨 외화에서 KOBIS 매칭 성공률을 높인다.
   const movieCds = await Promise.all(
     credits.map((c) => findMovieCdByTitleAndPerson(c.title, name, c.originalTitle, role, c.releaseDate?.slice(0, 4)))
   );
@@ -172,10 +171,13 @@ async function filmographyFromTmdb(
     return {
       id: movieCd ? `kobis-${movieCd}` : `tmdb-${c.tmdbId}`,
       title: meta?.movieTitle ?? c.title,
+      // KMDb 포스터가 없으면(null) TMDB 포스터로 보완 — 외화는 KMDb에 포스터가
+      // 없는 경우가 많아서, 이 폴백이 없으면 포스터가 아예 안 나온다.
       posterUrl: meta?.posterUrl ?? c.posterUrl,
       gradient: FALLBACK_GRADIENT,
       isNowShowing: movieCd ? isRecentlyOpened(c.releaseDate) : false,
       releaseDate: meta?.releaseDate ?? c.releaseDate,
+      ...genreFields(meta?.genreAlt ?? null),
     };
   });
   return { rows, tmdbId };
@@ -324,14 +326,41 @@ async function fetchAndCacheFilmography(
 
   // TMDB 필모그래피는 KOBIS movieCd를 못 찾은 작품이면 id가 tmdb-<id>가 되는데,
   // 같은 영화가 KMDb 쪽에서도 movieCd 없이(kmdb-<docid>) 이미 들어와 있을 수 있다 —
-  // id 체계가 서로 달라 id만으로는 이 중복을 못 걸러내므로, 제목으로 한 번 더
-  // 대조해서 이미 있는 작품은 건너뛴다.
-  const existingTitles = new Set(Array.from(byId.values()).map((r) => normalizeTitleForOverlap(r.title)));
+  // id 체계가 서로 달라 id만으로는 이 중복을 못 걸러내므로 제목으로 한 번 더 대조한다.
+  // • 같은 ID: 포스터만 보완 (기존 포스터 없을 때)
+  // • 제목 동일 + kmdb-* 기존: TMDB ratable 항목으로 교체 (포스터·평점 버튼 복원)
+  // • 제목 동일 + kobis-* 기존: 포스터만 보완
+  const titleToExistingId = new Map<string, string>(); // normalized title → existing id
+  for (const [id, row] of byId) {
+    titleToExistingId.set(normalizeTitleForOverlap(row.title), id);
+  }
+
   for (const row of tmdbResult.rows) {
     const normalized = normalizeTitleForOverlap(row.title);
-    if (byId.has(row.id) || existingTitles.has(normalized)) continue;
+
+    if (byId.has(row.id)) {
+      const existing = byId.get(row.id)!;
+      if (!existing.posterUrl && row.posterUrl) {
+        byId.set(row.id, { ...existing, posterUrl: row.posterUrl });
+      }
+      continue;
+    }
+
+    const existingId = titleToExistingId.get(normalized);
+    if (existingId !== undefined) {
+      const existing = byId.get(existingId)!;
+      if (existing.id.startsWith("kmdb-")) {
+        byId.delete(existingId);
+        byId.set(row.id, row);
+        titleToExistingId.set(normalized, row.id);
+      } else if (!existing.posterUrl && row.posterUrl) {
+        byId.set(existingId, { ...existing, posterUrl: row.posterUrl });
+      }
+      continue;
+    }
+
     byId.set(row.id, row);
-    existingTitles.add(normalized);
+    titleToExistingId.set(normalized, row.id);
   }
   let movies = Array.from(byId.values());
 
