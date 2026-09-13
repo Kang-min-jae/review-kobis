@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
-import { getMovieMeta, getMovieMetas } from "../../_lib/movie-rate-info";
+import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
@@ -9,17 +9,21 @@ import { db } from "../../_lib/db";
 
 type MovieHit = KobisSearchHit & { posterUrl: string | null };
 
-// ── 인-메모리 검색 결과 캐시 (2분 TTL) ───────────────────────────────────────
-// 서버리스 환경에서도 요청 간 모듈 상태가 유지되는 동안은 살아있어, 같은 쿼리를
-// 짧은 간격으로 반복해서 보낼 때(디바운스 내 중복 요청, 뒤로가기 후 재검색 등)
-// 외부 API를 다시 호출하지 않고 즉시 응답한다.
+// ── 제목 정규화 ───────────────────────────────────────────────────────────────
+// "&", "-", 공백, 괄호, 쉼표 등을 제거해 "미스터 & 미세스 스미스"와
+// "미스터미세스스미스"가 동일하게 검색되게 한다. DB contains 조건에 병행 적용.
+function normalizeForSearch(q: string): string {
+  return q.replace(/[\s&\-,()（）·:：'"]/g, "").toLowerCase();
+}
 
-type CacheEntry = {
-  data: object;
-  expiresAt: number;
-};
+// ── 서버 인메모리 LRU 캐시 (2분 TTL, 최대 300개) ──────────────────────────────
+// 서버리스 환경에서도 요청 간 모듈 상태가 유지되는 동안 살아있어, 같은 쿼리를
+// 짧은 간격으로 반복해서 보낼 때 외부 API를 다시 호출하지 않고 즉시 응답한다.
+
+type CacheEntry = { data: object; expiresAt: number };
 const searchCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2분
+const CACHE_MAX_SIZE = 300;
 
 function getCached(key: string): object | null {
   const entry = searchCache.get(key);
@@ -28,33 +32,55 @@ function getCached(key: string): object | null {
     searchCache.delete(key);
     return null;
   }
+  // LRU: 접근할 때 끝으로 이동
+  searchCache.delete(key);
+  searchCache.set(key, entry);
   return entry.data;
 }
 
 function setCache(key: string, data: object) {
-  // 캐시가 너무 커지지 않도록 오래된 항목을 지운다
-  if (searchCache.size > 200) {
-    const now = Date.now();
-    for (const [k, v] of searchCache) {
-      if (now > v.expiresAt) searchCache.delete(k);
-    }
+  // 용량 초과 시 가장 오래된 항목(Map 순서의 첫 번째)을 제거
+  if (searchCache.size >= CACHE_MAX_SIZE) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest !== undefined) searchCache.delete(oldest);
   }
   searchCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-// ── 포스터 붙이기: 배치 조회 ──────────────────────────────────────────────────
-// 기존에는 hits.map(getMovieMeta) → N개의 개별 DB findUnique 요청이었지만,
-// getMovieMetas를 쓰면 한 번의 findMany로 캐시된 항목을 모두 가져온다.
-// 캐시 미스(처음 보는 영화)인 경우에만 각 항목별로 KOBIS+KMDb를 호출한다.
+// ── 포스터 배치 조회 ──────────────────────────────────────────────────────────
 async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
   if (hits.length === 0) return [];
   const metas = await getMovieMetas(hits.map((h) => h.movieCd));
   return hits.map((hit) => ({ ...hit, posterUrl: metas.get(hit.movieCd)?.posterUrl ?? null }));
 }
 
-// ── CachedPerson 인물 검색 (한글명 + 영문명) ──────────────────────────────────
-// name(한글명)과 nameEn(영문명)을 동시에 검색한다. 외국 인물이 영문 이름으로
-// CachedPerson에 캐시돼 있을 때 한글 쿼리로는 못 찾는 한계를 보완한다.
+// ── DB 영화 검색 (정규화 쿼리 병행) ──────────────────────────────────────────
+// 원본 쿼리와 정규화 쿼리(공백·특수문자 제거) 두 가지로 동시에 contains 검색한다.
+async function searchCachedMovies(query: string): Promise<MovieHit[]> {
+  const normalized = normalizeForSearch(query);
+  const orConditions: object[] = [{ title: { contains: query, mode: "insensitive" } }];
+  if (normalized !== query.toLowerCase()) {
+    orConditions.push({ title: { contains: normalized, mode: "insensitive" } });
+  }
+
+  const rows = await db.cachedMovie.findMany({
+    where: { OR: orConditions },
+    select: { movieCd: true, title: true, releaseDate: true, posterUrl: true },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+  });
+  return rows
+    .filter((r) => r.movieCd && !r.movieCd.startsWith("wikidata-"))
+    .map((r) => ({
+      movieCd: r.movieCd,
+      title: r.title,
+      releaseDate: r.releaseDate,
+      genre: null,
+      posterUrl: r.posterUrl,
+    }));
+}
+
+// ── DB 인물 검색 (한글명 + 영문명) ───────────────────────────────────────────
 async function searchCachedPeople(query: string): Promise<Array<KmdbPersonHit & { tmdbId?: string }>> {
   const rows = await db.cachedPerson.findMany({
     where: {
@@ -75,27 +101,6 @@ async function searchCachedPeople(query: string): Promise<Array<KmdbPersonHit & 
     latestYear: null,
     tmdbId: r.tmdbId ?? undefined,
   }));
-}
-
-// ── DB 제목 검색 (빠른 경로) ──────────────────────────────────────────────────
-// CachedMovie 테이블을 로컬에서 먼저 검색한다. 이미 한 번이라도 조회된 영화(홈
-// 화면·평점 페이지 등에서 캐시된)는 외부 API 왕복 없이 바로 반환한다.
-async function searchCachedMovies(query: string): Promise<MovieHit[]> {
-  const rows = await db.cachedMovie.findMany({
-    where: { title: { contains: query, mode: "insensitive" } },
-    select: { movieCd: true, title: true, releaseDate: true, posterUrl: true },
-    orderBy: { updatedAt: "desc" },
-    take: 10,
-  });
-  return rows
-    .filter((r) => r.movieCd && !r.movieCd.startsWith("wikidata-"))
-    .map((r) => ({
-      movieCd: r.movieCd,
-      title: r.title,
-      releaseDate: r.releaseDate,
-      genre: null,
-      posterUrl: r.posterUrl,
-    }));
 }
 
 // ── KOFIC 대표작 붙이기 ───────────────────────────────────────────────────────
@@ -145,10 +150,6 @@ async function withIdentityMappingOverride(people: KmdbPersonHit[], query: strin
 }
 
 // ── LLM 오타 교정 ─────────────────────────────────────────────────────────────
-// 1차 검색 결과가 0건일 때만 호출한다(비용·지연 최소화).
-// Claude Haiku로 교정 단어 + 영문 키워드 배열을 추출한다.
-// API 키 미설정 또는 오류 시 null 반환 → 기존 KMDb 폴백으로 이어짐.
-
 type LlmCorrection = {
   isValid: boolean;
   isCorrected: boolean;
@@ -214,13 +215,59 @@ Output: {"isValid":true,"isCorrected":false,"originalQuery":"봉준호","correct
   }
 }
 
+// ── 외부 API 결과 → CachedPerson 비동기 저장 ─────────────────────────────────
+// KMDb/TMDB 검색 결과를 DB에 저장해두면 다음 동일 검색은 외부 API 없이 DB-fast path로 처리된다.
+// await하지 않아 응답을 블로킹하지 않는다.
+async function asyncSavePeopleToDb(
+  kmdbPeople: KmdbPersonHit[],
+  tmdbPeople: Array<{ tmdbId: string; name: string }>
+): Promise<void> {
+  const upserts: Promise<unknown>[] = [];
+
+  // KMDb 인물: kmdbId가 있는 경우만 (이미 CachedPerson에 있을 가능성 높음)
+  for (const p of kmdbPeople.slice(0, 5)) {
+    if (!p.kmdbId) continue;
+    upserts.push(
+      db.cachedPerson.upsert({
+        where: { kmdbId: p.kmdbId },
+        create: { kmdbId: p.kmdbId, name: p.name, role: p.role, filmography: [] },
+        update: { name: p.name },
+      }).catch(() => {})
+    );
+  }
+
+  // TMDB-only 외국 인물: synthetic id "tmdb-{tmdbId}" 로 저장
+  for (const p of tmdbPeople.slice(0, 3)) {
+    const syntheticId = `tmdb-${p.tmdbId}`;
+    upserts.push(
+      db.cachedPerson.upsert({
+        where: { kmdbId: syntheticId },
+        create: { kmdbId: syntheticId, name: p.name, role: "배우", filmography: [], tmdbId: p.tmdbId },
+        update: { name: p.name, tmdbId: p.tmdbId },
+      }).catch(() => {})
+    );
+  }
+
+  await Promise.allSettled(upserts);
+}
+
 // ── 결과 조립 헬퍼 ────────────────────────────────────────────────────────────
-// 외부 API 결과 + DB 캐시 결과를 합치되, movieCd 기준으로 중복 제거한다.
-// 외부 API 결과가 더 신선하므로 우선순위가 높다.
 function mergeMovieHits(apiHits: MovieHit[], dbHits: MovieHit[]): MovieHit[] {
   const seen = new Set(apiHits.map((h) => h.movieCd));
   const extras = dbHits.filter((h) => !seen.has(h.movieCd));
   return [...apiHits, ...extras].slice(0, 10);
+}
+
+// ── 외부 API 풀 검색 (DB miss 시에만 호출) ───────────────────────────────────
+async function runExternalSearch(query: string) {
+  const [movieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits] = await Promise.all([
+    searchMoviesSince1960(query),
+    searchKmdbPeople(query, 8),
+    searchTmdbMulti(query),
+    searchCachedPeople(query),    // 외부 검색과 병행해 CachedPerson도 같이 조회
+    searchTmdbPerson(query),
+  ]);
+  return { movieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits };
 }
 
 // ── GET /api/search-movies?q=... ─────────────────────────────────────────────
@@ -232,39 +279,48 @@ export async function GET(request: Request) {
     return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
-  // 캐시 히트: 동일 쿼리에 대해 2분 이내 결과가 있으면 즉시 반환
+  // ── 1단계: 서버 인메모리 캐시 확인 ────────────────────────────────────────
   const cacheKey = query.toLowerCase();
   const cached = getCached(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
 
-  // DB 캐시 제목 검색 + 외부 API 검색을 동시에 시작한다.
-  // DB 검색은 보통 수ms, 외부 API는 수백ms~수초 — 둘 다 기다렸다가 합쳐서 반환한다.
-  const [dbHits, movieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits] = await Promise.all([
+  // ── 2단계: DB 우선 조회 (빠른 경로 — 외부 API 호출 없이 20~40ms 응답) ──────
+  const [dbMovies, dbPeople] = await Promise.all([
     searchCachedMovies(query),
-    searchMoviesSince1960(query),
-    searchKmdbPeople(query, 8),
-    searchTmdbMulti(query),
     searchCachedPeople(query),
-    searchTmdbPerson(query),
   ]);
+
+  // DB에 충분한 결과가 있으면 외부 API 호출 없이 즉시 반환.
+  // 기준: 영화 3편 이상, 또는 영화 1편 이상 + 인물 1명 이상.
+  const hasEnoughDbResults = dbMovies.length >= 3 || (dbMovies.length >= 1 && dbPeople.length >= 1);
+  if (hasEnoughDbResults) {
+    const result = {
+      movies: dbMovies,
+      series: [],
+      people: dbPeople.map((p) => ({ ...p, representativeWorks: [] })),
+      correctedQuery: null,
+    };
+    setCache(cacheKey, result);
+    return NextResponse.json(result);
+  }
+
+  // ── 3단계: DB miss → 외부 API 병렬 호출 ──────────────────────────────────
+  const { movieHits, rawPeople, multiHits, cachedPeople: freshCachedPeople, tmdbPersonHits } =
+    await runExternalSearch(query);
+
   const kmdbPeople = await withIdentityMappingOverride(rawPeople, query);
 
-  // KMDb 인물 결과를 기준으로, CachedPerson / TMDB 인물을 이름 기반으로 병합한다.
-  // 이미 KMDb에 있는 인물은 건너뛰고, 외국 인물처럼 KMDb에 없는 경우에만 추가한다.
   const mergedPeople: Array<KmdbPersonHit & { tmdbId?: string }> = [...kmdbPeople];
   const existingNames = new Set(kmdbPeople.map((p) => p.name.toLowerCase()));
 
-  // CachedPerson(이전에 조회된 외국 인물 포함) 보완
-  for (const cp of cachedPeople) {
+  for (const cp of freshCachedPeople) {
     if (!existingNames.has(cp.name.toLowerCase())) {
       mergedPeople.push(cp);
       existingNames.add(cp.name.toLowerCase());
     }
   }
-
-  // TMDB 인물 검색 결과 보완 — kmdbId 없이 tmdbId만 가지는 외국 인물
   for (const tp of tmdbPersonHits.slice(0, 3)) {
     if (!existingNames.has(tp.name.toLowerCase())) {
       mergedPeople.push({ kmdbId: "", name: tp.name, role: "배우", creditCount: 0, latestYear: null, tmdbId: tp.tmdbId });
@@ -276,42 +332,38 @@ export async function GET(request: Request) {
     .filter((h) => h.mediaType === "tv")
     .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-  if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbHits.length > 0) {
-    // 외부 API 결과에 포스터 배치 조회 (1번의 findMany) + 대표작 조회를 병렬 실행
+  if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbMovies.length > 0) {
     const [movies, peopleWithWorks] = await Promise.all([
       withPosters(movieHits),
       withRepresentativeWorks(kmdbPeople),
     ]);
 
-    // KMDb 대표작이 붙은 사람과 TMDB/CachedPerson에서 보완된 사람을 다시 합친다
     const kmdbNames = new Set(kmdbPeople.map((p) => p.name.toLowerCase()));
     const extraPeople = mergedPeople.filter((p) => !kmdbNames.has(p.name.toLowerCase()));
     const people = [...peopleWithWorks, ...extraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
 
-    const mergedMovies = mergeMovieHits(movies, dbHits);
+    // 외부 API 결과를 DB에 비동기 저장 (응답을 블로킹하지 않음)
+    asyncSavePeopleToDb(kmdbPeople, tmdbPersonHits).catch(console.error);
+
+    const mergedMovies = mergeMovieHits(movies, dbMovies);
     const result = { movies: mergedMovies, series: seriesHits, people, correctedQuery: null };
     setCache(cacheKey, result);
     return NextResponse.json(result);
   }
 
-  // 결과가 아예 없으면 LLM 오타 교정 시도.
-  // LLM이 반환한 searchKeywords(한글 교정어 + 영문명)를 순서대로 검색해
-  // 처음 결과가 나오는 키워드로 최종 응답을 만든다.
-  // LLM을 쓸 수 없는 환경(API 키 없음·오류)에서는 기존 KMDb 기반 교정으로 폴백한다.
+  // ── 4단계: 결과 없음 → LLM 오타 교정 시도 ───────────────────────────────
   const llmCorrection = await correctQueryWithLlm(query);
 
   let keywordsToTry: string[] = [];
   let didYouMean: string | null = null;
 
   if (llmCorrection?.isValid && llmCorrection.searchKeywords.length > 0) {
-    // 원본 쿼리와 동일한 키워드(대소문자 무시)는 이미 시도했으니 제외
     keywordsToTry = llmCorrection.searchKeywords.filter(
       (k) => k.toLowerCase() !== query.toLowerCase()
     );
     didYouMean = llmCorrection.isCorrected ? (llmCorrection.didYouMean ?? llmCorrection.correctedQuery) : null;
   }
 
-  // LLM 키워드가 없으면 KMDb 유사 제목 교정으로 폴백
   if (keywordsToTry.length === 0) {
     const suggested = await suggestSimilarTitle(query);
     if (suggested) {
@@ -326,16 +378,33 @@ export async function GET(request: Request) {
     return NextResponse.json(empty);
   }
 
-  // 키워드를 순서대로 시도 — 결과가 나오는 첫 번째 키워드에서 멈춘다
   for (const keyword of keywordsToTry) {
-    const [dbCorrectedHits, correctedMovieHits, rawCorrectedPeople, correctedMultiHits, correctedCachedPeople, correctedTmdbPersonHits] = await Promise.all([
+    // 교정 키워드도 DB-first로 먼저 조회
+    const [dbCorrected, dbCorrectedPeople] = await Promise.all([
       searchCachedMovies(keyword),
-      searchMoviesSince1960(keyword),
-      searchKmdbPeople(keyword, 8),
-      searchTmdbMulti(keyword),
       searchCachedPeople(keyword),
-      searchTmdbPerson(keyword),
     ]);
+
+    const hasEnoughCorrectedDb = dbCorrected.length >= 3 || (dbCorrected.length >= 1 && dbCorrectedPeople.length >= 1);
+    if (hasEnoughCorrectedDb) {
+      const result = {
+        movies: dbCorrected,
+        series: [],
+        people: dbCorrectedPeople.map((p) => ({ ...p, representativeWorks: [] })),
+        correctedQuery: didYouMean ?? keyword,
+      };
+      setCache(cacheKey, result);
+      return NextResponse.json(result);
+    }
+
+    const {
+      movieHits: correctedMovieHits,
+      rawPeople: rawCorrectedPeople,
+      multiHits: correctedMultiHits,
+      cachedPeople: correctedCachedPeople,
+      tmdbPersonHits: correctedTmdbPersonHits,
+    } = await runExternalSearch(keyword);
+
     const correctedKmdbPeople = await withIdentityMappingOverride(rawCorrectedPeople, keyword);
 
     const correctedMergedPeople: Array<KmdbPersonHit & { tmdbId?: string }> = [...correctedKmdbPeople];
@@ -357,7 +426,7 @@ export async function GET(request: Request) {
       .filter((h) => h.mediaType === "tv")
       .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-    const found = correctedMovieHits.length > 0 || correctedMergedPeople.length > 0 || correctedSeriesHits.length > 0 || dbCorrectedHits.length > 0;
+    const found = correctedMovieHits.length > 0 || correctedMergedPeople.length > 0 || correctedSeriesHits.length > 0 || dbCorrected.length > 0;
     if (!found) continue;
 
     const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
@@ -368,18 +437,18 @@ export async function GET(request: Request) {
     const correctedExtraPeople = correctedMergedPeople.filter((p) => !correctedKmdbNames.has(p.name.toLowerCase()));
     const correctedPeople = [...correctedPeopleWithWorks, ...correctedExtraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
 
+    asyncSavePeopleToDb(correctedKmdbPeople, correctedTmdbPersonHits).catch(console.error);
+
     const correctedResult = {
-      movies: mergeMovieHits(correctedMovies, dbCorrectedHits),
+      movies: mergeMovieHits(correctedMovies, dbCorrected),
       series: correctedSeriesHits,
       people: correctedPeople,
-      // 교정 표시어: LLM이 제안한 한글 단어 우선, 없으면 실제로 히트한 키워드
       correctedQuery: didYouMean ?? keyword,
     };
     setCache(cacheKey, correctedResult);
     return NextResponse.json(correctedResult);
   }
 
-  // 모든 키워드로도 결과 없음
   const empty = { movies: [], series: [], people: [], correctedQuery: null };
   setCache(cacheKey, empty);
   return NextResponse.json(empty);
