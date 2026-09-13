@@ -65,26 +65,28 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
     return mine ? mine.rating : null;
   }, [myReviews, movie.id]);
 
-  // 우선순위: 서버 추천 점수 → affinity store → Jaccard 장르 근사
-  // 시리즈(tmdb-tv-*)는 Jaccard 폴백 제외 — KOBIS 영화 기반 seedGenres와 장르가 안 맞음
+  // 우선순위: 서버 추천 점수 → affinity store → Simpson 장르 근사 + 작품 평점 가중합
+  // 수식: 0.6 × Simpson유사도 + 0.4 × (평점/10)
+  // Simpson 계수: overlapCount / min(|userGenres|, |movieGenres|)
+  //   → 분모를 둘 중 작은 집합으로 삼아 "단일 장르 드라마" 20% 동결 방지
+  // 시리즈는 장르 데이터가 있으면 같은 수식을 적용하고, 평점 기반 차별화가 작동한다.
   const matchBadge = useMemo(() => {
     if (movie.recommendScore != null && movie.recommendScore > 0) return `추천 ${movie.recommendScore}%`;
     const affinityScore = affinityScores[movie.id];
     if (affinityScore != null && affinityScore > 0) return `추천 ${affinityScore}%`;
-    if (isSeries) return null;
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
     if (overlapCount === 0) return null;
-    // 분모를 사용자 선호 장르 수로: "내 취향 장르 중 몇 %를 이 영화가 커버하는가"
-    let percent = Math.round((overlapCount / seedGenres.length) * 100);
-    // 플랫폼 평점 페널티 — 리뷰 3건 이상일 때 평점이 낮으면 추천 % 하향
+    // Simpson 오버랩 계수 — 분모를 두 집합 중 작은 쪽으로
+    const minLen = Math.min(seedGenres.length, movie.allGenres.length);
+    const genreSimilarity = overlapCount / minLen;
+    // 작품 평점 보정 (플랫폼 평점 우선, 없으면 중립 0.65)
     const combined = getCombinedRatingSnapshot(movie.id);
-    if (combined.count >= 3 && combined.average !== null) {
-      const avg = combined.average;
-      const factor = avg >= 8.5 ? 1.15 : avg >= 7.5 ? 1.0 : avg >= 6.5 ? 0.75 : 0.50;
-      percent = Math.round(percent * factor);
-    }
+    const qualityScore = combined.count >= 1 && combined.average !== null
+      ? combined.average / 10
+      : 0.65;
+    const percent = Math.round((0.6 * genreSimilarity + 0.4 * qualityScore) * 100);
     if (percent <= 0) return null;
     return `추천 ${Math.min(99, Math.max(1, percent))}%`;
   }, [seedGenres, affinityScores, movie.allGenres, movie.recommendScore, movie.id]);
