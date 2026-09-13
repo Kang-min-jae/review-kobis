@@ -195,7 +195,7 @@ export default function SearchInput() {
             {!loading && !error && people.length > 0 && (
               <div className="border-b border-neutral-700 py-1">
                 <p className="px-3 py-1 text-[10px] font-semibold text-muted">배우 · 감독</p>
-                {people.map((person) => {
+                {people.map((person, idx) => {
                   // 이름+역할이 같은 동명이인이 실제로 여러 명 있을 때만(진짜 구분이 필요할
                   // 때만) 참여작 수·최근 활동연도를 같이 보여준다 — 한 명뿐이면 굳이 안 보여줘도
                   // 헷갈리지 않는다.
@@ -203,7 +203,7 @@ export default function SearchInput() {
                     people.filter((p) => p.name === person.name && p.role === person.role).length > 1;
                   return (
                     <Link
-                      key={person.kmdbId}
+                      key={`${person.kmdbId}-${idx}`}
                       href={`/people/${encodeURIComponent(person.name)}?pid=${encodeURIComponent(person.kmdbId)}&role=${encodeURIComponent(person.role)}`}
                       onClick={() => setOpen(false)}
                       className="flex items-center gap-3 p-2.5 hover:bg-black/30"
