@@ -84,9 +84,11 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
     const genreSimilarity = overlapCount / minLen;
     // 작품 평점 보정 (플랫폼 평점 우선, 없으면 중립 0.65)
     const combined = getCombinedRatingSnapshot(movie.id);
-    const qualityScore = combined.count >= 1 && combined.average !== null
-      ? combined.average / 10
-      : 0.65;
+    // 베이지안 스무딩: 리뷰 수가 적은 영화가 우연히 높은 평점을 갖더라도 과대평가되지 않게
+    const qualityScore =
+      combined.count >= 1 && combined.average !== null
+        ? (combined.count * combined.average + 20 * 6.5) / (combined.count + 20) / 10
+        : 6.5 / 10;
     const percent = Math.round((0.6 * genreSimilarity + 0.4 * qualityScore) * 100);
     if (percent <= 0) return null;
     return `추천 ${Math.min(99, Math.max(1, percent))}%`;
