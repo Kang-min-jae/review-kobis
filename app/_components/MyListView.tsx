@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, useState } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import MyRatedMovieCard from "./MyRatedMovieCard";
@@ -67,6 +67,18 @@ export default function MyListView({
     .map((id) => reviewedById.get(id))
     .filter((movie): movie is ReviewedMovie => Boolean(movie));
   const addableMovies = reviewedMovies.filter((m) => !myListIds.includes(m.id));
+  const [addSearch, setAddSearch] = useState("");
+  const [addExpanded, setAddExpanded] = useState(false);
+  const CHIP_THRESHOLD = 10; // 이 이하면 검색창·접기 없이 전부 표시
+  const CHIP_PREVIEW = 8;   // 접힌 상태에서 보이는 칩 수
+  const useCompact = addableMovies.length > CHIP_THRESHOLD;
+  const filteredAddable = useCompact && addSearch.trim()
+    ? addableMovies.filter((m) => m.title.toLowerCase().includes(addSearch.trim().toLowerCase()))
+    : addableMovies;
+  const visibleAddable = useCompact && !addExpanded
+    ? filteredAddable.slice(0, CHIP_PREVIEW)
+    : filteredAddable;
+  const hiddenCount = filteredAddable.length - CHIP_PREVIEW;
 
   const awardMovieMap = new Map(
     myRatedMovies.filter((m) => m.festivalAwards && m.festivalAwards.length > 0).map((m) => [m.id, m.festivalAwards!])
@@ -134,9 +146,24 @@ export default function MyListView({
 
       {addableMovies.length > 0 && (
         <div className="mt-6">
-          <p className="text-xs text-muted">평점을 남긴 영화 중 추가하기</p>
+          <p className="text-xs text-muted">
+            평점을 남긴 영화 중 추가하기
+            {useCompact && <span className="ml-1 text-neutral-500">({addableMovies.length})</span>}
+          </p>
+          {useCompact && (
+            <div className="relative mt-2">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">🔍</span>
+              <input
+                type="text"
+                placeholder="영화 제목으로 검색"
+                value={addSearch}
+                onChange={(e) => { setAddSearch(e.target.value); setAddExpanded(false); }}
+                className="w-full rounded-full border border-neutral-700 bg-transparent py-2 pl-9 pr-4 text-xs text-text placeholder-neutral-500 focus:border-brand focus:outline-none"
+              />
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
-            {addableMovies.map((movie) => (
+            {visibleAddable.map((movie) => (
               <button
                 key={movie.id}
                 type="button"
@@ -146,7 +173,28 @@ export default function MyListView({
                 + {movie.title}
               </button>
             ))}
+            {useCompact && !addExpanded && hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setAddExpanded(true)}
+                className="rounded-full border border-neutral-600 px-3 py-1.5 text-xs text-brand transition-colors hover:border-brand"
+              >
+                + {hiddenCount}개 더보기
+              </button>
+            )}
+            {useCompact && addExpanded && (
+              <button
+                type="button"
+                onClick={() => setAddExpanded(false)}
+                className="rounded-full border border-neutral-600 px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:border-neutral-500"
+              >
+                접기
+              </button>
+            )}
           </div>
+          {useCompact && filteredAddable.length === 0 && (
+            <p className="mt-2 text-xs text-muted">검색 결과가 없어요.</p>
+          )}
         </div>
       )}
 
