@@ -28,13 +28,20 @@ type RequestBody = {
 };
 
 type UserProfile = {
+  // 채널 검색용 리스트 (기존 유지)
   topGenres: string[];
   topDirectors: string[];
   topActors: string[];
   avoidedGenres: string[];
   avoidedDirectors: string[];
-  categoryWeights: Record<string, number>;
+  categoryWeights: Record<string, number>; // 0-1, 카테고리별 사용자 선호 강도
   coldStart: boolean;
+  // 코사인 유사도용 가중치 벡터 (긍정/부정 분리)
+  genreVec: Record<string, number>;
+  directorVec: Record<string, number>;
+  actorVec: Record<string, number>;
+  avoidedGenreVec: Record<string, number>;
+  avoidedDirectorVec: Record<string, number>;
 };
 
 type DbMovie = {
@@ -55,6 +62,11 @@ type CandidateMovie = {
   cast: { name: string }[];
   allGenres: string[];
   totalScore: number;
+  // 사이트 리뷰 집계 (Bayesian 품질 점수 + 항목별 친화도용)
+  reviewAvg: number | null;
+  reviewCount: number;
+  categoryRatings: Record<string, number>; // category → avg rating (0-10), 5건 이상 집계된 항목만
+  categoryDataCount: number;               // 5건 이상 집계된 항목 수
 };
 
 type LlmResult = { movieCd: string; score: number; reason: string }[];
@@ -63,7 +75,7 @@ type LlmResult = { movieCd: string; score: number; reason: string }[];
 // 1. Temporal weighting
 // ─────────────────────────────────────────────────────
 
-// 최근 평가일수록, 높은/낮은 평점일수록 강하게 반영 (중립 5점은 거의 0에 수렴).
+// 최근 평가일수록, 높은/낮은 평점일수록 강하게 반영.
 // 평가 개수가 적을수록 반감기를 길게 — 프로필이 급격히 흔들리지 않게.
 function getTemporalWeight(rating: number, ratedAt: string, totalCount: number): number {
   const daysDiff = (Date.now() - new Date(ratedAt).getTime()) / 86400000;
@@ -73,16 +85,21 @@ function getTemporalWeight(rating: number, ratedAt: string, totalCount: number):
 }
 
 // ─────────────────────────────────────────────────────
-// 2. Build user profile
+// 2. Build user profile (벡터 포함)
 // ─────────────────────────────────────────────────────
 
 async function buildUserProfile(
   ratings: IncomingRating[],
   categoryRatings: IncomingCategoryRating[]
 ): Promise<UserProfile> {
-  if (ratings.length === 0) {
-    return { topGenres: [], topDirectors: [], topActors: [], avoidedGenres: [], avoidedDirectors: [], categoryWeights: {}, coldStart: true };
-  }
+  const empty: UserProfile = {
+    topGenres: [], topDirectors: [], topActors: [],
+    avoidedGenres: [], avoidedDirectors: [],
+    categoryWeights: {}, coldStart: true,
+    genreVec: {}, directorVec: {}, actorVec: {},
+    avoidedGenreVec: {}, avoidedDirectorVec: {},
+  };
+  if (ratings.length === 0) return empty;
 
   const movieCds = ratings
     .map((r) => r.movieId.replace(/^kobis-/, ""))
@@ -94,9 +111,13 @@ async function buildUserProfile(
   });
   const movieMeta = new Map(cachedMovies.map((m) => [m.movieCd, m]));
 
-  const genreWeights = new Map<string, number>();
-  const directorData = new Map<string, { score: number; count: number }>();
-  const actorWeights = new Map<string, number>();
+  // 긍정(≥7) / 부정(≤3) 벡터를 분리해 코사인 유사도 계산에 사용
+  const genreVec: Record<string, number> = {};
+  const directorVec: Record<string, number> = {};
+  const actorVec: Record<string, number> = {};
+  const avoidedGenreVec: Record<string, number> = {};
+  const avoidedDirectorVec: Record<string, number> = {};
+  const directorDataCount = new Map<string, number>(); // 부정 감독 데이터 개수 추적
 
   for (const rating of ratings) {
     const movieCd = rating.movieId.replace(/^kobis-/, "");
@@ -104,34 +125,39 @@ async function buildUserProfile(
     if (!meta) continue;
 
     const w = getTemporalWeight(rating.rating, rating.ratedAt, ratings.length);
+    const isPositive = rating.rating >= 7.0;
+    const isNegative = rating.rating <= 3.0;
 
-    for (const genre of splitGenres(meta.genreAlt)) {
-      genreWeights.set(genre, (genreWeights.get(genre) ?? 0) + w);
+    for (const g of splitGenres(meta.genreAlt)) {
+      if (isPositive) genreVec[g] = (genreVec[g] ?? 0) + w;
+      if (isNegative) avoidedGenreVec[g] = (avoidedGenreVec[g] ?? 0) + Math.abs(w);
     }
     if (meta.directorName) {
-      const entry = directorData.get(meta.directorName) ?? { score: 0, count: 0 };
-      entry.score += w;
-      entry.count += 1;
-      directorData.set(meta.directorName, entry);
+      if (isPositive) directorVec[meta.directorName] = (directorVec[meta.directorName] ?? 0) + w;
+      if (isNegative) {
+        avoidedDirectorVec[meta.directorName] = (avoidedDirectorVec[meta.directorName] ?? 0) + Math.abs(w);
+        directorDataCount.set(meta.directorName, (directorDataCount.get(meta.directorName) ?? 0) + 1);
+      }
     }
+    // 배우는 감독보다 약하게 (0.7x)
     const castArr = Array.isArray(meta.cast) ? (meta.cast as { name: string }[]) : [];
     for (const person of castArr.slice(0, 5)) {
-      actorWeights.set(person.name, (actorWeights.get(person.name) ?? 0) + w);
+      if (isPositive) actorVec[person.name] = (actorVec[person.name] ?? 0) + w * 0.7;
     }
   }
 
-  const topGenres = [...genreWeights.entries()]
+  // 채널 검색용 리스트 파생 (벡터에서)
+  const topGenres = Object.entries(genreVec)
     .filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
-  const avoidedGenres = [...genreWeights.entries()]
-    .filter(([, s]) => s < 0).sort((a, b) => a[1] - b[1]).slice(0, 3).map(([g]) => g);
-
-  const topDirectors = [...directorData.entries()]
-    .filter(([, e]) => e.score > 0).sort((a, b) => b[1].score - a[1].score).slice(0, 5).map(([d]) => d);
-  // 감독 기피는 데이터 2건 이상일 때만 — 단 1건의 낮은 평점으로 전체 감독을 블랙리스트에 넣지 않는다
-  const avoidedDirectors = [...directorData.entries()]
-    .filter(([, e]) => e.score < 0 && e.count >= 2).sort((a, b) => a[1].score - b[1].score).slice(0, 3).map(([d]) => d);
-
-  const topActors = [...actorWeights.entries()]
+  const avoidedGenres = Object.entries(avoidedGenreVec)
+    .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
+  const topDirectors = Object.entries(directorVec)
+    .filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d]) => d);
+  // 감독 기피: 부정 평점 데이터 2건 이상일 때만
+  const avoidedDirectors = Object.entries(avoidedDirectorVec)
+    .filter(([d]) => (directorDataCount.get(d) ?? 0) >= 2)
+    .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d]) => d);
+  const topActors = Object.entries(actorVec)
     .filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a]) => a);
 
   const catSum = new Map<string, { sum: number; count: number }>();
@@ -144,10 +170,14 @@ async function buildUserProfile(
   }
   const categoryWeights: Record<string, number> = {};
   for (const [cat, { sum, count }] of catSum) {
-    categoryWeights[cat] = sum / count / 10;
+    categoryWeights[cat] = sum / count / 10; // 0-1 정규화
   }
 
-  return { topGenres, topDirectors, topActors, avoidedGenres, avoidedDirectors, categoryWeights, coldStart: false };
+  return {
+    topGenres, topDirectors, topActors, avoidedGenres, avoidedDirectors,
+    categoryWeights, coldStart: false,
+    genreVec, directorVec, actorVec, avoidedGenreVec, avoidedDirectorVec,
+  };
 }
 
 // ─────────────────────────────────────────────────────
@@ -168,10 +198,14 @@ function toCandidate(m: DbMovie, score: number): CandidateMovie {
     cast: parseCast(m.cast),
     allGenres: splitGenres(m.genreAlt),
     totalScore: score,
+    reviewAvg: null,
+    reviewCount: 0,
+    categoryRatings: {},
+    categoryDataCount: 0,
   };
 }
 
-// Channel 1: 장르/감독 매칭 (Prisma ORM)
+// Channel 1: 장르/감독 매칭
 async function fetchByGenreDirector(profile: UserProfile, ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   const conditions: object[] = [
     ...profile.topGenres.map((g) => ({ genreAlt: { contains: g } })),
@@ -187,10 +221,9 @@ async function fetchByGenreDirector(profile: UserProfile, ratedMovieIds: Set<str
   return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 100);
 }
 
-// Channel 1 보조: 배우 단독 매칭 (JSONB raw query — 배우 이름으로만 걸리는 영화도 포함)
+// Channel 1 보조: 배우 단독 매칭 (JSONB raw query)
 async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   if (topActors.length === 0) return [];
-  // 배열 파라미터를 Prisma raw에 넘기기 위해 unnest 사용
   const rows = await db.$queryRaw<DbMovie[]>`
     SELECT DISTINCT "movieCd", "title", "posterUrl", "genreAlt", "directorName", "cast"
     FROM "CachedMovie"
@@ -206,11 +239,10 @@ async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): P
   return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 60);
 }
 
-// Channel 2: 항목별 선호 특화 (카테고리 가중치 최고 항목 기준)
+// Channel 2: 항목별 선호 특화
 async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   const cw = profile.categoryWeights;
   const maxEntry = Object.entries(cw).sort((a, b) => b[1] - a[1])[0];
-  // 전체 항목이 고르거나 (최고값 < 0.5) → 채널 건너뜀
   if (!maxEntry || maxEntry[1] < 0.5) return [];
 
   const genreMap: Record<string, string[]> = {
@@ -231,7 +263,7 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
   return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 60);
 }
 
-// Channel 3: 최근 2년 최신/인기작 (미관람 작 중 트렌딩)
+// Channel 3: 최근 2년 최신작
 async function fetchTrending(ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   const twoYearsAgo = new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const rows = await db.cachedMovie.findMany({
@@ -244,53 +276,124 @@ async function fetchTrending(ratedMovieIds: Set<string>): Promise<DbMovie[]> {
 }
 
 // ─────────────────────────────────────────────────────
-// 4. Candidate scoring
+// 4. 리뷰 집계 배치 조회 (Bayesian + 항목별 친화도용)
 // ─────────────────────────────────────────────────────
 
-function jaccard(movieGenres: string[], preferredSet: Set<string>): number {
-  if (movieGenres.length === 0 || preferredSet.size === 0) return 0;
-  const intersection = movieGenres.filter((g) => preferredSet.has(g)).length;
-  const union = new Set([...movieGenres, ...preferredSet]).size;
-  return intersection / union;
+type ReviewAggEntry = {
+  reviewAvg: number | null;
+  reviewCount: number;
+  categoryRatings: Record<string, number>;
+  categoryDataCount: number;
+};
+
+async function fetchCandidateReviews(movieCds: string[]): Promise<Map<string, ReviewAggEntry>> {
+  if (movieCds.length === 0) return new Map();
+
+  const groups = await db.review.groupBy({
+    by: ["movieCd", "category"],
+    where: { movieCd: { in: movieCds }, type: "SHORT" },
+    _avg: { rating: true },
+    _count: { _all: true },
+  });
+
+  const result = new Map<string, ReviewAggEntry>();
+  for (const g of groups) {
+    if (!result.has(g.movieCd)) {
+      result.set(g.movieCd, { reviewAvg: null, reviewCount: 0, categoryRatings: {}, categoryDataCount: 0 });
+    }
+    const entry = result.get(g.movieCd)!;
+    if (g.category === "전체") {
+      entry.reviewAvg = g._avg.rating;
+      entry.reviewCount = g._count._all;
+    } else if (g._count._all >= 5 && g._avg.rating !== null) {
+      // 항목별 집계는 5건 이상 확보된 것만 신뢰
+      entry.categoryRatings[g.category] = g._avg.rating;
+    }
+  }
+  // 신뢰 가능한 항목 수 집계
+  for (const entry of result.values()) {
+    entry.categoryDataCount = Object.keys(entry.categoryRatings).length;
+  }
+  return result;
 }
 
-function scoreCandidateMovie(
+// ─────────────────────────────────────────────────────
+// 5. Candidate scoring
+// ─────────────────────────────────────────────────────
+
+// 코사인 유사도 — userVec(가중치 누적), movieVec({tag: 1} 바이너리)
+function cosineSimilarity(userVec: Record<string, number>, movieVec: Record<string, number>): number {
+  let dot = 0, userNorm = 0, movieNorm = 0;
+  for (const k in userVec) userNorm += userVec[k] ** 2;
+  for (const k in movieVec) {
+    movieNorm += movieVec[k] ** 2;
+    if (userVec[k]) dot += userVec[k] * movieVec[k];
+  }
+  if (userNorm === 0 || movieNorm === 0) return 0;
+  return dot / (Math.sqrt(userNorm) * Math.sqrt(movieNorm));
+}
+
+// 베이지안 보정 품질 점수 (소표본 왜곡 방지, 결과 0-1)
+// 리뷰가 적을수록 카탈로그 평균 쪽으로 끌어당긴다.
+function bayesianQualityScore(movie: CandidateMovie, catalogMean: number): number {
+  const v = movie.reviewCount;
+  const R = movie.reviewAvg ?? catalogMean;
+  const C = catalogMean;
+  const m = 20; // 신뢰 최소 건수 기준
+  return ((v / (v + m)) * R + (m / (v + m)) * C) / 10;
+}
+
+// 항목별 친화도 점수 — 사용자가 중시하는 항목에서 해당 영화가 좋은 평가를 받을수록 높아짐.
+// 모든 카테고리에서 5건 이상 집계된 데이터가 없으면 null(점수 제외) 반환.
+function calculateCategoryMatchScore(
+  userCategoryWeights: Record<string, number>,
+  movie: CandidateMovie
+): number | null {
+  if (movie.categoryDataCount < 5) return null;
+  const categories = ["연출", "연기", "각본", "음악", "편집"];
+  let score = 0;
+  for (const cat of categories) {
+    score += (userCategoryWeights[cat] ?? 0.2) * ((movie.categoryRatings[cat] ?? 7.0) / 10);
+  }
+  return score / categories.length; // 0-1 정규화
+}
+
+// 최종 후보 점수 계산
+function calculateFinalScore(
   movie: CandidateMovie,
   profile: UserProfile,
-  sets: {
-    topGenreSet: Set<string>;
-    topDirectorSet: Set<string>;
-    topActorSet: Set<string>;
-    avoidedGenreSet: Set<string>;
-    avoidedDirectorSet: Set<string>;
-  }
+  catalogMean: number
 ): number {
-  const { topGenreSet, topDirectorSet, topActorSet, avoidedGenreSet, avoidedDirectorSet } = sets;
+  // 영화의 장르/감독/배우를 바이너리 벡터로 변환
+  const movieGenreVec: Record<string, number> = Object.fromEntries(movie.allGenres.map((g) => [g, 1]));
+  const movieDirectorVec: Record<string, number> = movie.directorName ? { [movie.directorName]: 1 } : {};
+  const movieActorVec: Record<string, number> = Object.fromEntries(movie.cast.slice(0, 5).map((a) => [a.name, 1]));
 
-  const genreScore = jaccard(movie.allGenres, topGenreSet);
-  const avoidedGenrePenalty = movie.allGenres.some((g) => avoidedGenreSet.has(g)) ? -0.3 : 0;
+  // 코사인 유사도 기반 사용자 취향 매칭
+  const genreSim    = cosineSimilarity(profile.genreVec, movieGenreVec);
+  const directorSim = cosineSimilarity(profile.directorVec, movieDirectorVec);
+  const actorSim    = cosineSimilarity(profile.actorVec, movieActorVec);
+  const userSimScore = 0.5 * genreSim + 0.3 * directorSim + 0.2 * actorSim;
 
-  const directorScore = movie.directorName
-    ? topDirectorSet.has(movie.directorName) ? 1.0
-      : avoidedDirectorSet.has(movie.directorName) ? -0.5
-      : 0.0
-    : 0.0;
+  // 부정 신호 페널티
+  const avoidedGenreVecMovie: Record<string, number> = movieGenreVec;
+  const avoidedGenreSim     = cosineSimilarity(profile.avoidedGenreVec, avoidedGenreVecMovie);
+  const avoidedDirPenalty   = profile.avoidedDirectorVec[movie.directorName ?? ""] ? 0.3 : 0;
+  const negativePenalty     = 0.15 * avoidedGenreSim + avoidedDirPenalty;
 
-  const actorOverlap = movie.cast.filter((a) => topActorSet.has(a.name)).length;
-  const actorScore = Math.min(actorOverlap / 2, 1.0);
+  // 베이지안 품질 점수
+  const qualityScore = bayesianQualityScore(movie, catalogMean);
 
-  // 항목별 선호도를 장르 프록시로 반영 (DB에 voteAverage/수상 데이터 없음)
-  const cw = profile.categoryWeights;
-  let categoryScore = 0;
-  if ((cw["연출"] ?? 0) > 0.7 && ["드라마", "스릴러", "SF", "범죄"].some((g) => movie.allGenres.includes(g))) categoryScore += 0.5;
-  if ((cw["편집"] ?? 0) > 0.7 && ["액션", "스릴러", "SF"].some((g) => movie.allGenres.includes(g))) categoryScore += 0.3;
-  if ((cw["각본"] ?? 0) > 0.7 && ["드라마", "미스터리", "스릴러"].some((g) => movie.allGenres.includes(g))) categoryScore += 0.5;
-  if ((cw["음악"] ?? 0) > 0.7 && (movie.allGenres.includes("뮤지컬") || movie.allGenres.includes("애니메이션"))) categoryScore += 0.5;
-  if ((cw["연기"] ?? 0) > 0.7 && movie.allGenres.includes("드라마")) categoryScore += 0.3;
-  categoryScore = Math.min(categoryScore, 1.0);
+  // 항목별 친화도 점수 (데이터 부족 시 null → 가중치 재분배)
+  const categoryScore = calculateCategoryMatchScore(profile.categoryWeights, movie);
 
-  const raw = 0.35 * genreScore + 0.25 * directorScore + 0.20 * actorScore + 0.20 * categoryScore + avoidedGenrePenalty;
-  return Math.max(0, raw);
+  let totalScore: number;
+  if (categoryScore === null) {
+    totalScore = 0.55 * userSimScore + 0.45 * qualityScore;
+  } else {
+    totalScore = 0.40 * userSimScore + 0.30 * categoryScore + 0.30 * qualityScore;
+  }
+  return Math.max(0, Math.min(1, totalScore - negativePenalty));
 }
 
 async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): Promise<CandidateMovie[]> {
@@ -308,7 +411,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
       .map((m) => toCandidate(m, 0));
   }
 
-  // 3개 채널을 병렬로 가져오고 union (중복 제거)
+  // 4채널 병렬 조회 후 union (중복 제거)
   const [genreDirectorRows, actorRows, categoryRows, trendingRows] = await Promise.all([
     fetchByGenreDirector(profile, ratedMovieIds),
     fetchByActors(profile.topActors, ratedMovieIds),
@@ -325,16 +428,26 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     }
   }
 
-  const topGenreSet = new Set(profile.topGenres);
-  const topDirectorSet = new Set(profile.topDirectors);
-  const topActorSet = new Set(profile.topActors);
-  const avoidedGenreSet = new Set(profile.avoidedGenres);
-  const avoidedDirectorSet = new Set(profile.avoidedDirectors);
-  const sets = { topGenreSet, topDirectorSet, topActorSet, avoidedGenreSet, avoidedDirectorSet };
+  // 리뷰 집계 배치 조회 (Bayesian 품질 + 항목별 친화도용)
+  const reviewData = await fetchCandidateReviews(all.map((m) => m.movieCd));
 
+  // 카탈로그 평균 (리뷰가 1건 이상인 영화들의 평균 평점)
+  const reviewedMovies = [...reviewData.values()].filter((d) => d.reviewAvg !== null && d.reviewCount > 0);
+  const catalogMean = reviewedMovies.length > 0
+    ? reviewedMovies.reduce((s, d) => s + d.reviewAvg!, 0) / reviewedMovies.length
+    : 7.0;
+
+  // 후보 생성 + 리뷰 데이터 주입 + 점수 계산
   const scored = all.map((m) => {
     const candidate = toCandidate(m, 0);
-    candidate.totalScore = scoreCandidateMovie(candidate, profile, sets);
+    const rev = reviewData.get(m.movieCd);
+    if (rev) {
+      candidate.reviewAvg = rev.reviewAvg;
+      candidate.reviewCount = rev.reviewCount;
+      candidate.categoryRatings = rev.categoryRatings;
+      candidate.categoryDataCount = rev.categoryDataCount;
+    }
+    candidate.totalScore = calculateFinalScore(candidate, profile, catalogMean);
     return candidate;
   });
 
@@ -352,7 +465,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
 }
 
 // ─────────────────────────────────────────────────────
-// 5. LLM reranking (Haiku)
+// 6. LLM reranking (Haiku)
 // ─────────────────────────────────────────────────────
 
 async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Promise<LlmResult> {
@@ -379,19 +492,28 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
     genres: c.allGenres,
     director: c.directorName,
     cast: c.cast.slice(0, 3).map((p) => p.name),
-    initialScore: Math.round(c.totalScore * 100),
+    quantScore: Math.round(c.totalScore * 100),
+    averageRating: c.reviewAvg !== null ? Math.round(c.reviewAvg * 10) / 10 : null,
+    reviewCount: c.reviewCount,
+    categoryRatings: Object.keys(c.categoryRatings).length > 0
+      ? Object.fromEntries(Object.entries(c.categoryRatings).map(([k, v]) => [k, Math.round(v * 10) / 10]))
+      : null,
   }));
 
-  const systemPrompt = `당신은 영화 추천 전문가입니다. 사용자 프로필과 후보 영화 목록을 보고 각 영화의 추천 점수(0~100)와 추천 이유를 작성하세요.
+  const systemPrompt = `당신은 영화 추천 알고리즘의 최종 리랭킹 엔진입니다.
+1차 정량 스코어(quantScore, 0~100)를 참고하되 아래 규칙에 따라 조정하세요.
 
-규칙:
-- 응답은 JSON 배열만 반환 (다른 텍스트 없음)
-- 형식: [{"movieCd":"...", "score":85, "reason":"...이유..."}, ...]
-- score는 0~100 정수
-- reason은 20~40자 한국어 한 문장 (사용자가 중시하는 항목을 자연스럽게 언급)
-- initialScore는 1차 정량 점수(참고용) — 근거 없이 크게 뒤집지 말 것
-- 기피 감독/장르 영화는 낮게 점수 부여
-- 모든 후보 포함, score 내림차순 정렬`;
+[Scoring Rules]
+1. Absolute Quality Rule: averageRating이 8.5 이상이고 reviewCount가 20 이상인 검증된 명작은 최종 score가 75 미만으로 떨어지지 않아야 한다. reviewCount가 20 미만이면 소표본이므로 예외로 하고 quantScore를 그대로 신뢰하라.
+2. Category Rating Weight Rule: 사용자의 항목별 선호도(categoryWeights)를 반영해, 해당 항목 평점이 높은 영화에 가점을 주라. categoryRatings가 null인 영화는 이 규칙을 건너뛰라.
+3. Negative Signal Rule: 사용자의 기피 감독/기피 장르와 겹치는 후보는 감점하라.
+4. Reason Rule: 추천 이유(20~40자)에 사용자가 중시하는 항목을 자연스럽게 언급하라.
+5. 근거 없이 quantScore 순위를 크게 뒤집지 말 것.
+
+[Response]
+- JSON 배열만 반환, 다른 텍스트 없음
+- 형식: [{"movieCd":"...", "score":85, "reason":"추천 이유"}, ...]
+- score는 0~100 정수, 모든 후보 포함, score 내림차순 정렬`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -401,7 +523,10 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1500,
         system: systemPrompt,
-        messages: [{ role: "user", content: `사용자 프로필:\n${JSON.stringify(profileSummary, null, 2)}\n\n후보 영화:\n${JSON.stringify(candidateList, null, 2)}` }],
+        messages: [{
+          role: "user",
+          content: `사용자 프로필:\n${JSON.stringify(profileSummary, null, 2)}\n\n후보 영화:\n${JSON.stringify(candidateList, null, 2)}`,
+        }],
       }),
     });
     if (!res.ok) return [];
@@ -417,7 +542,7 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
 }
 
 // ─────────────────────────────────────────────────────
-// 6. Final score blend + MMR diversity (→ Top 8)
+// 7. Final score blend + MMR diversity (→ Top 8)
 // ─────────────────────────────────────────────────────
 
 type ScoredCandidate = {
@@ -432,12 +557,12 @@ function blendAndMMR(
   llmMap: Map<string, { score: number; reason: string }>,
   limit: number
 ): ScoredCandidate[] {
-  // 최종 점수 블렌딩 (LLM 변동성 완충: 정량 60% + LLM 40%)
+  // 정량 50% + LLM 50% 블렌딩
   const scored: ScoredCandidate[] = candidates.map((c) => {
     const llm = llmMap.get(c.movieCd);
     const llmScore = llm?.score;
     const finalScore = llmScore !== undefined
-      ? 0.6 * c.totalScore + 0.4 * (llmScore / 100)
+      ? 0.5 * c.totalScore + 0.5 * (llmScore / 100)
       : c.totalScore;
     return { candidate: c, finalScore, llmScore, reason: llm?.reason };
   }).sort((a, b) => b.finalScore - a.finalScore);
