@@ -66,10 +66,12 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   }, [myReviews, movie.id]);
 
   // 우선순위: 서버 추천 점수 → affinity store → Jaccard 장르 근사
+  // 시리즈(tmdb-tv-*)는 Jaccard 폴백 제외 — KOBIS 영화 기반 seedGenres와 장르가 안 맞음
   const matchBadge = useMemo(() => {
     if (movie.recommendScore != null && movie.recommendScore > 0) return `추천 ${movie.recommendScore}%`;
     const affinityScore = affinityScores[movie.id];
     if (affinityScore != null && affinityScore > 0) return `추천 ${affinityScore}%`;
+    if (isSeries) return null;
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
