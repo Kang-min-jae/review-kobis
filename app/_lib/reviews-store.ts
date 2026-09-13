@@ -273,7 +273,7 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
 
   return Array.from(bestByMovie.values())
     .sort((a, b) => b.normalizedRating - a.normalizedRating)
-    .slice(0, 5)
+    .slice(0, 10)
     .map((entry) => entry.movieCd);
 }
 
