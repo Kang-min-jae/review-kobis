@@ -195,7 +195,7 @@ async function fetchFestivalWinnersRaw(
 
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
 // 버전을 올리면 기존 DB 캐시를 무시하고 Wikidata를 즉시 재조회한다.
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
 const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 (시상식 데이터는 자주 안 바뀜)
@@ -239,7 +239,7 @@ const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   berlin: [
     { categoryLabel: "황금곰상", titleKo: null, titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185", tmdbId: "1239586" },
   ],
-  // 82회 베니스 영화제 (2025년 9월) — Wikidata 재조회로 자동 반영
+  // 83회 베니스 영화제 (2026년 9월) — Wikidata 재조회로 자동 반영 (v5 강제 갱신)
   venice: [
     { categoryLabel: "황금사자상",   titleKo: null, titleEn: "April",          ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
     { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Vermiglio",       ceremonyYear: 2024, filmQid: "Q127028023", tmdbId: "1352009" },
