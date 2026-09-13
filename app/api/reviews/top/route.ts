@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../_lib/db";
+import { getBadge } from "../../../_lib/tier";
 
 export type TopReview = {
   id: string;
   authorName: string;
+  authorTier: string;
   rating: number;
   content: string;
   likeCount: number;
@@ -24,12 +26,13 @@ export async function GET(request: Request) {
     where: { movieCd, category: "전체", type: "SHORT" },
     orderBy: [{ likeCount: "desc" }, { createdAt: "desc" }],
     take: 2,
-    include: { user: { select: { nickname: true, name: true } } },
+    include: { user: { select: { nickname: true, name: true, totalLikes: true } } },
   });
 
   const reviews: TopReview[] = rows.map((r) => ({
     id: r.id,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
+    authorTier: getBadge(r.user.totalLikes),
     rating: r.rating,
     content: r.content,
     likeCount: r.likeCount,
