@@ -11,6 +11,7 @@ import GenreMovieRow from "./_components/GenreMovieRow";
 import BoxOfficeCoverflow from "./_components/BoxOfficeCoverflow";
 import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
+import RecommendedSeriesSection from "./_components/RecommendedSeriesSection";
 import AwardWinnersSection, { type AwardTab } from "./_components/AwardWinnersSection";
 import {
   getNowShowingRow,
@@ -161,11 +162,6 @@ async function InternationalBestRowData() {
   );
 }
 
-async function CuratedSeriesRowData() {
-  const movies = await getCuratedSeriesRow();
-  if (movies.length === 0) return null;
-  return <MovieRow title="추천 시리즈" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
-}
 
 async function UserPopularMoviesRowData({ genre }: { genre?: string }) {
   const movies = await getUserPopularMoviesRow(genre, 10);
@@ -249,9 +245,7 @@ function MovieCategorySection() {
       <Suspense fallback={<RowSkeleton />}>
         <InternationalBestRowData />
       </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <CuratedSeriesRowData />
-      </Suspense>
+      <RecommendedSeriesSection />
       <Suspense fallback={null}>
         <UserPopularMoviesRowData />
       </Suspense>
