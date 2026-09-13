@@ -172,7 +172,7 @@ async function filmographyFromTmdb(
     return {
       id: movieCd ? `kobis-${movieCd}` : `tmdb-${c.tmdbId}`,
       title: meta?.movieTitle ?? c.title,
-      posterUrl: meta?.posterUrl ?? null,
+      posterUrl: meta?.posterUrl ?? c.posterUrl,
       gradient: FALLBACK_GRADIENT,
       isNowShowing: movieCd ? isRecentlyOpened(c.releaseDate) : false,
       releaseDate: meta?.releaseDate ?? c.releaseDate,

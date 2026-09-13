@@ -417,6 +417,60 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
     return { movieId: id, ...rowToMeta(cached), boxOffice: null };
   }
 
+  // TMDB 영화 (KOBIS 코드가 없는 외화) — tmdb-{tmdbId} 형식
+  // tmdb-tv-* 시리즈는 series-rate-info.ts에서 따로 처리한다.
+  if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) {
+    const tmdbId = id.slice("tmdb-".length);
+
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
+      return { movieId: id, ...rowToMeta(cached), boxOffice: null };
+    }
+
+    const details = await getTmdbMovieDetailsById(tmdbId);
+    if (!details) return null;
+
+    const data = {
+      title: details.title,
+      titleEn: details.originalTitle,
+      overview: details.overview ?? null,
+      posterUrl: details.posterUrl,
+      releaseDate: details.releaseDate,
+      rereleaseDate: null as string | null,
+      runtimeMinutes: details.runtimeMinutes,
+      genreAlt: details.genre,
+      tmdbId,
+      source: "tmdb" as const,
+      directorName: null as string | null,
+      directorKmdbId: null as string | null,
+      directorTmdbId: null as string | null,
+      cast: [] as object[],
+    };
+    await db.cachedMovie.upsert({
+      where: { movieCd: id },
+      create: { movieCd: id, ...data },
+      update: data,
+    });
+
+    const meta: MovieMeta = {
+      movieCd: id,
+      movieTitle: details.title,
+      movieTitleEn: details.originalTitle,
+      description: details.overview ?? "아직 등록된 설명이 없어요.",
+      posterUrl: details.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      releaseDate: details.releaseDate,
+      rereleaseDate: null,
+      runtimeMinutes: details.runtimeMinutes,
+      genreAlt: details.genre,
+      director: null,
+      cast: [],
+      tmdbId,
+      source: "tmdb",
+    };
+    return { movieId: id, ...meta, boxOffice: null };
+  }
+
   if (!id.startsWith("kobis-")) return null;
 
   const movieCd = id.slice("kobis-".length);

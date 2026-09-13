@@ -44,7 +44,8 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
   const isSeries = movie.id.startsWith("tmdb-tv-");
-  const isRatable = movie.id.startsWith("kobis-") || isSeries;
+  const isTmdbMovie = movie.id.startsWith("tmdb-") && !isSeries;
+  const isRatable = movie.id.startsWith("kobis-") || isSeries || isTmdbMovie;
   const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
   // "추천 N%"는 내가 남긴 평점의 장르와 이 영화의 장르가 겹치는 비율 — 평점은
