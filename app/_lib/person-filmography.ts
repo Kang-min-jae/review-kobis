@@ -423,9 +423,10 @@ export async function getPersonTmdbId(personId: string | null): Promise<string |
 export async function getPersonFilmography(
   name: string,
   personId: string | null,
-  role: "감독" | "배우" | null
+  role: "감독" | "배우" | null,
+  tmdbIdHint: string | null = null
 ): Promise<RowMovie[]> {
-  if (!personId) return fetchAndCacheFilmography(name, personId, role);
+  if (!personId) return fetchAndCacheFilmography(name, personId, role, tmdbIdHint);
 
   const cached = await db.cachedPerson.findUnique({ where: { kmdbId: personId } });
   // tmdbId가 아직 없는 캐시는 nameEn이 새로 생겨 TMDB 재시도가 가능할 수 있으므로

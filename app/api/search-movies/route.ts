@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMeta, getMovieMetas } from "../../_lib/movie-rate-info";
-import { searchTmdbMulti } from "../../_lib/tmdb";
+import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
 // ── 결과 타입 ─────────────────────────────────────────────────────────────────
@@ -50,6 +50,31 @@ async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
   if (hits.length === 0) return [];
   const metas = await getMovieMetas(hits.map((h) => h.movieCd));
   return hits.map((hit) => ({ ...hit, posterUrl: metas.get(hit.movieCd)?.posterUrl ?? null }));
+}
+
+// ── CachedPerson 인물 검색 (한글명 + 영문명) ──────────────────────────────────
+// name(한글명)과 nameEn(영문명)을 동시에 검색한다. 외국 인물이 영문 이름으로
+// CachedPerson에 캐시돼 있을 때 한글 쿼리로는 못 찾는 한계를 보완한다.
+async function searchCachedPeople(query: string): Promise<Array<KmdbPersonHit & { tmdbId?: string }>> {
+  const rows = await db.cachedPerson.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { nameEn: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { kmdbId: true, name: true, role: true, tmdbId: true },
+    orderBy: { updatedAt: "desc" },
+    take: 5,
+  });
+  return rows.map((r) => ({
+    kmdbId: r.kmdbId,
+    name: r.name,
+    role: r.role as "감독" | "배우",
+    creditCount: 0,
+    latestYear: null,
+    tmdbId: r.tmdbId ?? undefined,
+  }));
 }
 
 // ── DB 제목 검색 (빠른 경로) ──────────────────────────────────────────────────
@@ -216,27 +241,55 @@ export async function GET(request: Request) {
 
   // DB 캐시 제목 검색 + 외부 API 검색을 동시에 시작한다.
   // DB 검색은 보통 수ms, 외부 API는 수백ms~수초 — 둘 다 기다렸다가 합쳐서 반환한다.
-  const [dbHits, movieHits, rawPeople, multiHits] = await Promise.all([
+  const [dbHits, movieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits] = await Promise.all([
     searchCachedMovies(query),
     searchMoviesSince1960(query),
     searchKmdbPeople(query, 8),
     searchTmdbMulti(query),
+    searchCachedPeople(query),
+    searchTmdbPerson(query),
   ]);
-  const people = await withIdentityMappingOverride(rawPeople, query);
+  const kmdbPeople = await withIdentityMappingOverride(rawPeople, query);
+
+  // KMDb 인물 결과를 기준으로, CachedPerson / TMDB 인물을 이름 기반으로 병합한다.
+  // 이미 KMDb에 있는 인물은 건너뛰고, 외국 인물처럼 KMDb에 없는 경우에만 추가한다.
+  const mergedPeople: Array<KmdbPersonHit & { tmdbId?: string }> = [...kmdbPeople];
+  const existingNames = new Set(kmdbPeople.map((p) => p.name.toLowerCase()));
+
+  // CachedPerson(이전에 조회된 외국 인물 포함) 보완
+  for (const cp of cachedPeople) {
+    if (!existingNames.has(cp.name.toLowerCase())) {
+      mergedPeople.push(cp);
+      existingNames.add(cp.name.toLowerCase());
+    }
+  }
+
+  // TMDB 인물 검색 결과 보완 — kmdbId 없이 tmdbId만 가지는 외국 인물
+  for (const tp of tmdbPersonHits.slice(0, 3)) {
+    if (!existingNames.has(tp.name.toLowerCase())) {
+      mergedPeople.push({ kmdbId: "", name: tp.name, role: "배우", creditCount: 0, latestYear: null, tmdbId: tp.tmdbId });
+      existingNames.add(tp.name.toLowerCase());
+    }
+  }
 
   const seriesHits = multiHits
     .filter((h) => h.mediaType === "tv")
     .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-  if (movieHits.length > 0 || people.length > 0 || seriesHits.length > 0 || dbHits.length > 0) {
+  if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbHits.length > 0) {
     // 외부 API 결과에 포스터 배치 조회 (1번의 findMany) + 대표작 조회를 병렬 실행
     const [movies, peopleWithWorks] = await Promise.all([
       withPosters(movieHits),
-      withRepresentativeWorks(people),
+      withRepresentativeWorks(kmdbPeople),
     ]);
 
+    // KMDb 대표작이 붙은 사람과 TMDB/CachedPerson에서 보완된 사람을 다시 합친다
+    const kmdbNames = new Set(kmdbPeople.map((p) => p.name.toLowerCase()));
+    const extraPeople = mergedPeople.filter((p) => !kmdbNames.has(p.name.toLowerCase()));
+    const people = [...peopleWithWorks, ...extraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
+
     const mergedMovies = mergeMovieHits(movies, dbHits);
-    const result = { movies: mergedMovies, series: seriesHits, people: peopleWithWorks, correctedQuery: null };
+    const result = { movies: mergedMovies, series: seriesHits, people, correctedQuery: null };
     setCache(cacheKey, result);
     return NextResponse.json(result);
   }
@@ -275,28 +328,50 @@ export async function GET(request: Request) {
 
   // 키워드를 순서대로 시도 — 결과가 나오는 첫 번째 키워드에서 멈춘다
   for (const keyword of keywordsToTry) {
-    const [dbCorrectedHits, correctedMovieHits, rawCorrectedPeople, correctedMultiHits] = await Promise.all([
+    const [dbCorrectedHits, correctedMovieHits, rawCorrectedPeople, correctedMultiHits, correctedCachedPeople, correctedTmdbPersonHits] = await Promise.all([
       searchCachedMovies(keyword),
       searchMoviesSince1960(keyword),
       searchKmdbPeople(keyword, 8),
       searchTmdbMulti(keyword),
+      searchCachedPeople(keyword),
+      searchTmdbPerson(keyword),
     ]);
-    const correctedPeople = await withIdentityMappingOverride(rawCorrectedPeople, keyword);
+    const correctedKmdbPeople = await withIdentityMappingOverride(rawCorrectedPeople, keyword);
+
+    const correctedMergedPeople: Array<KmdbPersonHit & { tmdbId?: string }> = [...correctedKmdbPeople];
+    const correctedExistingNames = new Set(correctedKmdbPeople.map((p) => p.name.toLowerCase()));
+    for (const cp of correctedCachedPeople) {
+      if (!correctedExistingNames.has(cp.name.toLowerCase())) {
+        correctedMergedPeople.push(cp);
+        correctedExistingNames.add(cp.name.toLowerCase());
+      }
+    }
+    for (const tp of correctedTmdbPersonHits.slice(0, 3)) {
+      if (!correctedExistingNames.has(tp.name.toLowerCase())) {
+        correctedMergedPeople.push({ kmdbId: "", name: tp.name, role: "배우", creditCount: 0, latestYear: null, tmdbId: tp.tmdbId });
+        correctedExistingNames.add(tp.name.toLowerCase());
+      }
+    }
+
     const correctedSeriesHits = correctedMultiHits
       .filter((h) => h.mediaType === "tv")
       .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 
-    const found = correctedMovieHits.length > 0 || correctedPeople.length > 0 || correctedSeriesHits.length > 0 || dbCorrectedHits.length > 0;
+    const found = correctedMovieHits.length > 0 || correctedMergedPeople.length > 0 || correctedSeriesHits.length > 0 || dbCorrectedHits.length > 0;
     if (!found) continue;
 
     const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
       withPosters(correctedMovieHits),
-      withRepresentativeWorks(correctedPeople),
+      withRepresentativeWorks(correctedKmdbPeople),
     ]);
+    const correctedKmdbNames = new Set(correctedKmdbPeople.map((p) => p.name.toLowerCase()));
+    const correctedExtraPeople = correctedMergedPeople.filter((p) => !correctedKmdbNames.has(p.name.toLowerCase()));
+    const correctedPeople = [...correctedPeopleWithWorks, ...correctedExtraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
+
     const correctedResult = {
       movies: mergeMovieHits(correctedMovies, dbCorrectedHits),
       series: correctedSeriesHits,
-      people: correctedPeopleWithWorks,
+      people: correctedPeople,
       // 교정 표시어: LLM이 제안한 한글 단어 우선, 없으면 실제로 히트한 키워드
       correctedQuery: didYouMean ?? keyword,
     };

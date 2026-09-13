@@ -25,6 +25,7 @@ type PersonHit = {
   creditCount: number;
   latestYear: string | null;
   representativeWorks: string[];
+  tmdbId?: string;
 };
 
 export default function SearchInput() {
@@ -203,8 +204,13 @@ export default function SearchInput() {
                     people.filter((p) => p.name === person.name && p.role === person.role).length > 1;
                   return (
                     <Link
-                      key={`${person.kmdbId}-${idx}`}
-                      href={`/people/${encodeURIComponent(person.name)}?pid=${encodeURIComponent(person.kmdbId)}&role=${encodeURIComponent(person.role)}`}
+                      key={`${person.tmdbId ?? person.kmdbId}-${idx}`}
+                      href={(() => {
+                        const params = new URLSearchParams({ role: person.role });
+                        if (person.kmdbId) params.set("pid", person.kmdbId);
+                        if (person.tmdbId) params.set("tmdbId", person.tmdbId);
+                        return `/people/${encodeURIComponent(person.name)}?${params.toString()}`;
+                      })()}
                       onClick={() => setOpen(false)}
                       className="flex items-center gap-3 p-2.5 hover:bg-black/30"
                     >
