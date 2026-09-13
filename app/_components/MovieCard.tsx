@@ -45,7 +45,9 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
   const isSeries = movie.id.startsWith("tmdb-tv-");
   const isTmdbMovie = movie.id.startsWith("tmdb-") && !isSeries;
-  const isRatable = movie.id.startsWith("kobis-") || isSeries || isTmdbMovie;
+  // kmdb-* 도 평점 페이지로 연결한다 — resolveMovieRateInfo가 CachedMovie를 조회해
+  // TMDB에서 정보를 보완하거나 KMDb 기본 정보만으로라도 평점 페이지를 제공한다.
+  const isRatable = movie.id.startsWith("kobis-") || isSeries || isTmdbMovie || movie.id.startsWith("kmdb-");
   const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
   // "추천 N%"는 내가 남긴 평점의 장르와 이 영화의 장르가 겹치는 비율 — 평점은

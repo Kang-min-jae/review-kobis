@@ -471,6 +471,36 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
     return { movieId: id, ...meta, boxOffice: null };
   }
 
+  // KMDb 전용 작품 (KOBIS 코드 없음) — filmographyFromKmdb가 CachedMovie에 기본 정보를
+  // 저장해두면 여기서 제목으로 TMDB를 조회해 포스터·개요를 보완한 뒤 평점 페이지를 제공한다.
+  if (id.startsWith("kmdb-")) {
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    if (!cached) return null;
+
+    if (Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS && (cached.overview || cached.posterUrl)) {
+      return { movieId: id, ...rowToMeta(cached), boxOffice: null };
+    }
+
+    // TMDB에서 제목으로 추가 정보를 가져와 캐시를 보완한다.
+    const yearHint = cached.releaseDate?.slice(0, 4) ?? null;
+    const tmdb = await searchTmdbMovie(cached.title, yearHint, cached.titleEn).catch(() => null);
+    if (tmdb) {
+      const update = {
+        overview: tmdb.overview ?? cached.overview,
+        posterUrl: tmdb.posterUrl ?? cached.posterUrl,
+        releaseDate: tmdb.releaseDate ?? cached.releaseDate,
+        runtimeMinutes: tmdb.runtimeMinutes ?? cached.runtimeMinutes,
+        genreAlt: tmdb.genre ?? cached.genreAlt,
+        titleEn: tmdb.originalTitle ?? cached.titleEn,
+        tmdbId: tmdb.tmdbId ?? cached.tmdbId,
+      };
+      await db.cachedMovie.update({ where: { movieCd: id }, data: update }).catch(() => null);
+      return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
+    }
+
+    return { movieId: id, ...rowToMeta(cached), boxOffice: null };
+  }
+
   if (!id.startsWith("kobis-")) return null;
 
   const movieCd = id.slice("kobis-".length);

@@ -12,6 +12,13 @@ import { isRecentlyOpened, genreFields, summaryToRowMovie, type RowMovie } from 
 import { getMovieMeta, getMovieMetas } from "./movie-rate-info";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
+
+// TMDB가 "/..." 형태의 상대경로를 돌려주는 경우를 대비해 전체 URL로 보정한다.
+function toFullTmdbImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  return url.startsWith("/") ? `${TMDB_IMAGE_BASE}${url}` : url;
+}
 
 // 영화 상세정보와 동일하게 3일 — 필모그래피는 신작이 나올 때만 바뀌는 정보라 자주
 // 갱신할 필요가 없다.
@@ -66,6 +73,31 @@ async function filmographyFromKmdb(
   );
   const rows = movies.map((movie, i) => {
     const movieCd = movieCds[i];
+    // KOBIS 코드가 없는 작품은 kmdb-{docId}로 저장하고, 나중에 평점 페이지에서
+    // 제목으로 TMDB를 조회할 수 있도록 CachedMovie에 기본 정보를 남겨둔다.
+    if (!movieCd) {
+      db.cachedMovie.upsert({
+        where: { movieCd: `kmdb-${movie.docId}` },
+        create: {
+          movieCd: `kmdb-${movie.docId}`,
+          title: movie.title,
+          titleEn: movie.titleEng,
+          overview: movie.overview,
+          posterUrl: movie.posterUrl,
+          releaseDate: movie.releaseDate,
+          rereleaseDate: null,
+          runtimeMinutes: movie.runtimeMinutes,
+          genreAlt: movie.genre,
+          tmdbId: null,
+          source: "kmdb",
+          directorName: movie.director?.name ?? null,
+          directorKmdbId: movie.director?.kmdbId ?? null,
+          directorTmdbId: null,
+          cast: [] as object[],
+        },
+        update: {},
+      }).catch(() => null);
+    }
     return {
       id: movieCd ? `kobis-${movieCd}` : `kmdb-${movie.docId}`,
       title: movie.title,
@@ -90,7 +122,10 @@ async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
 }
 
 function normalizeTitleForOverlap(title: string): string {
-  return title.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+  return title
+    .replace(/\s*\([^)]*\)/g, "") // strip parentheticals like "(디렉터스 컷)"
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toLowerCase();
 }
 
 // KMDb의 전문검색(rawSearch)은 관련도 기반이라, credit이 있는데도 검색 결과 100건
@@ -173,7 +208,8 @@ async function filmographyFromTmdb(
       title: meta?.movieTitle ?? c.title,
       // KMDb 포스터가 없으면(null) TMDB 포스터로 보완 — 외화는 KMDb에 포스터가
       // 없는 경우가 많아서, 이 폴백이 없으면 포스터가 아예 안 나온다.
-      posterUrl: meta?.posterUrl ?? c.posterUrl,
+      // TMDB poster_path가 상대경로("/...")로 들어오는 경우를 대비해 전체 URL로 보정한다.
+      posterUrl: meta?.posterUrl ?? toFullTmdbImageUrl(c.posterUrl),
       gradient: FALLBACK_GRADIENT,
       isNowShowing: movieCd ? isRecentlyOpened(c.releaseDate) : false,
       releaseDate: meta?.releaseDate ?? c.releaseDate,
