@@ -233,7 +233,6 @@ async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): P
         FROM jsonb_array_elements("cast"::jsonb) AS elem
         WHERE elem->>'name' = ANY(${topActors})
       )
-    ORDER BY "updatedAt" DESC
     LIMIT 100
   `;
   return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 60);
