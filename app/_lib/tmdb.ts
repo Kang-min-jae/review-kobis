@@ -247,15 +247,23 @@ export async function searchTmdbMoviePosterLoose(
   const normTitle = normalizeTitle(title);
   const normAlt = titleAlt ? normalizeTitle(titleAlt) : null;
 
-  function isTitleMatch(r: RawTmdbMovieSearchResult): boolean {
+  // TMDB 결과 제목과 검색 제목 둘 다 3자 이상일 때만 부분문자열 매칭을 허용.
+  // 짧은 제목을 긴 제목의 부분으로 잘못 매칭하는 오탐을 방지한다.
+  function isTitleMatch(r: RawTmdbMovieSearchResult, strict = false): boolean {
     if (!r.poster_path) return false;
     const t1 = r.title ? normalizeTitle(r.title) : "";
     const t2 = r.original_title ? normalizeTitle(r.original_title) : "";
-    const matches = (norm: string) =>
-      norm.length >= 2 && (
-        t1.includes(norm) || norm.includes(t1) ||
-        t2.includes(norm) || norm.includes(t2)
-      );
+    const matches = (norm: string) => {
+      if (norm.length < 3) return false;
+      if (strict) {
+        // 연도 제약 없는 마지막 시도 — 제목이 정확히 동일하거나 포함 관계일 때만 허용.
+        // 짧은 결과 제목이 긴 검색 쿼리에 포함되는 경우는 기각(오탐 방지).
+        return (t1.length >= 3 && (t1 === norm || t1.includes(norm) || norm.includes(t1) && norm.length <= t1.length + 4)) ||
+               (t2.length >= 3 && (t2 === norm || t2.includes(norm) || norm.includes(t2) && norm.length <= t2.length + 4));
+      }
+      return (t1.length >= 2 && (t1.includes(norm) || norm.includes(t1))) ||
+             (t2.length >= 2 && (t2.includes(norm) || norm.includes(t2)));
+    };
     return matches(normTitle) || (!!normAlt && matches(normAlt));
   }
 
@@ -275,11 +283,11 @@ export async function searchTmdbMoviePosterLoose(
     }
     const datasets = await Promise.all(queries);
     const all = datasets.flatMap((d) => d?.results ?? []);
-    const hit = all.find(isTitleMatch);
+    const hit = all.find((r) => isTitleMatch(r, false));
     if (hit?.poster_path) return toImageUrl(hit.poster_path);
   }
 
-  // 연도 제약 없는 마지막 시도
+  // 연도 제약 없는 마지막 시도 — 더 엄격한 제목 매칭 적용
   const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
     tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title }, "en-US"),
   ];
@@ -290,7 +298,7 @@ export async function searchTmdbMoviePosterLoose(
   }
   const datasets = await Promise.all(queries);
   const all = datasets.flatMap((d) => d?.results ?? []);
-  const fallback = all.find(isTitleMatch);
+  const fallback = all.find((r) => isTitleMatch(r, true));
   return fallback?.poster_path ? toImageUrl(fallback.poster_path) : null;
 }
 

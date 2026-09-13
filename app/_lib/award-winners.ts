@@ -1,5 +1,6 @@
 // Wikidata 수상작 + TMDB/KMDb 포스터를 합쳐 화면 카드(RowMovie)로 변환하는 서버 유틸리티.
 
+import { unstable_cache } from "next/cache";
 import {
   fetchLatestAcademyWinners,
   fetchLatestCannesWinners,
@@ -140,25 +141,45 @@ export type AwardMovieRow = {
   movie: RowMovie;
 };
 
-export async function getLatestAcademyWinnerRows(): Promise<AwardMovieRow[]> {
-  const winners = await fetchLatestAcademyWinners();
-  return winnersToRows(winners, "academy");
-}
+// 수상작 조회는 Wikidata + TMDB API를 여러 번 직렬 호출하므로 최초 응답이 수 초
+// 걸릴 수 있다. 결과를 12시간 캐싱해 반복 요청은 즉시 반환하고 서버 부하를 낮춘다.
+const AWARD_CACHE_TTL = 60 * 60 * 12; // 12시간
 
-export async function getLatestCannesWinnerRows(): Promise<AwardMovieRow[]> {
-  const winners = await fetchLatestCannesWinners();
-  return winnersToRows(winners, "cannes");
-}
+export const getLatestAcademyWinnerRows = unstable_cache(
+  async (): Promise<AwardMovieRow[]> => {
+    const winners = await fetchLatestAcademyWinners();
+    return winnersToRows(winners, "academy");
+  },
+  ["award-winners-academy"],
+  { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
+);
 
-export async function getLatestBerlinWinnerRows(): Promise<AwardMovieRow[]> {
-  const winners = await fetchLatestBerlinWinners();
-  return winnersToRows(winners, "berlin");
-}
+export const getLatestCannesWinnerRows = unstable_cache(
+  async (): Promise<AwardMovieRow[]> => {
+    const winners = await fetchLatestCannesWinners();
+    return winnersToRows(winners, "cannes");
+  },
+  ["award-winners-cannes"],
+  { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
+);
 
-export async function getLatestVeniceWinnerRows(): Promise<AwardMovieRow[]> {
-  const winners = await fetchLatestVeniceWinners();
-  return winnersToRows(winners, "venice");
-}
+export const getLatestBerlinWinnerRows = unstable_cache(
+  async (): Promise<AwardMovieRow[]> => {
+    const winners = await fetchLatestBerlinWinners();
+    return winnersToRows(winners, "berlin");
+  },
+  ["award-winners-berlin"],
+  { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
+);
+
+export const getLatestVeniceWinnerRows = unstable_cache(
+  async (): Promise<AwardMovieRow[]> => {
+    const winners = await fetchLatestVeniceWinners();
+    return winnersToRows(winners, "venice");
+  },
+  ["award-winners-venice"],
+  { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
+);
 
 // ── 특정 영화의 수상 이력 조회 ────────────────────────────────────────────────
 

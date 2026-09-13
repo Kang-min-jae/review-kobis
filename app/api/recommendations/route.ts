@@ -6,6 +6,20 @@ import type { RowMovie } from "../../_lib/movie-rows";
 
 const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 
+// 동일 입력(평점 데이터)에 대한 반복 요청을 2분간 캐싱 — React StrictMode 이중 호출,
+// 빠른 페이지 재진입 등으로 발생하는 중복 요청을 서버에서 흡수한다.
+const recServerCache = new Map<string, { data: { results: RowMovie[] }; expiresAt: number }>();
+const REC_CACHE_TTL = 2 * 60 * 1000; // 2분
+const REC_CACHE_MAX = 200;
+
+function hashBody(ratings: { movieId: string; rating: number }[], catRatings: { movieId: string; category: string; value: number }[]): string {
+  const rStr = ratings.map((r) => `${r.movieId}:${r.rating}`).sort().join(",");
+  const cStr = catRatings.map((r) => `${r.movieId}:${r.category}:${r.value}`).sort().join(",");
+  let h = 0;
+  for (const ch of rStr + "|" + cStr) h = (Math.imul(31, h) + ch.charCodeAt(0)) | 0;
+  return String(h >>> 0);
+}
+
 // ─────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────
@@ -611,6 +625,14 @@ export async function POST(request: Request) {
   }
 
   const { myRatings = [], myCategoryRatings = [] } = body;
+
+  // 동일 입력에 대한 2분 캐시 히트 → 즉시 반환
+  const cacheKey = hashBody(myRatings, myCategoryRatings);
+  const cached = recServerCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return NextResponse.json(cached.data);
+  }
+
   const ratedMovieIds = new Set(myRatings.map((r) => r.movieId));
 
   const profile = await buildUserProfile(myRatings, myCategoryRatings);
@@ -651,7 +673,16 @@ export async function POST(request: Request) {
     };
   });
 
-  return NextResponse.json({ results: results.filter((r) => r.posterUrl !== null) });
+  const payload = { results: results.filter((r) => r.posterUrl !== null) };
+
+  // 결과 캐싱 (FIFO 방식으로 최대 200개 유지)
+  if (recServerCache.size >= REC_CACHE_MAX) {
+    const oldestKey = recServerCache.keys().next().value;
+    if (oldestKey !== undefined) recServerCache.delete(oldestKey);
+  }
+  recServerCache.set(cacheKey, { data: payload, expiresAt: Date.now() + REC_CACHE_TTL });
+
+  return NextResponse.json(payload);
 }
 
 // Keep GET for backwards compatibility (returns empty)

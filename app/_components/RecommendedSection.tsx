@@ -10,6 +10,8 @@ export default function RecommendedSection() {
   const [movies, setMovies] = useState<RowMovie[] | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
       movieId: r.id,
       rating: r.rating,
@@ -32,10 +34,15 @@ export default function RecommendedSection() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ myRatings, myCategoryRatings }),
+      signal: controller.signal,
     })
       .then((res) => res.json())
       .then((data: { results?: RowMovie[] }) => setMovies(data.results ?? []))
-      .catch(() => setMovies([]));
+      .catch((err) => {
+        if ((err as { name?: string }).name !== "AbortError") setMovies([]);
+      });
+
+    return () => controller.abort();
   }, []);
 
   if (!movies || movies.length === 0) return null;
