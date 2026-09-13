@@ -239,15 +239,15 @@ const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   berlin: [
     { categoryLabel: "황금곰상", titleKo: null, titleEn: "Dahomey", ceremonyYear: 2024, filmQid: "Q130185185", tmdbId: "1239586" },
   ],
-  // 83회 베니스 영화제 (2026년 9월) — Wikidata 재조회로 자동 반영 (v5 강제 갱신)
+  // 83회 베니스 영화제 (2026년 9월) — Wikidata 재조회로 자동 반영
   venice: [
-    { categoryLabel: "황금사자상",   titleKo: null, titleEn: "April",          ceremonyYear: 2024, filmQid: "Q124831397", tmdbId: "1226979" },
-    { categoryLabel: "심사위원대상", titleKo: null, titleEn: "Vermiglio",       ceremonyYear: 2024, filmQid: "Q127028023", tmdbId: "1352009" },
-    { categoryLabel: "감독상",       titleKo: null, titleEn: "The Brutalist",   ceremonyYear: 2024, filmQid: "Q108851477", tmdbId: "1023919" },
-    { categoryLabel: "각본상",       titleKo: null, titleEn: "I'm Still Here",  ceremonyYear: 2024, filmQid: "Q128023745", tmdbId: "1156593" },
-    { categoryLabel: "여우주연상",   titleKo: null, titleEn: "Babygirl",        ceremonyYear: 2024, filmQid: "Q128462534", tmdbId: "1037073" },
-    { categoryLabel: "특별심사위원상", titleKo: null, titleEn: "Queer",         ceremonyYear: 2024, filmQid: "Q115030826", tmdbId: "539051" },
-    { categoryLabel: "남우주연상",   titleKo: null, titleEn: "Vincent Must Die", ceremonyYear: 2024, filmQid: "Q122915012", tmdbId: "1179694" },
+    { categoryLabel: "황금사자상",     titleKo: null,        titleEn: "Woman Unknown",       ceremonyYear: 2026, filmQid: "Q140743054", tmdbId: "1511780" },
+    { categoryLabel: "심사위원대상",   titleKo: "가능한 사랑", titleEn: "Possible Love",       ceremonyYear: 2026, filmQid: "Q137843740", tmdbId: "1483525" },
+    { categoryLabel: "감독상",         titleKo: null,        titleEn: "DAU",                 ceremonyYear: 2026, filmQid: "Q140676305", tmdbId: null },
+    { categoryLabel: "각본상",         titleKo: null,        titleEn: "A Good Little Soldier", ceremonyYear: 2026, filmQid: "Q140680910", tmdbId: "1430815" },
+    { categoryLabel: "여우주연상",     titleKo: null,        titleEn: "Woman Unknown",       ceremonyYear: 2026, filmQid: "Q140743054", tmdbId: "1511780" },
+    { categoryLabel: "남우주연상",     titleKo: null,        titleEn: "Wild Horse Nine",     ceremonyYear: 2026, filmQid: "Q133341572", tmdbId: "891621" },
+    { categoryLabel: "특별심사위원상", titleKo: null,        titleEn: "NAZA",                ceremonyYear: 2026, filmQid: "Q141168534", tmdbId: "1755291" },
   ],
 };
 
