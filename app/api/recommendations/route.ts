@@ -332,6 +332,16 @@ function cosineSimilarity(userVec: Record<string, number>, movieVec: Record<stri
   return dot / (Math.sqrt(userNorm) * Math.sqrt(movieNorm));
 }
 
+// 평점 페널티 계수 — 실제 리뷰 데이터가 5건 이상일 때만 적용한다.
+// 리뷰가 부족하면 계수 1.0(변동 없음)으로 두고 베이지안 보정이 자연스럽게 처리하게 둔다.
+function getRatingPenaltyFactor(reviewAvg: number | null, reviewCount: number): number {
+  if (reviewCount < 5 || reviewAvg === null) return 1.0;
+  if (reviewAvg >= 8.5) return 1.15; // 명작 보너스
+  if (reviewAvg >= 7.5) return 1.0;  // 양작 — 그대로
+  if (reviewAvg >= 6.5) return 0.75; // 평범 — 25% 감점
+  return 0.50;                        // 저품질 — 50% 강감점
+}
+
 // 베이지안 보정 품질 점수 (소표본 왜곡 방지, 결과 0-1)
 // 리뷰가 적을수록 카탈로그 평균 쪽으로 끌어당긴다.
 function bayesianQualityScore(movie: CandidateMovie, catalogMean: number): number {
@@ -392,7 +402,10 @@ function calculateFinalScore(
   } else {
     totalScore = 0.40 * userSimScore + 0.30 * categoryScore + 0.30 * qualityScore;
   }
-  return Math.max(0, Math.min(1, totalScore - negativePenalty));
+
+  // 평점 페널티: 플랫폼 리뷰 평균이 낮으면 취향 유사도가 높아도 최종 점수를 끌어내린다.
+  const ratingFactor = getRatingPenaltyFactor(movie.reviewAvg, movie.reviewCount);
+  return Math.max(0, Math.min(1, (totalScore - negativePenalty) * ratingFactor));
 }
 
 async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): Promise<CandidateMovie[]> {

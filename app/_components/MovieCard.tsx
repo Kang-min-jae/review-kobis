@@ -24,6 +24,7 @@ import {
   subscribe as subscribeReviews,
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
+  getCombinedRatingSnapshot,
 } from "../_lib/reviews-store";
 
 const FESTIVAL_KO: Record<string, string> = {
@@ -74,8 +75,16 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
     if (overlapCount === 0) return null;
     // 분모를 사용자 선호 장르 수로: "내 취향 장르 중 몇 %를 이 영화가 커버하는가"
-    const percent = Math.round((overlapCount / seedGenres.length) * 100);
-    return `추천 ${percent}%`;
+    let percent = Math.round((overlapCount / seedGenres.length) * 100);
+    // 플랫폼 평점 페널티 — 리뷰 3건 이상일 때 평점이 낮으면 추천 % 하향
+    const combined = getCombinedRatingSnapshot(movie.id);
+    if (combined.count >= 3 && combined.average !== null) {
+      const avg = combined.average;
+      const factor = avg >= 8.5 ? 1.15 : avg >= 7.5 ? 1.0 : avg >= 6.5 ? 0.75 : 0.50;
+      percent = Math.round(percent * factor);
+    }
+    if (percent <= 0) return null;
+    return `추천 ${Math.min(99, Math.max(1, percent))}%`;
   }, [seedGenres, affinityScores, movie.allGenres, movie.recommendScore, movie.id]);
 
   return (
