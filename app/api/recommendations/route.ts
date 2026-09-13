@@ -621,8 +621,9 @@ export async function POST(request: Request) {
   }
 
   const movieCds = candidates.map((c) => c.movieCd);
+  const llmTimeout = new Promise<LlmResult>((resolve) => setTimeout(() => resolve([]), 400));
   const [llmResults, metas] = await Promise.all([
-    callLlm(profile, candidates).catch(() => [] as LlmResult),
+    Promise.race([callLlm(profile, candidates), llmTimeout]).catch(() => [] as LlmResult),
     getMovieMetas(movieCds),
   ]);
 
