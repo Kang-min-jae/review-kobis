@@ -350,54 +350,51 @@ async function fetchAndCacheFilmography(
     filmographyFromTmdb(name, role, tmdbIdHint, nameEn),
   ]);
 
-  // KMDb는 포스터가 있어 우선하고, KOBIS 감독 검색·KOFIC 영화인 목록·CachedMovie
-  // 역방향 조회(kmdbId/tmdbId 둘 다)·TMDB 전체 필모그래피에만 있는 작품(이름
-  // 검색에서 누락된 것)을 채워 넣는다.
-  const byId = new Map<string, RowMovie>();
-  for (const row of kmdbRows) byId.set(row.id, row);
-  for (const row of kobisDirectorRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of koficRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of reverseRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of tmdbReverseRows) if (!byId.has(row.id)) byId.set(row.id, row);
-
-  // TMDB 필모그래피는 KOBIS movieCd를 못 찾은 작품이면 id가 tmdb-<id>가 되는데,
-  // 같은 영화가 KMDb 쪽에서도 movieCd 없이(kmdb-<docid>) 이미 들어와 있을 수 있다 —
-  // id 체계가 서로 달라 id만으로는 이 중복을 못 걸러내므로 제목으로 한 번 더 대조한다.
-  // • 같은 ID: 포스터만 보완 (기존 포스터 없을 때)
-  // • 제목 동일 + kmdb-* 기존: TMDB ratable 항목으로 교체 (포스터·평점 버튼 복원)
-  // • 제목 동일 + kobis-* 기존: 포스터만 보완
-  const titleToExistingId = new Map<string, string>(); // normalized title → existing id
-  for (const [id, row] of byId) {
-    titleToExistingId.set(normalizeTitleForOverlap(row.title), id);
+  // 모든 소스를 통합할 때 제목 기준 중복을 제거한다. 같은 영화가 소스마다 다른
+  // id 체계(kobis-*/tmdb-*/kmdb-*)와 다른 표기("미스터 & 미세스 스미스" vs
+  // "미스터 미세스 스미스")로 들어오는 경우가 있어서, id 비교만으로는 중복을
+  // 걸러낼 수 없다. 우선순위 kobis- > tmdb- > kmdb- 순으로 더 ratable한 항목을
+  // 유지하고, 동일 우선순위면 기존 항목을 유지하면서 포스터만 보완한다.
+  function rowPriority(id: string): number {
+    if (id.startsWith("kobis-")) return 2;
+    if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) return 1;
+    return 0; // kmdb-*
   }
 
-  for (const row of tmdbResult.rows) {
-    const normalized = normalizeTitleForOverlap(row.title);
+  const byId = new Map<string, RowMovie>();
+  const titleToId = new Map<string, string>(); // normalized title → id in byId
 
+  function mergeRow(row: RowMovie) {
+    const norm = normalizeTitleForOverlap(row.title);
     if (byId.has(row.id)) {
-      const existing = byId.get(row.id)!;
-      if (!existing.posterUrl && row.posterUrl) {
-        byId.set(row.id, { ...existing, posterUrl: row.posterUrl });
-      }
-      continue;
+      const ex = byId.get(row.id)!;
+      if (!ex.posterUrl && row.posterUrl) byId.set(row.id, { ...ex, posterUrl: row.posterUrl });
+      return;
     }
-
-    const existingId = titleToExistingId.get(normalized);
+    const existingId = titleToId.get(norm);
     if (existingId !== undefined) {
       const existing = byId.get(existingId)!;
-      if (existing.id.startsWith("kmdb-")) {
+      if (rowPriority(row.id) > rowPriority(existingId)) {
+        // 더 ratable한 항목으로 교체하되 포스터는 있는 쪽 우선
         byId.delete(existingId);
-        byId.set(row.id, row);
-        titleToExistingId.set(normalized, row.id);
+        byId.set(row.id, { ...row, posterUrl: row.posterUrl ?? existing.posterUrl });
+        titleToId.set(norm, row.id);
       } else if (!existing.posterUrl && row.posterUrl) {
         byId.set(existingId, { ...existing, posterUrl: row.posterUrl });
       }
-      continue;
+      return;
     }
-
     byId.set(row.id, row);
-    titleToExistingId.set(normalized, row.id);
+    titleToId.set(norm, row.id);
   }
+
+  for (const row of kmdbRows) mergeRow(row);
+  for (const row of kobisDirectorRows) mergeRow(row);
+  for (const row of koficRows) mergeRow(row);
+  for (const row of reverseRows) mergeRow(row);
+  for (const row of tmdbReverseRows) mergeRow(row);
+  for (const row of tmdbResult.rows) mergeRow(row);
+
   let movies = Array.from(byId.values());
 
   // 자동 매칭이 못 잡아내는 예외(주로 KMDb 원본 데이터 자체의 오류)를 사람이 직접
