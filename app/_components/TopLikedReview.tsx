@@ -38,26 +38,26 @@ export default function TopLikedReview({ movieId }: { movieId: string }) {
 
   if (isSpoiler && !revealed) {
     return (
-      <button type=”button” onClick={() => setRevealed(true)} className=”block w-full text-left”>
-        <p className=”line-clamp-2 select-none text-[11px] text-muted blur-sm”>
-          👍 {top.likes} “{top.review.content}”
+      <button type="button" onClick={() => setRevealed(true)} className="block w-full text-left">
+        <p className="line-clamp-2 select-none text-[11px] text-muted blur-sm">
+          👍 {top.likes} "{top.review.content}"
         </p>
-        <span className=”text-[10px] font-semibold text-brand”>스포일러 포함 · 클릭해서 보기</span>
+        <span className="text-[10px] font-semibold text-brand">스포일러 포함 · 클릭해서 보기</span>
       </button>
     );
   }
 
   if (!hasText) {
     return (
-      <p className=”text-[11px] text-muted”>
-        👍 {top.likes} ★ {top.review.rating.toFixed(1)} <span className=”text-muted/60”>(평점만 남김)</span>
+      <p className="text-[11px] text-muted">
+        👍 {top.likes} ★ {top.review.rating.toFixed(1)} <span className="text-muted/60">(평점만 남김)</span>
       </p>
     );
   }
 
   return (
-    <p className=”line-clamp-2 text-[11px] text-muted”>
-      👍 {top.likes} “{top.review.content}”
+    <p className="line-clamp-2 text-[11px] text-muted">
+      👍 {top.likes} "{top.review.content}"
     </p>
   );
 }
