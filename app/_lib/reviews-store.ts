@@ -58,7 +58,15 @@ function readUserReviews(): Review[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(currentStorageKey);
-    return raw ? (JSON.parse(raw) as Review[]) : [];
+    const all = raw ? (JSON.parse(raw) as Review[]) : [];
+    // 비로그인 상태(BASE_STORAGE_KEY)에서는 플랫폼 평균을 위해 모든 유저의 리뷰가
+    // 이 키에 합산되어 있다. 자기 자신의 리뷰만 "내 리뷰"로 반환해 이전 로그인
+    // 유저의 데이터가 비로그인 마이페이지에 노출되는 것을 막는다.
+    if (currentStorageKey === BASE_STORAGE_KEY) {
+      const guestId = getGuestIdentity().id;
+      return all.filter((r) => r.authorId === guestId);
+    }
+    return all;
   } catch {
     return [];
   }

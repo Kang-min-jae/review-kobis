@@ -29,12 +29,6 @@ import {
   initForUser,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
-import {
-  subscribe as subscribeVotes,
-  getVotesSnapshot,
-  getServerVotesSnapshot,
-  getReviewVote,
-} from "../_lib/review-votes-store";
 type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
 
 export default function MyListView({
@@ -44,6 +38,7 @@ export default function MyListView({
   showCalendar = true,
   profileViews = { today: 0, total: 0 },
   userId = null,
+  totalLikes = 0,
 }: {
   myRatedMovies: MyRatedMovie[];
   followerCount?: number;
@@ -51,6 +46,7 @@ export default function MyListView({
   showCalendar?: boolean;
   profileViews?: { today: number; total: number };
   userId?: string | null;
+  totalLikes?: number;
 }) {
   // 렌더 초입에 스토리지 키를 계정별로 격리 — 이 줄이 useSyncExternalStore 훅보다
   // 먼저 실행되어야 첫 렌더부터 올바른 계정 데이터를 읽는다.
@@ -68,7 +64,6 @@ export default function MyListView({
     getServerMyMovieRatingsSnapshot
   );
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
-  const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
   const reviewedById = new Map(reviewedMovies.map((m) => [m.id, m]));
   const myListMovies = myListIds
     .map((id) => reviewedById.get(id))
@@ -92,11 +87,7 @@ export default function MyListView({
   );
   const topRatedMovies = [...myMovieRatings].sort((a, b) => b.rating - a.rating);
   const recentRatedMovies = [...myMovieRatings].sort((a, b) => (a.ratedAt < b.ratedAt ? 1 : -1));
-  const totalReviewLikes = myReviews.reduce(
-    (sum, review) => sum + getReviewVote(votesState, review.id).likes,
-    0
-  );
-  const myTier = getBadge(totalReviewLikes);
+  const myTier = getBadge(totalLikes);
 
   return (
     <div className="px-5 py-6">
@@ -118,7 +109,7 @@ export default function MyListView({
             팔로워 {followerCount}
           </span>
           <span className="rounded-full border border-star px-3 py-1.5 text-xs font-semibold text-star">
-            ♥ {totalReviewLikes}
+            ♥ {totalLikes}
           </span>
         </div>
       </div>

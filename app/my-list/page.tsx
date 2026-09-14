@@ -1,6 +1,8 @@
+import { redirect } from "next/navigation";
 import SiteHeader from "../_components/SiteHeader";
 import MyListView from "../_components/MyListView";
 import { auth } from "../../auth";
+import { db } from "../_lib/db";
 import { getMyRatedMovies } from "../_lib/my-rated-movies";
 import { getFollowerCount, getFollowingList } from "../_lib/follow-actions";
 import { getProfileViews } from "../_lib/profile-view-actions";
@@ -8,11 +10,18 @@ import { getProfileViews } from "../_lib/profile-view-actions";
 export default async function MyListPage() {
   const session = await auth();
   const userId = session?.user?.id;
-  const [myRatedMovies, followerCount, followingList, profileViews] = await Promise.all([
-    userId ? getMyRatedMovies(userId) : Promise.resolve([]),
-    userId ? getFollowerCount(userId) : Promise.resolve(0),
-    userId ? getFollowingList(userId) : Promise.resolve([]),
-    userId ? getProfileViews(userId) : Promise.resolve({ today: 0, total: 0 }),
+
+  // 비로그인 사용자는 데이터를 조회하기 전에 로그인 페이지로 리다이렉트한다.
+  if (!userId) {
+    redirect("/login?callbackUrl=/my-list");
+  }
+
+  const [myRatedMovies, followerCount, followingList, profileViews, userRow] = await Promise.all([
+    getMyRatedMovies(userId),
+    getFollowerCount(userId),
+    getFollowingList(userId),
+    getProfileViews(userId),
+    db.user.findUnique({ where: { id: userId }, select: { totalLikes: true } }),
   ]);
 
   return (
@@ -23,7 +32,8 @@ export default async function MyListPage() {
         followerCount={followerCount}
         followingList={followingList}
         profileViews={profileViews}
-        userId={userId ?? null}
+        userId={userId}
+        totalLikes={userRow?.totalLikes ?? 0}
       />
     </main>
   );
