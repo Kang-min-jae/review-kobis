@@ -198,14 +198,6 @@ export async function POST(request: Request) {
 
     const percent = Math.round(total * 100);
 
-    // 6e. 품질 기반 점수만 있는 경우 억제 조건:
-    //   - genreScore·catScore 둘 다 0이면 개인화 신호가 전혀 없다
-    //   - 이때 total = 0.40 × bayesianQuality → 평균 품질에선 26% 전후로 수렴해
-    //     모든 영화가 같은 배지를 갖는 "26% 고정" 현상이 생긴다
-    //   - bayesianQuality ≥ 0.75(≈충분한 리뷰와 높은 평균)이면 30% 이상이므로 허용하고,
-    //     그보다 낮은 품질-전용 점수(<30%)는 배지를 내보내지 않는다
-    if (genreScore === 0 && catScore === 0 && percent < 30) continue;
-
     if (percent > 0) {
       scores[id] = Math.min(99, Math.max(1, percent));
     }

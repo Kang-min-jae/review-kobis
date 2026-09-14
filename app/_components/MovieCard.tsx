@@ -78,10 +78,10 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
     const seedSet = new Set(seedGenres);
     const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
-    if (overlapCount === 0) return null;
     // Simpson 오버랩 계수 — 분모를 두 집합 중 작은 쪽으로
+    // overlapCount === 0이면 genreSimilarity = 0 → 품질 점수만 반영된다
     const minLen = Math.min(seedGenres.length, movie.allGenres.length);
-    const genreSimilarity = overlapCount / minLen;
+    const genreSimilarity = minLen > 0 ? overlapCount / minLen : 0;
     // 작품 평점 보정 (플랫폼 평점 우선, 없으면 중립 0.65)
     const combined = getCombinedRatingSnapshot(movie.id);
     // 베이지안 스무딩: 리뷰 수가 적은 영화가 우연히 높은 평점을 갖더라도 과대평가되지 않게
