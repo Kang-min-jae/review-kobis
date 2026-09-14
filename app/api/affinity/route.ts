@@ -191,18 +191,21 @@ export async function POST(request: Request) {
         ? (overall.count * overall.avg + BAYES_C * BAYES_PRIOR) / (overall.count + BAYES_C) / 10
         : BAYES_PRIOR / 10;
 
-    // 6d. 개인화 신호 없음 → 배지 생략
-    // genreScore와 catScore가 모두 0이면 total이 순수 품질 기준값(0.40×0.65=0.26)으로
-    // 수렴해 모든 해당 영화가 일률적으로 "추천 26%"를 표시하는 현상이 생긴다.
-    // 어떤 개인화 신호도 없는 영화는 배지를 내보내지 않는다.
-    if (genreScore === 0 && catScore === 0) continue;
-
-    // 6e. 가중합 — 카테고리 신호가 없으면 장르+품질 fallback
+    // 6d. 가중합 — 카테고리 신호가 없으면 장르+품질 fallback
     const total = hasUserCatSignal
       ? 0.35 * genreScore + 0.35 * catScore + 0.30 * bayesianQuality
       : 0.60 * genreScore + 0.40 * bayesianQuality;
 
     const percent = Math.round(total * 100);
+
+    // 6e. 품질 기반 점수만 있는 경우 억제 조건:
+    //   - genreScore·catScore 둘 다 0이면 개인화 신호가 전혀 없다
+    //   - 이때 total = 0.40 × bayesianQuality → 평균 품질에선 26% 전후로 수렴해
+    //     모든 영화가 같은 배지를 갖는 "26% 고정" 현상이 생긴다
+    //   - bayesianQuality ≥ 0.75(≈충분한 리뷰와 높은 평균)이면 30% 이상이므로 허용하고,
+    //     그보다 낮은 품질-전용 점수(<30%)는 배지를 내보내지 않는다
+    if (genreScore === 0 && catScore === 0 && percent < 30) continue;
+
     if (percent > 0) {
       scores[id] = Math.min(99, Math.max(1, percent));
     }
