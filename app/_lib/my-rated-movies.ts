@@ -38,16 +38,31 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
       }
     }
     if (byTmdbId.size === 0) return new Map();
-    const hits = await db.cachedMovie.findMany({
-      where: { movieCd: { in: movieCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
-      select: { movieCd: true, tmdbId: true },
-    });
     const result = new Map<string, FestivalAward[]>();
-    for (const h of hits) {
-      if (!h.tmdbId) continue;
-      const awards = byTmdbId.get(h.tmdbId);
-      if (awards) result.set(h.movieCd, awards);
+
+    // tmdb-{id} 형식 movie codes: TMDB ID가 코드 자체에 내장되어 있으므로 DB 조인 불필요
+    for (const cd of movieCds) {
+      if (cd.startsWith("tmdb-") && !cd.startsWith("tmdb-tv-")) {
+        const tmdbId = cd.slice("tmdb-".length);
+        const awards = byTmdbId.get(tmdbId);
+        if (awards) result.set(cd, awards);
+      }
     }
+
+    // KOBIS/wikidata 코드: cachedMovie를 통해 tmdbId 조인
+    const nonTmdbCds = movieCds.filter((cd) => !cd.startsWith("tmdb-") || cd.startsWith("tmdb-tv-"));
+    if (nonTmdbCds.length > 0) {
+      const hits = await db.cachedMovie.findMany({
+        where: { movieCd: { in: nonTmdbCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
+        select: { movieCd: true, tmdbId: true },
+      });
+      for (const h of hits) {
+        if (!h.tmdbId) continue;
+        const awards = byTmdbId.get(h.tmdbId);
+        if (awards) result.set(h.movieCd, awards);
+      }
+    }
+
     return result;
   } catch {
     return new Map();
