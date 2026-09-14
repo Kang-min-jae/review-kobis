@@ -16,10 +16,12 @@ export default function RatingSortedMovieRow({
   title,
   subtitle,
   movies,
+  priorityCount = 0,
 }: {
   title: string;
   subtitle?: string;
   movies: RowMovie[];
+  priorityCount?: number;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -40,5 +42,5 @@ export default function RatingSortedMovieRow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movies, version, mounted]);
 
-  return <MovieRow title={title} subtitle={subtitle} movies={sorted} />;
+  return <MovieRow title={title} subtitle={subtitle} movies={sorted} priorityCount={priorityCount} />;
 }

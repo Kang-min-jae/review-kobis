@@ -59,6 +59,7 @@ export default function GenreMovieRow({
             key={movie.id}
             movie={movie}
             popoverSide={!hasMore && index === movies.length - 1 ? "left" : "right"}
+            priority={index < 3}
           />
         ))}
 

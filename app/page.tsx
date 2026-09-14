@@ -55,7 +55,7 @@ async function NowShowingRowData() {
 
 async function RereleaseRowData() {
   const movies = await getRereleaseRow();
-  return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} />;
+  return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} priorityCount={3} />;
 }
 
 // 홈 화면 기본 탭이 예전엔 이 아래 8개 행 전부를 Promise.all로 한 번에 불러온 뒤에야
@@ -85,7 +85,7 @@ async function WeeklyBoxOfficeRowData() {
 
 async function RecentMoviesRowData() {
   const movies = await getRecentMoviesRow();
-  return <MovieRow title="최근 영화" subtitle="최근 3달 이내 국내 개봉한 영화" movies={movies} />;
+  return <MovieRow title="최근 영화" subtitle="최근 3달 이내 국내 개봉한 영화" movies={movies} priorityCount={3} />;
 }
 
 async function MonthlyBestRowData() {
