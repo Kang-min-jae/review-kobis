@@ -320,6 +320,51 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
     .map((entry) => entry.movieCd);
 }
 
+// DB에 저장된 "전체" 평점을 localStorage에 없으면 추가한다 — 다른 기기/세션에서 남긴
+// 평점은 이 브라우저의 localStorage에 없어서 통계 리포트에 반영되지 않는 문제를 해결.
+// 이미 같은 movieId+type+category가 있으면 덮어쓰지 않고(리뷰 텍스트 보존) 건너뛴다.
+// 변경이 있을 때만 write + emitChange를 한 번 호출한다.
+export type ServerRating = {
+  movieId: string;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieGradient: string;
+  movieCd: string | null;
+  rating: number; // 0~10
+  ratedAt: string; // ISO
+};
+
+export function syncServerRatings(serverRatings: ServerRating[]): void {
+  if (typeof window === "undefined" || serverRatings.length === 0) return;
+  const identity = getGuestIdentity();
+  const existing = readUserReviews();
+  const existingKeys = new Set(
+    existing
+      .filter((r) => r.type === "short" && (r.category ?? "전체") === "전체")
+      .map((r) => r.movieId)
+  );
+  const toAdd: Review[] = serverRatings
+    .filter((s) => !existingKeys.has(s.movieId))
+    .map((s) => ({
+      id: `server-sync-${s.movieId}-${Date.now()}`,
+      movieId: s.movieId,
+      movieTitle: s.movieTitle,
+      moviePosterUrl: s.moviePosterUrl,
+      movieGradient: s.movieGradient,
+      movieCd: s.movieCd,
+      type: "short" as const,
+      category: "전체" as const,
+      rating: s.rating,
+      content: "",
+      authorId: identity.id,
+      authorName: identity.name,
+      createdAt: s.ratedAt,
+    }));
+  if (toAdd.length === 0) return;
+  writeUserReviews([...existing, ...toAdd]);
+  emitChange();
+}
+
 export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" | "authorName">): Review {
   const identity = getGuestIdentity();
   const newReview: Review = {

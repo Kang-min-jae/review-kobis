@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore, useState } from "react";
+import { useSyncExternalStore, useState, useEffect } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import MyRatedMovieCard from "./MyRatedMovieCard";
@@ -27,6 +27,7 @@ import {
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
   initForUser,
+  syncServerRatings,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
 type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
@@ -51,6 +52,23 @@ export default function MyListView({
   // 렌더 초입에 스토리지 키를 계정별로 격리 — 이 줄이 useSyncExternalStore 훅보다
   // 먼저 실행되어야 첫 렌더부터 올바른 계정 데이터를 읽는다.
   initForUser(userId);
+
+  // DB에 저장된 전체 평점을 localStorage에 없으면 추가 — 다른 기기/세션에서 남긴
+  // 평점이 통계 리포트에 반영되지 않는 문제 해결. 이미 있는 리뷰는 덮어쓰지 않는다.
+  useEffect(() => {
+    if (!userId || myRatedMovies.length === 0) return;
+    syncServerRatings(
+      myRatedMovies.map((m) => ({
+        movieId: m.id,
+        movieTitle: m.title,
+        moviePosterUrl: m.posterUrl,
+        movieGradient: m.gradient,
+        movieCd: m.id.startsWith("kobis-") ? m.id.slice("kobis-".length) : null,
+        rating: m.rating,
+        ratedAt: m.ratedAt,
+      }))
+    );
+  }, [userId, myRatedMovies]);
 
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
   const reviewedMovies = useSyncExternalStore(

@@ -27,10 +27,13 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
     for (const row of awardRows) {
       const winners = row.winners as { tmdbId?: string | null; categoryLabel?: string; ceremonyYear?: number }[];
       if (!Array.isArray(winners)) continue;
+      const festival = row.id.replace(/-v\d+$/, "");
       for (const w of winners) {
         if (!w.tmdbId) continue;
         const list = byTmdbId.get(w.tmdbId) ?? [];
-        list.push({ festival: row.id, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 });
+        const award = { festival, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 };
+        const isDup = list.some((a) => a.festival === award.festival && a.year === award.year && a.categoryLabel === award.categoryLabel);
+        if (!isDup) list.push(award);
         byTmdbId.set(w.tmdbId, list);
       }
     }
