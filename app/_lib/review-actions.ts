@@ -103,3 +103,19 @@ export async function submitReviewAction(input: {
 
   revalidatePath(categoryPath(input.movieId, input.category));
 }
+
+// 내가 남긴 리뷰 하나를 삭제한다. 보안상 자기 리뷰만 지울 수 있도록 userId도
+// 조건에 포함한다.
+export async function deleteReviewAction(input: {
+  reviewId: string;
+  movieId: string;
+  category: string;
+}) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
+  const userId = session.user.id;
+
+  await db.review.deleteMany({ where: { id: input.reviewId, userId } });
+
+  revalidatePath(categoryPath(input.movieId, input.category));
+}

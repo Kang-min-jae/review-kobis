@@ -363,6 +363,12 @@ function toLocalDateKey(iso: string): string {
 // 무비 다이어리에서 "삭제"를 누르면 그 날짜에 그 영화로 남긴 리뷰를 전부(한줄평+
 // 장문평, 항목별 리뷰 포함) 지운다 — "그 날 이 영화를 봤다는 기록 자체"를 지우는
 // 개념이라 항목 하나만 남기지 않는다.
+export function removeReview(reviewId: string) {
+  const remaining = readUserReviews().filter((r) => r.id !== reviewId);
+  writeUserReviews(remaining);
+  emitChange();
+}
+
 export function removeReviewsForMovieOnDate(movieId: string, dateKey: string) {
   const remaining = readUserReviews().filter(
     (r) => !(r.movieId === movieId && toLocalDateKey(r.createdAt) === dateKey)

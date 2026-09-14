@@ -5,11 +5,11 @@ import { useRouter, usePathname } from "next/navigation";
 import StarRating from "./StarRating";
 import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
-import { submitReviewAction } from "../_lib/review-actions";
+import { submitReviewAction, deleteReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
-import { upsertMyReview, initForUser } from "../_lib/reviews-store";
+import { upsertMyReview, initForUser, removeReview } from "../_lib/reviews-store";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -165,6 +165,7 @@ export default function CategoryRateForm({
   const [shortContent, setShortContent] = useState(myReviews.SHORT?.content ?? "");
   const [longContent, setLongContent] = useState(myReviews.LONG?.content ?? "");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
 
   const content = activeTab === "SHORT" ? shortContent : longContent;
   const setContent = activeTab === "SHORT" ? setShortContent : setLongContent;
@@ -178,6 +179,18 @@ export default function CategoryRateForm({
   const displayReviews = activeTab === "SHORT"
     ? reviews[activeTab]
     : reviews[activeTab].filter((r) => r.content.trim().length > 0);
+
+  async function handleDeleteReview(reviewId: string) {
+    if (deletingReviewId) return;
+    setDeletingReviewId(reviewId);
+    try {
+      await deleteReviewAction({ reviewId, movieId, category });
+      removeReview(reviewId);
+      router.refresh();
+    } finally {
+      setDeletingReviewId(null);
+    }
+  }
 
   async function handleSubmitReview(e: FormEvent) {
     e.preventDefault();
@@ -354,7 +367,7 @@ export default function CategoryRateForm({
               ) : (
                 <p className="mt-2 text-xs text-muted">평점만 남김</p>
               )}
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex items-center justify-between gap-2">
                 <ReviewVoteButtons
                   reviewId={review.id}
                   isLoggedIn={isLoggedIn}
@@ -363,6 +376,16 @@ export default function CategoryRateForm({
                   initialDislikeCount={review.dislikeCount}
                   initialMyVote={review.myVote}
                 />
+                {userId && review.authorId === userId && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteReview(review.id)}
+                    disabled={deletingReviewId === review.id}
+                    className="rounded px-2 py-1 text-xs text-muted transition-colors hover:text-red-400 disabled:opacity-50"
+                  >
+                    {deletingReviewId === review.id ? "삭제 중…" : "삭제"}
+                  </button>
+                )}
               </div>
             </li>
           ))}
