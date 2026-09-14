@@ -147,18 +147,15 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
               key={f.id}
               type="button"
               onClick={() => handleFestivalSelect(f.id)}
-              className="flex flex-col items-center gap-1.5"
+              className="flex flex-col items-center"
             >
               <span
-                className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-lg transition-all ${
+                className={`flex h-14 w-14 items-center justify-center rounded-full text-xs font-bold shadow-lg transition-all ${
                   isActive
-                    ? `bg-gradient-to-br ${f.color} ring-2 ring-star ring-offset-2 ring-offset-black scale-110`
-                    : "bg-neutral-800 opacity-60 hover:opacity-90"
+                    ? `bg-gradient-to-br ${f.color} text-white ring-2 ring-star ring-offset-2 ring-offset-black scale-110`
+                    : "bg-neutral-800 text-muted opacity-60 hover:opacity-90"
                 }`}
               >
-                {f.emoji}
-              </span>
-              <span className={`text-[11px] font-semibold transition-colors ${isActive ? "text-star" : "text-muted"}`}>
                 {f.name}
               </span>
             </button>
