@@ -83,24 +83,28 @@ function ReviewVoteButtons({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={() => handleVote("LIKE")}
-        className={`flex items-center gap-1 text-xs font-semibold transition-colors ${
-          myVote === "LIKE" ? "text-brand" : "text-muted hover:text-text"
+        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+          myVote === "LIKE"
+            ? "bg-brand text-white"
+            : "border border-neutral-700 text-muted hover:border-neutral-500 hover:text-text"
         }`}
       >
-        👍 {likeCount}
+        좋아요 {likeCount}
       </button>
       <button
         type="button"
         onClick={() => handleVote("DISLIKE")}
-        className={`flex items-center gap-1 text-xs font-semibold transition-colors ${
-          myVote === "DISLIKE" ? "text-brand" : "text-muted hover:text-text"
+        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+          myVote === "DISLIKE"
+            ? "bg-neutral-600 text-white"
+            : "border border-neutral-700 text-muted hover:border-neutral-500 hover:text-text"
         }`}
       >
-        👎 {dislikeCount}
+        싫어요 {dislikeCount}
       </button>
     </div>
   );
@@ -330,38 +334,36 @@ export default function CategoryRateForm({
         <h2 className="text-sm font-bold text-text">
           전체 {tabs.find((t) => t.type === activeTab)?.label} ({displayReviews.length})
         </h2>
-        <ul className="mt-3 space-y-4">
+        <ul className="mt-3 space-y-3">
           {displayReviews.map((review) => (
-            <li key={review.id} className="flex gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text">
-                {review.authorName.charAt(0)}
+            <li key={review.id} className="rounded-xl bg-surface px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text">
+                  {review.authorName.charAt(0)}
+                </div>
+                <span className="text-sm font-semibold text-text">{review.authorName}</span>
+                <TierBadge tier={review.authorTier} />
+                <div className="ml-auto flex items-center gap-1.5">
+                  <StarRating rating={review.rating} scale={scale} size="h-3.5 w-3.5" />
+                  <span className="text-sm font-bold text-text">{review.rating.toFixed(1)}</span>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-text">{review.authorName}</span>
-                  <TierBadge tier={review.authorTier} />
-                  <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
-                  {!review.content.trim() && (
-                    <span className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] text-muted">
-                      평점만 남김
-                    </span>
-                  )}
-                </div>
-                {review.content.trim() && (
-                  <div className="mt-1">
-                    <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
-                  </div>
-                )}
+              {review.content.trim() ? (
                 <div className="mt-2">
-                  <ReviewVoteButtons
-                    reviewId={review.id}
-                    isLoggedIn={isLoggedIn}
-                    onSignInRequired={goToSignIn}
-                    initialLikeCount={review.likeCount}
-                    initialDislikeCount={review.dislikeCount}
-                    initialMyVote={review.myVote}
-                  />
+                  <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
                 </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted">평점만 남김</p>
+              )}
+              <div className="mt-3 flex justify-end">
+                <ReviewVoteButtons
+                  reviewId={review.id}
+                  isLoggedIn={isLoggedIn}
+                  onSignInRequired={goToSignIn}
+                  initialLikeCount={review.likeCount}
+                  initialDislikeCount={review.dislikeCount}
+                  initialMyVote={review.myVote}
+                />
               </div>
             </li>
           ))}
