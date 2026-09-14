@@ -41,7 +41,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
   return (
     <div className="mt-6">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-text">내가 평점 남긴 영화</h2>
+        <h2 className="text-sm font-bold text-text">내가 평점 남긴 작품</h2>
         <div className="flex shrink-0 gap-1">
           {SORT_OPTIONS.map((opt) => (
             <button
