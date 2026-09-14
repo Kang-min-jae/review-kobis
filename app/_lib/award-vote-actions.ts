@@ -3,6 +3,50 @@
 import { revalidatePath } from "next/cache";
 import { db } from "./db";
 import { auth } from "../../auth";
+import type { FestivalWinner } from "./wikidata";
+
+export type OfficialWinner = {
+  title: string;
+  titleEn: string | null;
+  posterUrl: string | null;
+  ceremonyYear: number;
+  categoryLabel: string;
+  filmQid: string;
+};
+
+// 현재 선택된 (festival, awardCategory) 조합의 Wikidata 공식 수상작 반환.
+// CachedAwardWinners → CachedMovie(포스터) 순으로 조회하며, 캐시가 없으면 null.
+export async function getOfficialWinner(
+  festival: string,
+  awardCategory: string
+): Promise<OfficialWinner | null> {
+  const cached = await db.cachedAwardWinners.findUnique({ where: { id: festival } });
+  if (!cached) return null;
+
+  const winners = cached.winners as FestivalWinner[];
+  // categoryLabel이 정확히 일치하거나 한쪽이 다른 쪽을 포함하면 매칭
+  const match = winners.find(
+    (w) =>
+      w.categoryLabel === awardCategory ||
+      w.categoryLabel.includes(awardCategory) ||
+      awardCategory.includes(w.categoryLabel)
+  );
+  if (!match) return null;
+
+  const cachedMovie = await db.cachedMovie.findUnique({
+    where: { movieCd: `wikidata-${match.filmQid}` },
+    select: { posterUrl: true },
+  });
+
+  return {
+    title: match.titleKo ?? match.titleEn ?? "",
+    titleEn: match.titleEn ?? null,
+    posterUrl: cachedMovie?.posterUrl ?? null,
+    ceremonyYear: match.ceremonyYear,
+    categoryLabel: match.categoryLabel,
+    filmQid: match.filmQid,
+  };
+}
 
 export type AwardVoteResult = {
   movieId: string;

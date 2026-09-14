@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { submitAwardVoteAction, deleteAwardVoteAction, getAwardVotes, type AwardVoteResult } from "../_lib/award-vote-actions";
+import { submitAwardVoteAction, deleteAwardVoteAction, getAwardVotes, getOfficialWinner, type AwardVoteResult, type OfficialWinner } from "../_lib/award-vote-actions";
 
 // ── 영화제 / 시상 부문 정의 ────────────────────────────────────────────────────
 
@@ -74,17 +74,21 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
   const [award, setAward] = useState<string | null>(null);
   const [votes, setVotes] = useState<AwardVoteResult[]>([]);
   const [loadingVotes, setLoadingVotes] = useState(false);
+  const [officialWinner, setOfficialWinner] = useState<OfficialWinner | null>(null);
   const [isPending, startTransition] = useTransition();
   const { query, results, loading: searching, search, clear } = useMovieSearch();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // 부문 선택 시 투표 현황 로드
+  // 부문 선택 시 투표 현황 + 공식 수상작 로드
   useEffect(() => {
-    if (!festival || !award) { setVotes([]); return; }
+    if (!festival || !award) { setVotes([]); setOfficialWinner(null); return; }
     setLoadingVotes(true);
-    getAwardVotes(festival, award)
-      .then(setVotes)
-      .catch(() => setVotes([]))
+    Promise.all([
+      getAwardVotes(festival, award),
+      getOfficialWinner(festival, award),
+    ])
+      .then(([v, w]) => { setVotes(v); setOfficialWinner(w); })
+      .catch(() => { setVotes([]); setOfficialWinner(null); })
       .finally(() => setLoadingVotes(false));
   }, [festival, award]);
 
@@ -283,12 +287,56 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
           <div className="mt-6">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-bold text-text">
-                {FESTIVALS.find((f) => f.id === festival)?.emoji} {award} 투표 현황
+                {award} 투표 현황
               </p>
               {totalVotes > 0 && (
                 <p className="text-xs text-muted">총 {totalVotes}표</p>
               )}
             </div>
+
+            {/* 공식 수상작 황금 카드 */}
+            {!loadingVotes && officialWinner && (() => {
+              const winnerVote = votes.find((v) => {
+                const t = v.movieTitle.trim().toLowerCase();
+                const w = officialWinner.title.trim().toLowerCase();
+                const e = (officialWinner.titleEn ?? "").trim().toLowerCase();
+                return t === w || (e && t === e);
+              });
+              const winnerPct = winnerVote && totalVotes > 0
+                ? Math.round((winnerVote.count / totalVotes) * 100)
+                : null;
+              return (
+                <div className="mb-5 overflow-hidden rounded-xl border-2 border-yellow-400 bg-gradient-to-r from-yellow-950/60 via-neutral-900 to-yellow-950/40 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
+                  <div className="flex items-center gap-2 border-b border-yellow-400/20 px-4 py-2">
+                    <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-[11px] font-bold text-black">
+                      👑 {officialWinner.ceremonyYear} 공식 수상작
+                    </span>
+                    <span className="text-[11px] font-semibold text-yellow-300">{officialWinner.categoryLabel}</span>
+                    {winnerPct !== null && (
+                      <span className="ml-auto shrink-0 text-[11px] text-neutral-400">
+                        유저 투표 {winnerPct}% ({winnerVote!.count}표)
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {officialWinner.posterUrl ? (
+                      <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded border border-yellow-400/40">
+                        <Image src={officialWinner.posterUrl} alt="" fill className="object-cover" />
+                      </div>
+                    ) : (
+                      <div className="h-16 w-11 shrink-0 rounded bg-neutral-700" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-extrabold text-white">{officialWinner.title}</p>
+                      {officialWinner.titleEn && officialWinner.titleEn !== officialWinner.title && (
+                        <p className="truncate text-[11px] text-neutral-400">{officialWinner.titleEn}</p>
+                      )}
+                      <p className="mt-1 text-[11px] text-yellow-400/90">✨ 해당 부문 최종 수상작으로 선정되었습니다</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {loadingVotes && (
               <div className="space-y-3">
