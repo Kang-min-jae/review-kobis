@@ -64,8 +64,26 @@ function readUserReviews(): Review[] {
   }
 }
 
+// 플랫폼 전체 평균(모든 사용자 포함)을 계산할 때 사용 — 공유 키에서 읽는다.
+function readAllReviews(): Review[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(BASE_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Review[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function writeUserReviews(reviews: Review[]) {
   window.localStorage.setItem(currentStorageKey, JSON.stringify(reviews));
+  // 사용자별 키에 쓸 때 공유 키도 동기화해 플랫폼 평균에 반영한다.
+  if (currentStorageKey !== BASE_STORAGE_KEY) {
+    const identity = getGuestIdentity();
+    const shared = readAllReviews();
+    const others = shared.filter((r) => r.authorId !== identity.id);
+    window.localStorage.setItem(BASE_STORAGE_KEY, JSON.stringify([...others, ...reviews]));
+  }
 }
 
 function average(reviews: Review[]): number | null {
@@ -115,7 +133,7 @@ export function getReviewsSnapshot(
   let cached = reviewsCache.get(key);
   if (!cached) {
     cached = sortByNewest(
-      [...seedReviews, ...readUserReviews()].filter(
+      [...seedReviews, ...readAllReviews()].filter(
         (r) => r.movieId === movieId && r.type === type && categoryOf(r) === category
       )
     );
@@ -150,7 +168,7 @@ export function getCombinedRatingSnapshot(movieId: string, category: RatingCateg
   const key = `${movieId}:${category}`;
   let cached = combinedRatingCache.get(key);
   if (!cached) {
-    const all = [...seedReviews, ...readUserReviews()].filter(
+    const all = [...seedReviews, ...readAllReviews()].filter(
       (r) => r.movieId === movieId && categoryOf(r) === category
     );
     cached = { average: averageNormalized(all), count: all.length };
@@ -259,7 +277,7 @@ export function getReviewsByAuthorSnapshot(authorId: string): Review[] {
   let cached = reviewsByAuthorCache.get(authorId);
   if (!cached) {
     cached = sortByNewest(
-      [...seedReviews, ...readUserReviews()].filter((r) => r.authorId === authorId)
+      [...seedReviews, ...readAllReviews()].filter((r) => r.authorId === authorId)
     );
     reviewsByAuthorCache.set(authorId, cached);
   }
