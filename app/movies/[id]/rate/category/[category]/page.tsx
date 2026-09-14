@@ -85,6 +85,7 @@ export default async function CategoryRatePage({
             movieGradient={info.gradient}
             category={category}
             isLoggedIn={Boolean(userId)}
+            userId={userId}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
             myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
           />

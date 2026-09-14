@@ -26,6 +26,7 @@ import {
   getServerMyMovieRatingsSnapshot,
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
+  initForUser,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
 import {
@@ -42,13 +43,19 @@ export default function MyListView({
   followingList = [],
   showCalendar = true,
   profileViews = { today: 0, total: 0 },
+  userId = null,
 }: {
   myRatedMovies: MyRatedMovie[];
   followerCount?: number;
   followingList?: FollowingUser[];
   showCalendar?: boolean;
   profileViews?: { today: number; total: number };
+  userId?: string | null;
 }) {
+  // 렌더 초입에 스토리지 키를 계정별로 격리 — 이 줄이 useSyncExternalStore 훅보다
+  // 먼저 실행되어야 첫 렌더부터 올바른 계정 데이터를 읽는다.
+  initForUser(userId);
+
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
   const reviewedMovies = useSyncExternalStore(
     subscribeReviews,

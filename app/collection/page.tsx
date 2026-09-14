@@ -21,6 +21,7 @@ export default async function CollectionPage() {
         followerCount={followerCount}
         followingList={followingList}
         showCalendar={false}
+        userId={userId ?? null}
       />
     </main>
   );

@@ -8,7 +8,24 @@ function categoryOf(review: Review): RatingCategory {
   return review.category ?? "전체";
 }
 
-const STORAGE_KEY = "review-site:user-reviews:v1";
+const BASE_STORAGE_KEY = "review-site:user-reviews:v1";
+let currentStorageKey = BASE_STORAGE_KEY;
+
+// 로그인한 사용자의 userId로 스토리지 키를 격리한다.
+// MyListView / CategoryRateForm 등 클라이언트 컴포넌트 렌더 초입에 호출해
+// 모든 useSyncExternalStore 훅보다 먼저 키를 세팅하면 첫 렌더부터 올바른 사용자
+// 데이터만 읽히고, 쓸 때도 같은 키에 저장돼 다른 계정 데이터와 섞이지 않는다.
+export function initForUser(userId: string | null): void {
+  const newKey = userId ? `${BASE_STORAGE_KEY}:${userId}` : BASE_STORAGE_KEY;
+  if (newKey === currentStorageKey) return;
+  currentStorageKey = newKey;
+  reviewsCache.clear();
+  reviewsByAuthorCache.clear();
+  combinedRatingCache.clear();
+  cachedUserReviewedMovies = null;
+  cachedMyReviews = null;
+  cachedMyMovieRatings = null;
+}
 
 const listeners = new Set<() => void>();
 
@@ -40,7 +57,7 @@ function emitChange() {
 function readUserReviews(): Review[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(currentStorageKey);
     return raw ? (JSON.parse(raw) as Review[]) : [];
   } catch {
     return [];
@@ -48,7 +65,7 @@ function readUserReviews(): Review[] {
 }
 
 function writeUserReviews(reviews: Review[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+  window.localStorage.setItem(currentStorageKey, JSON.stringify(reviews));
 }
 
 function average(reviews: Review[]): number | null {

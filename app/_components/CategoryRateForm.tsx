@@ -9,7 +9,7 @@ import { submitReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
-import { upsertMyReview } from "../_lib/reviews-store";
+import { upsertMyReview, initForUser } from "../_lib/reviews-store";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -133,6 +133,7 @@ export default function CategoryRateForm({
   movieGradient,
   category,
   isLoggedIn,
+  userId = null,
   reviews,
   myReviews,
 }: {
@@ -143,6 +144,7 @@ export default function CategoryRateForm({
   movieGradient: string;
   category: RatingCategory;
   isLoggedIn: boolean;
+  userId?: string | null;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
 }) {
@@ -191,6 +193,7 @@ export default function CategoryRateForm({
         rating: reviewRating,
         content: content.trim(),
       });
+      initForUser(userId);
       upsertMyReview({
         movieId,
         movieCd,

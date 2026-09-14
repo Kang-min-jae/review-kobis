@@ -23,6 +23,7 @@ export default async function MyListPage() {
         followerCount={followerCount}
         followingList={followingList}
         profileViews={profileViews}
+        userId={userId ?? null}
       />
     </main>
   );
