@@ -7,9 +7,17 @@ import TopReviewsList from "./TopReviewsList";
 // 카드를 펼쳤을 때(hover/탭) 포스터 옆에 뜨는 패널.
 // 집계 평점 + 서버 기반 상위 한줄평 2개를 보여준다.
 // BoxOfficeCoverflow 뒤집기 카드와 동일한 useTopReviews/TopReviewsList를 사용한다.
+// KOBIS: "kobis-20241234" → "20241234"
+// 시리즈: "tmdb-tv-4613" → "tmdb-tv-4613" (review DB의 movieCd 키와 동일)
+function toApiMovieCd(movieId: string): string | null {
+  if (movieId.startsWith("kobis-")) return movieId.replace("kobis-", "");
+  if (movieId.startsWith("tmdb-tv-")) return movieId;
+  return null;
+}
+
 export default function TopReviewsPanel({ movieId }: { movieId: string }) {
   const { average, count } = getCombinedRatingSnapshot(movieId);
-  const movieCd = movieId.startsWith("kobis-") ? movieId.replace("kobis-", "") : null;
+  const movieCd = toApiMovieCd(movieId);
   const { reviews, loading } = useTopReviews(movieCd);
 
   return (

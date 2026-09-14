@@ -15,10 +15,16 @@ export type TopReview = {
 // GET /api/reviews/top?movieCd=XXXXXXXX
 // 해당 영화의 "전체" 카테고리 한줄평(SHORT)을 좋아요 내림차순, 최신 작성일 순으로 최대 2개 반환.
 // BoxOfficeCoverflow 뒤집기 카드와 TopReviewsPanel(호버 팝업)이 공통으로 사용한다.
+// KOBIS 숫자 코드 또는 "tmdb-tv-{id}" 형식의 시리즈 ID를 허용한다.
+function isValidMovieCd(cd: string | null): cd is string {
+  if (!cd) return false;
+  return /^\d+$/.test(cd) || /^tmdb-tv-\d+$/.test(cd);
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const movieCd = searchParams.get("movieCd");
-  if (!movieCd || !/^\d+$/.test(movieCd)) {
+  if (!isValidMovieCd(movieCd)) {
     return NextResponse.json({ reviews: [] });
   }
 
