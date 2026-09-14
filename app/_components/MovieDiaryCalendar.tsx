@@ -10,6 +10,7 @@ import {
   subscribe as subscribeDiaryLog,
   getDiaryLogSnapshot,
   getServerDiaryLogSnapshot,
+  initForUser as initDiaryLogForUser,
 } from "../_lib/diary-log-store";
 
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -128,10 +129,13 @@ function AddButton({ onAdd, centered }: { onAdd: () => void; centered: boolean }
 export default function MovieDiaryCalendar({
   reviews,
   serverRatedMovies = [],
+  userId = null,
 }: {
   reviews: Review[];
   serverRatedMovies?: MyRatedMovie[];
+  userId?: string | null;
 }) {
+  initDiaryLogForUser(userId);
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth()); // 0-indexed

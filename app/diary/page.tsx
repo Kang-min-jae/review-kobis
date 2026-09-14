@@ -11,7 +11,7 @@ export default async function DiaryPage() {
   return (
     <main>
       <SiteHeader active="my-list" />
-      <MovieDiaryCalendar reviews={[]} serverRatedMovies={myRatedMovies} />
+      <MovieDiaryCalendar reviews={[]} serverRatedMovies={myRatedMovies} userId={userId ?? null} />
     </main>
   );
 }

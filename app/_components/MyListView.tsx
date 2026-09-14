@@ -100,7 +100,7 @@ export default function MyListView({
 
   return (
     <div className="px-5 py-6">
-      {showCalendar && <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} />}
+      {showCalendar && <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} userId={userId} />}
 
       <div className="mt-6 flex items-start justify-between gap-4">
         <div>

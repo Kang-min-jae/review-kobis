@@ -4,7 +4,16 @@
 // 두 소스를 합쳐서 보여준다(person-filmography.ts가 여러 발견 경로를 합치는 것과
 // 같은 방식). 이 코드베이스의 다른 클라이언트 스토어와 같은 구독/알림 패턴을 쓴다.
 
-const STORAGE_KEY = "review-site:diary-log:v1";
+const BASE_STORAGE_KEY = "review-site:diary-log:v1";
+let currentStorageKey = BASE_STORAGE_KEY;
+
+export function initForUser(userId: string | null): void {
+  const newKey = userId ? `${BASE_STORAGE_KEY}:${userId}` : BASE_STORAGE_KEY;
+  if (newKey === currentStorageKey) return;
+  currentStorageKey = newKey;
+  cached = null;
+  listeners.forEach((l) => l());
+}
 
 export type DiaryLogEntry = {
   id: string;
@@ -36,7 +45,7 @@ function emitChange() {
 function readEntries(): DiaryLogEntry[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(currentStorageKey);
     return raw ? (JSON.parse(raw) as DiaryLogEntry[]) : [];
   } catch {
     return [];
@@ -44,7 +53,7 @@ function readEntries(): DiaryLogEntry[] {
 }
 
 function writeEntries(entries: DiaryLogEntry[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  window.localStorage.setItem(currentStorageKey, JSON.stringify(entries));
 }
 
 const EMPTY: DiaryLogEntry[] = [];
