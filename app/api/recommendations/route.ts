@@ -336,6 +336,7 @@ async function fetchCandidateReviews(movieCds: string[]): Promise<Map<string, Re
 
 // 코사인 유사도 — userVec(가중치 누적), movieVec({tag: 1} 바이너리)
 function cosineSimilarity(userVec: Record<string, number>, movieVec: Record<string, number>): number {
+  if (Object.keys(userVec).length === 0 || Object.keys(movieVec).length === 0) return 0;
   let dot = 0, userNorm = 0, movieNorm = 0;
   for (const k in userVec) userNorm += userVec[k] ** 2;
   for (const k in movieVec) {
@@ -343,7 +344,8 @@ function cosineSimilarity(userVec: Record<string, number>, movieVec: Record<stri
     if (userVec[k]) dot += userVec[k] * movieVec[k];
   }
   if (userNorm === 0 || movieNorm === 0) return 0;
-  return dot / (Math.sqrt(userNorm) * Math.sqrt(movieNorm));
+  const result = dot / (Math.sqrt(userNorm) * Math.sqrt(movieNorm));
+  return isNaN(result) ? 0 : result;
 }
 
 // 평점 페널티 계수 — 실제 리뷰 데이터가 5건 이상일 때만 적용한다.

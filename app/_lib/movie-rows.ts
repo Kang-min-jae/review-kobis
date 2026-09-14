@@ -43,8 +43,15 @@ export type RowMovie = {
 
 export type FestivalAward = { festival: string; categoryLabel: string; year: number };
 
-export function splitGenres(genreAlt: string | null | undefined): string[] {
-  return genreAlt?.split(",").map((g) => g.trim()).filter(Boolean) ?? [];
+export function splitGenres(genreAlt: string | string[] | { name: string }[] | null | undefined): string[] {
+  if (!genreAlt) return [];
+  if (Array.isArray(genreAlt)) {
+    return (genreAlt as (string | { name: string })[])
+      .map((g) => (typeof g === "string" ? g : g?.name ?? ""))
+      .map((g) => g.trim())
+      .filter(Boolean);
+  }
+  return (genreAlt as string).split(",").map((g) => g.trim()).filter(Boolean);
 }
 
 export function genreFields(genreAlt: string | null | undefined): { genre: string | null; allGenres: string[] } {
@@ -135,10 +142,15 @@ async function getAwardDetailsByTmdbId(): Promise<Map<string, FestivalAward[]>> 
     for (const row of rows) {
       const winners = row.winners as FestivalWinnerJson[];
       if (!Array.isArray(winners)) continue;
+      // "academy-v3" → "academy" (버전 접미사 제거)
+      const festival = row.id.replace(/-v\d+$/, "");
       for (const w of winners) {
         if (!w.tmdbId) continue;
         const list = byTmdbId.get(w.tmdbId) ?? [];
-        list.push({ festival: row.id, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 });
+        const award: FestivalAward = { festival, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 };
+        // 동일 festival+year+category 중복 방지
+        const isDup = list.some((a) => a.festival === award.festival && a.year === award.year && a.categoryLabel === award.categoryLabel);
+        if (!isDup) list.push(award);
         byTmdbId.set(w.tmdbId, list);
       }
     }

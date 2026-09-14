@@ -39,7 +39,8 @@ function cosineSimilarity(a: CatVec, b: CatVec): number {
     normB += b[k] * b[k];
   }
   if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  const result = dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return isNaN(result) ? 0 : result;
 }
 
 export async function POST(request: Request) {
@@ -203,10 +204,11 @@ export async function POST(request: Request) {
         ? (overall.count * overall.avg + BAYES_C * BAYES_PRIOR) / (overall.count + BAYES_C) / 10
         : BAYES_PRIOR / 10;
 
-    // 6d. 가중합 — 카테고리 신호가 없으면 장르+품질 fallback
+    // 6d. 가중합 — 장르/카테고리 신호가 없으면 품질만으로 점수를 매긴다
+    const hasGenreSignal = genreScore > 0;
     const total = hasUserCatSignal
-      ? 0.35 * genreScore + 0.35 * catScore + 0.30 * bayesianQuality
-      : 0.60 * genreScore + 0.40 * bayesianQuality;
+      ? (hasGenreSignal ? 0.35 * genreScore + 0.35 * catScore + 0.30 * bayesianQuality : 0.50 * catScore + 0.50 * bayesianQuality)
+      : (hasGenreSignal ? 0.60 * genreScore + 0.40 * bayesianQuality : bayesianQuality);
 
     const percent = Math.round(total * 100);
 
