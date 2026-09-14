@@ -22,17 +22,29 @@ function RatingRow({
   );
 }
 
-export default function RatingSummary({ movieId }: { movieId: string }) {
-  const shortRating = useSyncExternalStore(
+export default function RatingSummary({
+  movieId,
+  shortAvg,
+  longAvg,
+}: {
+  movieId: string;
+  shortAvg?: number | null;
+  longAvg?: number | null;
+}) {
+  const shortFromStore = useSyncExternalStore(
     subscribe,
     () => getAverageRating(movieId, "short"),
     () => getSeedAverageRating(movieId, "short")
   );
-  const longRating = useSyncExternalStore(
+  const longFromStore = useSyncExternalStore(
     subscribe,
     () => getAverageRating(movieId, "long"),
     () => getSeedAverageRating(movieId, "long")
   );
+
+  // 서버 집계 평균 우선, 없으면 localStorage 기반 값 사용
+  const shortRating = shortAvg ?? shortFromStore;
+  const longRating = longAvg ?? longFromStore;
 
   return (
     <div className="space-y-1">

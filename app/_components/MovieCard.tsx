@@ -188,7 +188,7 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
         {(movie.recommendReason ?? movie.genre) && (
           <p className="text-xs text-sky-400">{movie.recommendReason ?? movie.genre}</p>
         )}
-        <RatingSummary movieId={movie.id} />
+        <RatingSummary movieId={movie.id} shortAvg={movie.shortAvg} longAvg={movie.longAvg} />
         <TopLikedReview movieId={movie.id} />
       </div>
 

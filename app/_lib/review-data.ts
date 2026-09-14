@@ -5,14 +5,15 @@ import { getBadge } from "./tier";
 export type CategoryAverage = { category: RatingCategory; average: number | null; count: number };
 
 // 항목별 페이지 사이드바(CategoryRatings)에 필요한, 6개 항목 전부의 평균+참여 수.
+// review 테이블의 SHORT 한줄평을 직접 집계 — 신구 데이터 모두 반영된다.
 export async function getAllCategoryAverages(movieCd: string): Promise<CategoryAverage[]> {
-  const rows = await db.categoryRating.groupBy({
+  const rows = await db.review.groupBy({
     by: ["category"],
-    where: { movieCd },
-    _avg: { score: true },
-    _count: { score: true },
+    where: { movieCd, type: "SHORT" },
+    _avg: { rating: true },
+    _count: { rating: true },
   });
-  const byCategory = new Map(rows.map((r) => [r.category, { average: r._avg.score, count: r._count.score }]));
+  const byCategory = new Map(rows.map((r) => [r.category as string, { average: r._avg.rating, count: r._count.rating }]));
 
   return RATING_CATEGORIES.map((category) => ({
     category,
@@ -79,6 +80,26 @@ export async function getReviewsForCategoryType(
     dislikeCount: r.dislikeCount,
     myVote: r.likes?.[0]?.type ?? null,
   }));
+}
+
+// 홈 화면 영화 카드 평균 평점 — 여러 영화의 SHORT/LONG "전체" 평점 평균을 한 번에 조회.
+export async function getBulkMovieRatingAverages(
+  movieCds: string[]
+): Promise<Map<string, { shortAvg: number | null; longAvg: number | null }>> {
+  if (movieCds.length === 0) return new Map();
+  const rows = await db.review.groupBy({
+    by: ["movieCd", "type"],
+    where: { movieCd: { in: movieCds }, category: "전체" },
+    _avg: { rating: true },
+  });
+  const result = new Map<string, { shortAvg: number | null; longAvg: number | null }>();
+  for (const row of rows) {
+    const entry = result.get(row.movieCd) ?? { shortAvg: null, longAvg: null };
+    if (row.type === "SHORT") entry.shortAvg = row._avg.rating ?? null;
+    else if (row.type === "LONG") entry.longAvg = row._avg.rating ?? null;
+    result.set(row.movieCd, entry);
+  }
+  return result;
 }
 
 export type MyReview = { rating: number; content: string; createdAt: string } | null;

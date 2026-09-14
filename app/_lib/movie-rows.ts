@@ -9,6 +9,7 @@ import {
 } from "./kobis";
 import { db } from "./db";
 import { getMovieMetas } from "./movie-rate-info";
+import { getBulkMovieRatingAverages } from "./review-data";
 
 export type RowMovie = {
   id: string;
@@ -34,6 +35,9 @@ export type RowMovie = {
   awardBadge?: true;
   // 수상 내역 상세 — 툴팁 및 +N 뱃지용.
   festivalAwards?: FestivalAward[];
+  // 서버에서 집계한 플랫폼 평균 — 한줄평(0~10), 장문평(0~100). 없으면 null.
+  shortAvg?: number | null;
+  longAvg?: number | null;
 };
 
 export type FestivalAward = { festival: string; categoryLabel: string; year: number };
@@ -171,15 +175,19 @@ async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Map<string, 
 // 편수만큼 DB 왕복이 생기지 않게 한다.
 async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> {
   const movieCds = summaries.map((s) => s.movieCd);
-  const [metas, awardMap] = await Promise.all([
+  const [metas, awardMap, avgMap] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
+    getBulkMovieRatingAverages(movieCds),
   ]);
   const rows = summaries.map((s) => {
     const awards = awardMap.get(s.movieCd);
+    const avgs = avgMap.get(s.movieCd);
     return {
       ...summaryToRowMovie(s, metas.get(s.movieCd) ?? null),
       ...(awards ? { awardBadge: true as const, festivalAwards: awards } : {}),
+      shortAvg: avgs?.shortAvg ?? null,
+      longAvg: avgs?.longAvg ?? null,
     };
   });
   return rows.filter((row) => row.posterUrl !== null);
