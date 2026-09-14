@@ -5,7 +5,10 @@
 
 import { getMyMovieRatingsSnapshot } from "./reviews-store";
 
-const INITIAL_DEBOUNCE_MS = 500;
+// 초기 창: 페이지 스트리밍 중 빠르게 해소되는 Suspense 행들을 하나로 묶는 시간.
+// 1000ms로 넉넉하게 잡아 AllTimeBest/InternationalBest 등 쿼리가 느린 행도 포함.
+const INITIAL_DEBOUNCE_MS = 1000;
+// 후속 창: 추천 API 응답 등 첫 플러시 이후에 도착하는 ID들을 하나로 묶는 시간.
 const LATE_DEBOUNCE_MS = 2000;
 
 let scores: Record<string, number> = {}; // movieId → 0~100
@@ -48,6 +51,7 @@ export function getAffinityScore(movieId: string): number | null {
 
 async function flushPending() {
   if (pendingIds.size === 0 || loading) return;
+  debounceTimer = null;
 
   const ids = Array.from(pendingIds);
   pendingIds = new Set();
@@ -83,7 +87,7 @@ async function flushPending() {
     loading = false;
     // flushPending 중에 새로 추가된 ID가 있으면 다시 스케줄.
     // 첫 플러시 이후이므로 LATE_DEBOUNCE_MS(2000ms)로 나머지 행들을 하나로 묶는다.
-    if (pendingIds.size > 0) {
+    if (pendingIds.size > 0 && !debounceTimer) {
       debounceTimer = setTimeout(flushPending, LATE_DEBOUNCE_MS);
     }
   }

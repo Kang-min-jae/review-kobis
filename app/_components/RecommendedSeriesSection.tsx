@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
+import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
 let inFlightSeriesRec: Promise<RowMovie[]> | null = null;
@@ -33,7 +34,10 @@ export default function RecommendedSeriesSection() {
     }
 
     inFlightSeriesRec.then((results) => {
-      if (mounted.current) setSeries(results);
+      if (mounted.current) {
+        if (results.length > 0) registerMovieIds(results.map((m) => m.id));
+        setSeries(results);
+      }
     });
 
     return () => { mounted.current = false; };

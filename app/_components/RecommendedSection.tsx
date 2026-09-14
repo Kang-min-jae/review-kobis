@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
 import { RATING_CATEGORIES, getMyCategoryRating } from "../_lib/category-ratings-store";
+import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
 // 동일한 추천 요청이 동시에 여러 번 전송되지 않도록 진행 중인 Promise를 공유한다.
@@ -48,7 +49,10 @@ export default function RecommendedSection() {
     }
 
     inFlightMovieRec.then((results) => {
-      if (mounted.current) setMovies(results);
+      if (mounted.current) {
+        if (results.length > 0) registerMovieIds(results.map((m) => m.id));
+        setMovies(results);
+      }
     });
 
     return () => { mounted.current = false; };
