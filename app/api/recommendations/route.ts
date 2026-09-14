@@ -423,7 +423,7 @@ function calculateFinalScore(
 }
 
 async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): Promise<CandidateMovie[]> {
-  // Cold start: 최신 영화 20편 그대로 반환
+  // Cold start: 최신 영화 20편 반환 + 품질 점수 계산
   if (profile.coldStart) {
     const recent = await db.cachedMovie.findMany({
       where: { posterUrl: { not: null }, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
@@ -431,10 +431,26 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
       take: 25,
       select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
     });
-    return recent
+    const coldCandidates = recent
       .filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`))
       .slice(0, 20)
       .map((m) => toCandidate(m, 0));
+
+    // 리뷰 집계로 품질 점수 계산 — recommendScore를 항상 반환하기 위해
+    const reviewData = await fetchCandidateReviews(coldCandidates.map((c) => c.movieCd));
+    const reviewedMovies = [...reviewData.values()].filter((d) => d.reviewAvg !== null && d.reviewCount > 0);
+    const catalogMean = reviewedMovies.length > 0
+      ? reviewedMovies.reduce((s, d) => s + d.reviewAvg!, 0) / reviewedMovies.length
+      : 7.0;
+    for (const c of coldCandidates) {
+      const rev = reviewData.get(c.movieCd);
+      if (rev) {
+        c.reviewAvg = rev.reviewAvg;
+        c.reviewCount = rev.reviewCount;
+      }
+      c.totalScore = bayesianQualityScore(c, catalogMean);
+    }
+    return coldCandidates;
   }
 
   // 4채널 병렬 조회 후 union (중복 제거)
@@ -655,9 +671,7 @@ export async function POST(request: Request) {
   const results: RowMovie[] = final.map(({ candidate: c, finalScore, reason }) => {
     const meta = metas.get(c.movieCd);
     const rawScore = Math.round(100 * finalScore);
-    const recommendScore = profile.coldStart
-      ? undefined
-      : Math.min(99, Math.max(1, rawScore));
+    const recommendScore = Math.min(99, Math.max(1, rawScore));
     const { genre, allGenres } = genreFields(meta?.genreAlt ?? c.genreAlt);
 
     return {
