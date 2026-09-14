@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
+import RowSkeleton from "./RowSkeleton";
 import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
 import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
@@ -43,7 +44,8 @@ export default function RecommendedSeriesSection() {
     return () => { mounted.current = false; };
   }, []);
 
-  if (!series || series.length === 0) return null;
+  if (series === null) return <RowSkeleton />;
+  if (series.length === 0) return null;
 
   return (
     <MovieRow

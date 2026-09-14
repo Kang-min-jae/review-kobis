@@ -36,6 +36,7 @@ import {
 import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "./_lib/series-rows";
 import SeriesKeywordSearch from "./_components/SeriesKeywordSearch";
 import CoverflowCarousel from "./_components/CoverflowCarousel";
+import RowSkeleton from "./_components/RowSkeleton";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -45,21 +46,6 @@ function resolveCategory(value: string | undefined): TabCategory {
 
 function resolveGenre(value: string | undefined): GenreLabel {
   return (genreLabels as readonly string[]).includes(value ?? "") ? (value as GenreLabel) : "전체";
-}
-
-// 각 행이 자기 데이터를 다 가져올 때까지 화면 전체가 하얗게 멈춰 있지 않도록, 행마다
-// 이 스켈레톤을 보여주다가 준비되는 대로 하나씩 바로 교체되게 한다(Suspense 스트리밍).
-function RowSkeleton() {
-  return (
-    <section className="px-5 py-6">
-      <div className="h-5 w-32 animate-pulse rounded bg-neutral-800" />
-      <div className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="aspect-2/3 w-32 shrink-0 animate-pulse rounded-lg bg-neutral-800" />
-        ))}
-      </div>
-    </section>
-  );
 }
 
 async function NowShowingRowData() {
@@ -220,7 +206,9 @@ function MovieCategorySection() {
       <Suspense fallback={<RowSkeleton />}>
         <WeeklyBoxOfficeRowData />
       </Suspense>
-      <RecommendedSection />
+      <Suspense fallback={<RowSkeleton />}>
+        <RecommendedSection />
+      </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <AwardWinnersData />
       </Suspense>
@@ -245,7 +233,9 @@ function MovieCategorySection() {
       <Suspense fallback={<RowSkeleton />}>
         <InternationalBestRowData />
       </Suspense>
-      <RecommendedSeriesSection />
+      <Suspense fallback={<RowSkeleton />}>
+        <RecommendedSeriesSection />
+      </Suspense>
       <Suspense fallback={null}>
         <UserPopularMoviesRowData />
       </Suspense>

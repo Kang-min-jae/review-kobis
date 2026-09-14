@@ -252,7 +252,7 @@ export default function CoverflowCarousel({
                         movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
                       }`}
                     >
-                      {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
+                      {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i < 3} />}
                       {primary && (
                         <span className="absolute left-2 top-2 rounded-full bg-star px-2 py-1 text-xs font-bold text-black">
                           {primary}
@@ -273,7 +273,7 @@ export default function CoverflowCarousel({
                       movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
                     }`}
                   >
-                    {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i === 0} />}
+                    {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={i < 3} />}
                     {primary && (
                       <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-star">
                         {primary}

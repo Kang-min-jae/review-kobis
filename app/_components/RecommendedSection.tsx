@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
+import RowSkeleton from "./RowSkeleton";
 import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
 import { RATING_CATEGORIES, getMyCategoryRating } from "../_lib/category-ratings-store";
 import { registerMovieIds } from "../_lib/affinity-store";
@@ -58,7 +59,8 @@ export default function RecommendedSection() {
     return () => { mounted.current = false; };
   }, []);
 
-  if (!movies || movies.length === 0) return null;
+  if (movies === null) return <RowSkeleton />;
+  if (movies.length === 0) return null;
 
   return (
     <MovieRow
