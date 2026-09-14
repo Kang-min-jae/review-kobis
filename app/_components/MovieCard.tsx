@@ -146,7 +146,7 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
             )}
           </div>
         )}
-        <HoverRating movieId={movie.id} />
+        <HoverRating movieId={movie.id} myRating={myMovieRating} />
 
         {/* 포스터에 마우스를 올렸을 때(데스크톱) 또는 탭했을 때(모바일)만 나타나는
             예매/평점 바로가기. 안 보일 땐 pointer-events-none이라 숨어있는 버튼이

@@ -3,9 +3,9 @@
 import { useSyncExternalStore } from "react";
 import { subscribe, getAverageRating, getSeedAverageRating } from "../_lib/reviews-store";
 
-// 한줄평(0~10)과 장문평(0~100, 10으로 환산)의 평균을 포스터 위에 별과 함께 표시.
-// 리뷰가 하나도 없으면 아무것도 렌더링하지 않는다.
-export default function HoverRating({ movieId }: { movieId: string }) {
+// myRating(내 평점)이 있으면 그것을 우선 표시하고, 없으면 플랫폼 평균을 표시한다.
+// 리뷰가 전혀 없으면 아무것도 렌더링하지 않는다.
+export default function HoverRating({ movieId, myRating }: { movieId: string; myRating?: number | null }) {
   const shortAvg = useSyncExternalStore(
     subscribe,
     () => getAverageRating(movieId, "short"),
@@ -16,6 +16,15 @@ export default function HoverRating({ movieId }: { movieId: string }) {
     () => getAverageRating(movieId, "long"),
     () => getSeedAverageRating(movieId, "long")
   );
+
+  // 내 평점이 있으면 항상 내 평점을 보여준다.
+  if (myRating != null) {
+    return (
+      <div className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-star/30 px-2 py-0.5 text-[11px] font-bold text-star ring-1 ring-inset ring-star/50">
+        ★ {myRating.toFixed(1)}
+      </div>
+    );
+  }
 
   const longNormalized = longAvg === null ? null : longAvg / 10;
   const combined =
