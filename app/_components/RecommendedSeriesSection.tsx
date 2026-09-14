@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
+let inFlightSeriesRec: Promise<RowMovie[]> | null = null;
+
 export default function RecommendedSeriesSection() {
   const [series, setSeries] = useState<RowMovie[] | null>(null);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    const controller = new AbortController();
+    mounted.current = true;
 
     const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
       movieId: r.id,
@@ -17,19 +20,23 @@ export default function RecommendedSeriesSection() {
       ratedAt: r.ratedAt,
     }));
 
-    fetch("/api/recommendations/series", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ myRatings, myCategoryRatings: [] }),
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
-      .then((data: { results?: RowMovie[] }) => setSeries(data.results ?? []))
-      .catch((err) => {
-        if ((err as { name?: string }).name !== "AbortError") setSeries([]);
-      });
+    if (!inFlightSeriesRec) {
+      inFlightSeriesRec = fetch("/api/recommendations/series", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ myRatings, myCategoryRatings: [] }),
+      })
+        .then((res) => res.json())
+        .then((data: { results?: RowMovie[] }) => data.results ?? [])
+        .catch(() => [] as RowMovie[])
+        .finally(() => { inFlightSeriesRec = null; });
+    }
 
-    return () => controller.abort();
+    inFlightSeriesRec.then((results) => {
+      if (mounted.current) setSeries(results);
+    });
+
+    return () => { mounted.current = false; };
   }, []);
 
   if (!series || series.length === 0) return null;

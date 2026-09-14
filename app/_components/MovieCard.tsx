@@ -18,7 +18,6 @@ import {
   subscribe as subscribeAffinity,
   getAffinitySnapshot,
   getServerAffinitySnapshot,
-  registerMovieIds,
 } from "../_lib/affinity-store";
 import {
   subscribe as subscribeReviews,
@@ -57,8 +56,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   useEffect(() => {
     ensureSeedGenresLoaded();
-    registerMovieIds([movie.id]);
-  }, [movie.id]);
+  }, []);
 
   // 내가 이 영화에 남긴 "전체" 한줄평 평점 (있으면)
   const myMovieRating = useMemo(() => {

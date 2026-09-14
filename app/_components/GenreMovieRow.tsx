@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MovieCard from "./MovieCard";
 import ScrollRow from "./ScrollRow";
+import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
 const PAGE_SIZE = 20;
@@ -17,6 +18,16 @@ export default function GenreMovieRow({
   const [movies, setMovies] = useState<RowMovie[]>(initialMovies);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialMovies.length >= PAGE_SIZE);
+  const registeredIds = useRef(new Set<string>());
+
+  // 새로 추가된 영화 ID만 등록 (초기 로드 + 더 보기 로드 양쪽 커버)
+  useEffect(() => {
+    const newIds = movies.map((m) => m.id).filter((id) => !registeredIds.current.has(id));
+    if (newIds.length > 0) {
+      newIds.forEach((id) => registeredIds.current.add(id));
+      registerMovieIds(newIds);
+    }
+  }, [movies]);
 
   async function loadMore() {
     if (loading || !hasMore) return;

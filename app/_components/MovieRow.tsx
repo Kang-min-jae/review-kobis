@@ -1,5 +1,6 @@
 import MovieCard from "./MovieCard";
 import ScrollRow from "./ScrollRow";
+import AffinityRegistrar from "./AffinityRegistrar";
 import type { RowMovie } from "../_lib/movie-rows";
 
 export default function MovieRow({
@@ -20,6 +21,7 @@ export default function MovieRow({
       <h2 className="text-lg font-bold text-text">{title}</h2>
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
+      <AffinityRegistrar movieIds={movies.map((m) => m.id)} />
       <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
         {movies.map((movie, index) => (
           <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} priority={index < priorityCount} />
