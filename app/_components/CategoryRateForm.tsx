@@ -343,9 +343,8 @@ export default function CategoryRateForm({
                 </div>
                 <span className="text-sm font-semibold text-text">{review.authorName}</span>
                 <TierBadge tier={review.authorTier} />
-                <div className="ml-auto flex items-center gap-1.5">
+                <div className="ml-auto">
                   <StarRating rating={review.rating} scale={scale} size="h-3.5 w-3.5" />
-                  <span className="text-sm font-bold text-text">{review.rating.toFixed(1)}</span>
                 </div>
               </div>
               {review.content.trim() ? (
