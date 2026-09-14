@@ -19,8 +19,8 @@ export default function MovieRow({
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
       <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
-        {movies.map((movie) => (
-          <MovieCard key={movie.id} movie={movie} />
+        {movies.map((movie, index) => (
+          <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} />
         ))}
       </ScrollRow>
     </section>

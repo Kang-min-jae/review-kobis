@@ -34,7 +34,7 @@ const FESTIVAL_KO: Record<string, string> = {
   venice: "베니스 영화제",
 };
 
-export default function MovieCard({ movie }: { movie: RowMovie }) {
+export default function MovieCard({ movie, popoverSide = "right" }: { movie: RowMovie; popoverSide?: "left" | "right" }) {
   // 데스크톱은 마우스가 올라와 있는 동안, 모바일(마우스가 없어 hover가 안 됨)은
   // 한 번 탭하면 켜져서 다시 탭할 때까지 유지된다 — 예매/평점 버튼과 인기 한줄평
   // 패널이 전부 이 하나의 상태로 같이 열리고 닫힌다.
@@ -211,7 +211,7 @@ export default function MovieCard({ movie }: { movie: RowMovie }) {
 
       {/* 열렸을 때 포스터 옆으로 와이드되며 뜨는 인기 한줄평 패널. 카드 레이아웃
           자체를 넓히지 않고 살짝 겹치게 띄워서 옆 카드가 밀리지 않게 한다. */}
-      {revealed && <TopReviewsPanel movieId={movie.id} />}
+      {revealed && <TopReviewsPanel movieId={movie.id} side={popoverSide} />}
     </div>
   );
 }

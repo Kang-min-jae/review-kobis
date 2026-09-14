@@ -43,8 +43,12 @@ export default function GenreMovieRow({
       <h2 className="text-lg font-bold text-text">{genre} 영화</h2>
 
       <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
-        {movies.map((movie) => (
-          <MovieCard key={movie.id} movie={movie} />
+        {movies.map((movie, index) => (
+          <MovieCard
+            key={movie.id}
+            movie={movie}
+            popoverSide={!hasMore && index === movies.length - 1 ? "left" : "right"}
+          />
         ))}
 
         {hasMore && (

@@ -15,13 +15,13 @@ function toApiMovieCd(movieId: string): string | null {
   return null;
 }
 
-export default function TopReviewsPanel({ movieId }: { movieId: string }) {
+export default function TopReviewsPanel({ movieId, side = "right" }: { movieId: string; side?: "left" | "right" }) {
   const { average, count } = getCombinedRatingSnapshot(movieId);
   const movieCd = toApiMovieCd(movieId);
   const { reviews, loading } = useTopReviews(movieCd);
 
   return (
-    <div className="absolute left-full top-0 z-20 ml-2 w-44 rounded-lg border border-neutral-700 bg-surface p-3 shadow-xl sm:w-52">
+    <div className={`absolute top-0 z-20 w-44 rounded-lg border border-neutral-700 bg-surface p-3 shadow-xl sm:w-52 ${side === "left" ? "right-full mr-2" : "left-full ml-2"}`}>
       <p className="text-xs font-semibold text-text">
         평점 <span className="text-star">{average !== null ? (average * 10).toFixed(1) : "-"}</span>
         {count > 0 && <span className="text-muted"> ({count}명)</span>}
