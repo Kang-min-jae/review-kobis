@@ -191,7 +191,13 @@ export async function POST(request: Request) {
         ? (overall.count * overall.avg + BAYES_C * BAYES_PRIOR) / (overall.count + BAYES_C) / 10
         : BAYES_PRIOR / 10;
 
-    // 6d. 가중합 — 카테고리 신호가 없으면 장르+품질 fallback
+    // 6d. 개인화 신호 없음 → 배지 생략
+    // genreScore와 catScore가 모두 0이면 total이 순수 품질 기준값(0.40×0.65=0.26)으로
+    // 수렴해 모든 해당 영화가 일률적으로 "추천 26%"를 표시하는 현상이 생긴다.
+    // 어떤 개인화 신호도 없는 영화는 배지를 내보내지 않는다.
+    if (genreScore === 0 && catScore === 0) continue;
+
+    // 6e. 가중합 — 카테고리 신호가 없으면 장르+품질 fallback
     const total = hasUserCatSignal
       ? 0.35 * genreScore + 0.35 * catScore + 0.30 * bayesianQuality
       : 0.60 * genreScore + 0.40 * bayesianQuality;
