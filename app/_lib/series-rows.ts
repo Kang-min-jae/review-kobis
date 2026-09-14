@@ -4,6 +4,7 @@
 import { db } from "./db";
 import { getTmdbSeriesDetails, getTmdbPopularSeries } from "./tmdb";
 import { splitGenres } from "./movie-rows";
+import { getBulkMovieRatingAverages } from "./review-data";
 import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -95,7 +96,12 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
 
 export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
   const results = await Promise.all(CURATED_SERIES_IDS.map(getOrFetchSeries));
-  return results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
+  const rows = results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
+  const avgMap = await getBulkMovieRatingAverages(rows.map((r) => r.id));
+  return rows.map((r) => {
+    const avgs = avgMap.get(r.id);
+    return { ...r, shortAvg: avgs?.shortAvg ?? null, longAvg: avgs?.longAvg ?? null };
+  });
 }
 
 // 사용자 평균 평점(전체) 기준 Best 시리즈 행 — 데이터 부족 시 TMDB 인기 순으로 폴백.
@@ -117,7 +123,11 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
 
   if (tvRated.length >= 3) {
     const tmdbIds = tvRated.map((r) => r.movieCd.slice("tmdb-tv-".length));
-    const cachedList = await db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []);
+    const movieCds = tvRated.map((r) => r.movieCd);
+    const [cachedList, avgMap] = await Promise.all([
+      db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []),
+      getBulkMovieRatingAverages(movieCds),
+    ]);
     const byId = new Map(cachedList.map((c) => [c.tmdbId, c]));
 
     const results: RowMovie[] = [];
@@ -126,6 +136,7 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
       const cached = byId.get(tmdbId);
       if (!cached?.posterUrl) continue;
       const all = splitGenres(cached.genreAlt);
+      const avgs = avgMap.get(r.movieCd);
       results.push({
         id: r.movieCd,
         title: cached.name,
@@ -134,6 +145,8 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
         isNowShowing: false,
         genre: all.length > 0 ? all.slice(0, 2).join(" · ") : null,
         allGenres: all,
+        shortAvg: avgs?.shortAvg ?? null,
+        longAvg: avgs?.longAvg ?? null,
       });
     }
     if (results.length >= 3) return results;
@@ -174,7 +187,11 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
 
   if (tvTopRated.length >= 3) {
     const tmdbIds = tvTopRated.map((r) => r.movieCd.slice("tmdb-tv-".length));
-    const cachedList = await db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []);
+    const movieCds = tvTopRated.map((r) => r.movieCd);
+    const [cachedList, avgMap] = await Promise.all([
+      db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } } }).catch(() => []),
+      getBulkMovieRatingAverages(movieCds),
+    ]);
     const byId = new Map(cachedList.map((c) => [c.tmdbId, c]));
 
     const results: RowMovie[] = [];
@@ -183,6 +200,7 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
       const tmdbId = r.movieCd.slice("tmdb-tv-".length);
       const cached = byId.get(tmdbId);
       if (!cached?.posterUrl) continue;
+      const avgs = avgMap.get(r.movieCd);
       results.push({
         id: r.movieCd,
         title: cached.name,
@@ -192,6 +210,8 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
         badge: `${results.length + 1}위`,
         genre: null,
         allGenres: [],
+        shortAvg: avgs?.shortAvg ?? null,
+        longAvg: avgs?.longAvg ?? null,
       });
     }
     if (results.length >= 3) return results;

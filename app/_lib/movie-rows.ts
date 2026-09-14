@@ -249,9 +249,10 @@ async function classificationsToRows(
   rows: RereleaseClassificationRow[]
 ): Promise<{ row: RereleaseClassificationRow; movie: RowMovie }[]> {
   const movieCds = rows.map((r) => r.movieCd);
-  const [metas, awardCds] = await Promise.all([
+  const [metas, awardCds, avgMap] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
+    getBulkMovieRatingAverages(movieCds),
   ]);
   const result: { row: RereleaseClassificationRow; movie: RowMovie }[] = [];
   rows.forEach((r) => {
@@ -262,6 +263,7 @@ async function classificationsToRows(
       : r.rereleaseDate
         ? `재개봉 ${monthDay(r.rereleaseDate)}`
         : undefined;
+    const avgs = avgMap.get(r.movieCd);
     result.push({
       row: r,
       movie: {
@@ -273,6 +275,8 @@ async function classificationsToRows(
         badge,
         ...genreFields(meta.genreAlt),
         ...(awardCds.has(r.movieCd) ? { awardBadge: true as const } : {}),
+        shortAvg: avgs?.shortAvg ?? null,
+        longAvg: avgs?.longAvg ?? null,
       },
     });
   });
@@ -372,12 +376,14 @@ async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): 
 // 자주 조회돼 캐시가 겹친다.
 async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingEntry) => string) {
   const movieCds = entries.map((e) => e.movieCd);
-  const [metas, awardCds] = await Promise.all([
+  const [metas, awardCds, avgMap] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
+    getBulkMovieRatingAverages(movieCds),
   ]);
   return entries.map((entry) => {
     const meta = metas.get(entry.movieCd) ?? null;
+    const avgs = avgMap.get(entry.movieCd);
     return {
       id: `kobis-${entry.movieCd}`,
       title: entry.movieTitle,
@@ -387,6 +393,8 @@ async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingE
       badge: badgeOf(entry),
       ...genreFields(meta?.genreAlt),
       ...(awardCds.has(entry.movieCd) ? { awardBadge: true as const } : {}),
+      shortAvg: avgs?.shortAvg ?? null,
+      longAvg: avgs?.longAvg ?? null,
     };
   });
 }
@@ -646,7 +654,10 @@ export async function getUserPopularMoviesRow(
 
   if (movieCds.length === 0) return [];
 
-  const metas = await getMovieMetas(movieCds);
+  const [metas, avgMap] = await Promise.all([
+    getMovieMetas(movieCds),
+    getBulkMovieRatingAverages(movieCds),
+  ]);
 
   const rows: RowMovie[] = [];
   for (const cd of movieCds) {
@@ -660,6 +671,7 @@ export async function getUserPopularMoviesRow(
       if (!hasGenre) continue;
     }
 
+    const avgs = avgMap.get(cd);
     rows.push({
       id: `kobis-${cd}`,
       title: metas.get(cd)?.movieTitle ?? cd,
@@ -667,6 +679,8 @@ export async function getUserPopularMoviesRow(
       gradient: FALLBACK_GRADIENT,
       isNowShowing: false,
       ...genreFields(meta.genreAlt),
+      shortAvg: avgs?.shortAvg ?? null,
+      longAvg: avgs?.longAvg ?? null,
     });
 
     if (rows.length >= limit) break;
