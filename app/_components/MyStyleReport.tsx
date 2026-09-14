@@ -27,7 +27,7 @@ export default function MyStyleReport() {
     ? shortReviews.reduce((sum, r) => sum + r.rating, 0) / shortReviews.length
     : null;
   const longAvg = longReviews.length > 0
-    ? longReviews.reduce((sum, r) => sum + r.rating / 10, 0) / longReviews.length
+    ? longReviews.reduce((sum, r) => sum + r.rating, 0) / longReviews.length
     : null;
 
   const [topLiked] = [...reviews]
@@ -53,7 +53,7 @@ export default function MyStyleReport() {
             <span className="mx-1 text-muted">/</span>
             {longAvg !== null ? longAvg.toFixed(1) : "—"}
           </p>
-          <p className="mt-0.5 text-[11px] text-muted">한줄평 / 장문평 평균</p>
+          <p className="mt-0.5 text-[11px] text-muted">한줄평(10) / 장문평(100) 평균</p>
         </div>
         <div className="rounded-lg bg-black/30 p-3 text-center">
           <p className="text-lg font-bold text-text">
