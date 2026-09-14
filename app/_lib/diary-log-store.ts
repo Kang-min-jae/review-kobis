@@ -12,7 +12,10 @@ export function initForUser(userId: string | null): void {
   if (newKey === currentStorageKey) return;
   currentStorageKey = newKey;
   cached = null;
-  listeners.forEach((l) => l());
+  // No listener notification here — calling this during render would trigger
+  // setState in other subscribed components, which React forbids. useSyncExternalStore
+  // re-reads getDiaryLogSnapshot after initForUser runs, so the correct key is
+  // already active when the snapshot is first taken.
 }
 
 export type DiaryLogEntry = {
