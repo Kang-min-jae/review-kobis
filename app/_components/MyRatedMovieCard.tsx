@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
@@ -22,6 +22,19 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
   const hasAward = festivalAwards && festivalAwards.length > 0;
+  const rateHref = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+
+  const groupedAwards = useMemo(() => {
+    if (!festivalAwards) return [];
+    const map = new Map<string, { festival: string; year: number; categories: string[] }>();
+    for (const a of festivalAwards) {
+      const key = `${a.festival}|${a.year}`;
+      const entry = map.get(key) ?? { festival: a.festival, year: a.year, categories: [] };
+      if (a.categoryLabel && !entry.categories.includes(a.categoryLabel)) entry.categories.push(a.categoryLabel);
+      map.set(key, entry);
+    }
+    return Array.from(map.values());
+  }, [festivalAwards]);
 
   return (
     <div
@@ -30,7 +43,7 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
       onMouseLeave={() => setRevealed(false)}
     >
       <Link
-        href={`/movies/${movie.id}/rate`}
+        href={rateHref}
         className={`relative block aspect-2/3 overflow-hidden rounded-lg ${
           movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
         }`}
@@ -48,9 +61,9 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
             <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
               🏆
             </span>
-            {festivalAwards!.length > 1 && (
+            {groupedAwards.length > 1 && (
               <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
-                +{festivalAwards!.length - 1}
+                +{groupedAwards.length - 1}
               </span>
             )}
           </button>
@@ -61,17 +74,19 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
         <StarRating rating={movie.rating} scale={10} size="h-3 w-3" />
       </div>
 
-      {awardTooltip && festivalAwards && (
+      {awardTooltip && groupedAwards.length > 0 && (
         <div
-          className="absolute right-0 top-1 z-50 max-w-[180px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
+          className="absolute right-0 top-1 z-50 max-w-[200px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
           onMouseEnter={() => setAwardTooltip(true)}
           onMouseLeave={() => setAwardTooltip(false)}
         >
-          {festivalAwards.map((a, i) => (
+          {groupedAwards.map((g, i) => (
             <div key={i} className="py-0.5 leading-snug">
-              <span className="font-semibold">{FESTIVAL_KO[a.festival] ?? a.festival}</span>{" "}
-              <span className="text-yellow-300">{a.categoryLabel}</span>{" "}
-              <span className="text-white/60">({a.year})</span>
+              <span className="font-semibold">{FESTIVAL_KO[g.festival] ?? g.festival}</span>{" "}
+              <span className="text-white/60">{g.year}</span>
+              {g.categories.length > 0 && (
+                <> · <span className="text-yellow-300">{g.categories.join(", ")}</span></>
+              )}
             </div>
           ))}
         </div>
