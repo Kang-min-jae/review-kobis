@@ -64,7 +64,7 @@ function RowSkeleton() {
 
 async function NowShowingRowData() {
   const movies = await getNowShowingRow();
-  return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} />;
+  return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} priorityCount={3} />;
 }
 
 async function RereleaseRowData() {
@@ -221,7 +221,7 @@ function MovieCategorySection() {
         <WeeklyBoxOfficeRowData />
       </Suspense>
       <RecommendedSection />
-      <Suspense fallback={null}>
+      <Suspense fallback={<RowSkeleton />}>
         <AwardWinnersData />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>

@@ -6,10 +6,12 @@ export default function MovieRow({
   title,
   subtitle,
   movies,
+  priorityCount = 0,
 }: {
   title: string;
   subtitle?: string;
   movies: RowMovie[];
+  priorityCount?: number;
 }) {
   if (movies.length === 0) return null;
 
@@ -20,7 +22,7 @@ export default function MovieRow({
 
       <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
         {movies.map((movie, index) => (
-          <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} />
+          <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} priority={index < priorityCount} />
         ))}
       </ScrollRow>
     </section>

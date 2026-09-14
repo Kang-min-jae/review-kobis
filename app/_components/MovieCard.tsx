@@ -34,7 +34,7 @@ const FESTIVAL_KO: Record<string, string> = {
   venice: "베니스 영화제",
 };
 
-export default function MovieCard({ movie, popoverSide = "right" }: { movie: RowMovie; popoverSide?: "left" | "right" }) {
+export default function MovieCard({ movie, popoverSide = "right", priority = false }: { movie: RowMovie; popoverSide?: "left" | "right"; priority?: boolean }) {
   // 데스크톱은 마우스가 올라와 있는 동안, 모바일(마우스가 없어 hover가 안 됨)은
   // 한 번 탭하면 켜져서 다시 탭할 때까지 유지된다 — 예매/평점 버튼과 인기 한줄평
   // 패널이 전부 이 하나의 상태로 같이 열리고 닫힌다.
@@ -110,7 +110,7 @@ export default function MovieCard({ movie, popoverSide = "right" }: { movie: Row
         onMouseLeave={() => setRevealed(false)}
         onClick={() => setRevealed((v) => !v)}
       >
-        {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+        {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} />}
         {/* 왼쪽: 추천 % */}
         {matchBadge && (
           <span className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">
