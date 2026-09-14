@@ -115,19 +115,27 @@ export async function POST(request: Request) {
     overallRows.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count.score }])
   );
 
-  // ── 3. 장르 가중 선호도 (상위 5개) ──────────────────────────────────
-  const genreWeights = new Map<string, number>();
+  // ── 3. 장르 선호도 — 장르별 평균 평점 기반 (합산 bias·top-5 제한 제거) ──
+  // 이전 방식(합산 가중치 + 상위 5개 binary 매칭)의 문제:
+  //   드라마 10편 × 평균 7.0 = 합산 7.0 vs 액션 1편 × 9.1 = 합산 0.91
+  //   → 액션을 훨씬 좋아해도 top-5에서 잘려 genreScore = 0 → 추천 26%로 역전
+  // 수정: 장르별 평균 평점을 선호도 지표로 사용 → 몇 편 봤는지가 아니라 얼마나 좋아하는지
+  const genreRatings = new Map<string, { sum: number; count: number }>();
   for (const { cd, rating } of ratedEntries) {
     const meta = metaMap.get(cd);
     if (!meta) continue;
-    const w = rating / 10;
     for (const g of splitGenres(meta.genreAlt)) {
-      genreWeights.set(g, (genreWeights.get(g) ?? 0) + w);
+      const entry = genreRatings.get(g) ?? { sum: 0, count: 0 };
+      entry.sum += rating;
+      entry.count++;
+      genreRatings.set(g, entry);
     }
   }
-  const preferredGenres = new Set(
-    [...genreWeights.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g)
+  // 장르별 평균 평점 (0~10)
+  const genreAvgRating = new Map<string, number>(
+    [...genreRatings.entries()].map(([g, { sum, count }]) => [g, sum / count])
   );
+  const maxGenreAvg = genreAvgRating.size > 0 ? Math.max(...genreAvgRating.values()) : 10;
 
   // ── 4. 커뮤니티 카테고리 프로파일 (전체 대비 편차 벡터) ────────────────
   function getMovieCatProfile(cd: string): CatVec {
@@ -168,12 +176,16 @@ export async function POST(request: Request) {
   for (const { id, cd } of targetEntries) {
     const meta = metaMap.get(cd);
 
-    // 6a. 장르 점수 — Simpson 오버랩 계수
+    // 6a. 장르 점수 — 장르별 평균 평점 기반 연속 유사도
+    // 매칭된 장르들의 평균 선호도를 최고 장르 평균으로 정규화 → 0-1
     const allGenres = meta ? splitGenres(meta.genreAlt) : [];
     let genreScore = 0;
-    if (allGenres.length > 0 && preferredGenres.size > 0) {
-      const overlap = allGenres.filter((g) => preferredGenres.has(g)).length;
-      genreScore = overlap / Math.min(preferredGenres.size, allGenres.length);
+    if (allGenres.length > 0 && maxGenreAvg > 0) {
+      const matchedGenres = allGenres.filter((g) => genreAvgRating.has(g));
+      if (matchedGenres.length > 0) {
+        const avgMatch = matchedGenres.reduce((s, g) => s + genreAvgRating.get(g)!, 0) / matchedGenres.length;
+        genreScore = avgMatch / maxGenreAvg;
+      }
     }
 
     // 6b. 카테고리 코사인 유사도 → 0~1 정규화
