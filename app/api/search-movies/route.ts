@@ -16,6 +16,10 @@ function normalizeForSearch(q: string): string {
   return q.replace(/[\s&\-,()（）·:：'"]/g, "").toLowerCase();
 }
 
+function tokenizeQuery(q: string): string[] {
+  return q.trim().split(/\s+/).filter((t) => t.length > 0);
+}
+
 // ── 서버 인메모리 LRU 캐시 (2분 TTL, 최대 300개) ──────────────────────────────
 // 서버리스 환경에서도 요청 간 모듈 상태가 유지되는 동안 살아있어, 같은 쿼리를
 // 짧은 간격으로 반복해서 보낼 때 외부 API를 다시 호출하지 않고 즉시 응답한다.
@@ -58,19 +62,41 @@ async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
 // 원본 쿼리와 정규화 쿼리(공백·특수문자 제거) 두 가지로 동시에 contains 검색한다.
 async function searchCachedMovies(query: string): Promise<MovieHit[]> {
   const normalized = normalizeForSearch(query);
+  const tokens = tokenizeQuery(query);
+
+  // DB-level OR: original + normalized (no-space) + each token individually
+  // → broad fetch so in-memory post-filter can apply stricter AND logic
   const orConditions: object[] = [{ title: { contains: query, mode: "insensitive" } }];
   if (normalized !== query.toLowerCase()) {
     orConditions.push({ title: { contains: normalized, mode: "insensitive" } });
+  }
+  for (const token of tokens) {
+    if (token.length >= 2) {
+      orConditions.push({ title: { contains: token, mode: "insensitive" } });
+    }
   }
 
   const rows = await db.cachedMovie.findMany({
     where: { OR: orConditions },
     select: { movieCd: true, title: true, releaseDate: true, posterUrl: true },
     orderBy: { updatedAt: "desc" },
-    take: 10,
+    take: 30,
   });
-  return rows
+
+  // In-memory post-filter: keep only results that match by either strategy
+  // Strategy A (no-space): normalizedTitle contains normalizedQuery (or vice-versa)
+  // Strategy B (tokenized AND): every token appears in normalizedTitle
+  const normalizedTokens = tokens.map(normalizeForSearch).filter((t) => t.length > 0);
+  const filtered = rows.filter((r) => {
+    const nt = normalizeForSearch(r.title);
+    if (normalized.length >= 2 && (nt.includes(normalized) || normalized.includes(nt))) return true;
+    if (normalizedTokens.length >= 2 && normalizedTokens.every((t) => nt.includes(t))) return true;
+    return false;
+  });
+
+  return filtered
     .filter((r) => r.movieCd && !r.movieCd.startsWith("wikidata-"))
+    .slice(0, 10)
     .map((r) => ({
       movieCd: r.movieCd,
       title: r.title,
@@ -267,7 +293,16 @@ async function runExternalSearch(query: string) {
     searchCachedPeople(query),    // 외부 검색과 병행해 CachedPerson도 같이 조회
     searchTmdbPerson(query),
   ]);
-  return { movieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits };
+
+  // Strategy C: 공백·특수문자를 제거한 정규화 쿼리로 외부 영화 검색 재시도
+  // (원본에 공백이 있고 결과가 0개일 때만)
+  let finalMovieHits = movieHits;
+  const stripped = normalizeForSearch(query);
+  if (movieHits.length === 0 && stripped !== query.toLowerCase() && stripped.length >= 2) {
+    finalMovieHits = await searchMoviesSince1960(stripped);
+  }
+
+  return { movieHits: finalMovieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits };
 }
 
 // ── GET /api/search-movies?q=... ─────────────────────────────────────────────
