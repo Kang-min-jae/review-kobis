@@ -66,6 +66,21 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     return mine ? mine.rating : null;
   }, [myReviews, movie.id]);
 
+  // festival+year 로 묶어서 카테고리 목록을 하나로 합친 그룹
+  const groupedAwards = useMemo(() => {
+    if (!movie.festivalAwards) return [];
+    const map = new Map<string, { festival: string; year: number; categories: string[] }>();
+    for (const a of movie.festivalAwards) {
+      const key = `${a.festival}|${a.year}`;
+      const entry = map.get(key) ?? { festival: a.festival, year: a.year, categories: [] };
+      if (a.categoryLabel && !entry.categories.includes(a.categoryLabel)) {
+        entry.categories.push(a.categoryLabel);
+      }
+      map.set(key, entry);
+    }
+    return Array.from(map.values());
+  }, [movie.festivalAwards]);
+
   // 우선순위: 서버 추천 점수 → affinity store → Simpson 장르 근사 + 작품 평점 가중합
   // 수식: 0.6 × Simpson유사도 + 0.4 × (평점/10)
   // Simpson 계수: overlapCount / min(|userGenres|, |movieGenres|)
@@ -130,9 +145,9 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
                 <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
                   🏆
                 </span>
-                {movie.festivalAwards && movie.festivalAwards.length > 1 && (
+                {groupedAwards.length > 1 && (
                   <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
-                    +{movie.festivalAwards.length - 1}
+                    +{groupedAwards.length - 1}
                   </span>
                 )}
               </button>
@@ -191,17 +206,19 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       </div>
 
       {/* 수상 내역 툴팁 — overflow-hidden 포스터 div 밖에 렌더해 클리핑 없이 보인다 */}
-      {awardTooltip && movie.festivalAwards && movie.festivalAwards.length > 0 && (
+      {awardTooltip && groupedAwards.length > 0 && (
         <div
-          className="absolute right-0 top-1 z-50 max-w-[200px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
+          className="absolute right-0 top-1 z-50 max-w-[220px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
           onMouseEnter={() => setAwardTooltip(true)}
           onMouseLeave={() => setAwardTooltip(false)}
         >
-          {movie.festivalAwards.map((a, i) => (
+          {groupedAwards.map((g, i) => (
             <div key={i} className="py-0.5 leading-snug">
-              <span className="font-semibold">{FESTIVAL_KO[a.festival] ?? a.festival}</span>{" "}
-              <span className="text-yellow-300">{a.categoryLabel}</span>{" "}
-              <span className="text-white/60">({a.year})</span>
+              <span className="font-semibold">{FESTIVAL_KO[g.festival] ?? g.festival}</span>{" "}
+              <span className="text-white/60">{g.year}</span>
+              {g.categories.length > 0 && (
+                <> · <span className="text-yellow-300">{g.categories.join(", ")}</span></>
+              )}
             </div>
           ))}
         </div>
