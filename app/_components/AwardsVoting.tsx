@@ -305,47 +305,65 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
               <p className="py-8 text-center text-sm text-muted">아직 투표가 없어요. 첫 번째로 투표해보세요!</p>
             )}
 
-            {!loadingVotes && votes.length > 0 && (
-              <div className="space-y-2">
-                {votes.map((v, i) => {
-                  const pct = totalVotes > 0 ? Math.round((v.count / totalVotes) * 100) : 0;
-                  return (
+            {!loadingVotes && votes.length > 0 && (() => {
+              const top10 = votes.slice(0, 10);
+              const myVoteIdx = votes.findIndex((v) => v.myVote);
+              const isMyVoteInTop10 = myVoteIdx >= 0 && myVoteIdx < 10;
+              const outOfTop10Vote = !isMyVoteInTop10 && myVoteIdx >= 0 ? votes[myVoteIdx] : null;
+
+              const renderVoteCard = (v: AwardVoteResult, rank: number, highlight: boolean) => {
+                const pct = totalVotes > 0 ? Math.round((v.count / totalVotes) * 100) : 0;
+                return (
+                  <div
+                    key={v.movieId}
+                    className={`relative overflow-hidden rounded-xl px-4 py-3 bg-surface ${
+                      highlight ? "ring-1 ring-yellow-400" : ""
+                    }`}
+                  >
                     <div
-                      key={v.movieId}
-                      className={`relative overflow-hidden rounded-xl px-4 py-3 ${
-                        v.myVote ? "ring-1 ring-star" : ""
-                      } bg-surface`}
-                    >
-                      {/* 막대 배경 */}
-                      <div
-                        className={`absolute inset-y-0 left-0 transition-all duration-700 ${
-                          v.myVote ? "bg-star/20" : "bg-neutral-800/60"
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
-                      <div className="relative flex items-center gap-3">
-                        <span className={`shrink-0 text-sm font-bold ${i === 0 ? "text-star" : "text-muted"}`}>
-                          {i + 1}위
-                        </span>
-                        {v.posterUrl && (
-                          <div className="relative h-10 w-7 shrink-0 overflow-hidden rounded">
-                            <Image src={v.posterUrl} alt="" fill className="object-cover" />
-                          </div>
+                      className={`absolute inset-y-0 left-0 transition-all duration-700 ${
+                        highlight ? "bg-yellow-400/15" : "bg-neutral-800/60"
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                    <div className="relative flex items-center gap-3">
+                      <span className={`shrink-0 text-sm font-bold ${rank === 1 ? "text-star" : highlight ? "text-yellow-400" : "text-muted"}`}>
+                        {rank}위
+                      </span>
+                      {v.posterUrl && (
+                        <div className="relative h-10 w-7 shrink-0 overflow-hidden rounded">
+                          <Image src={v.posterUrl} alt="" fill className="object-cover" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-text">{v.movieTitle}</p>
+                        {v.myVote && (
+                          <p className={`text-[10px] ${highlight ? "text-yellow-400" : "text-star"}`}>내가 투표한 영화</p>
                         )}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-text">{v.movieTitle}</p>
-                          {v.myVote && <p className="text-[10px] text-star">내가 투표한 영화</p>}
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-bold text-text">{v.count}표</p>
-                          <p className="text-xs text-muted">{pct}%</p>
-                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-bold text-text">{v.count}표</p>
+                        <p className="text-xs text-muted">{pct}%</p>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              };
+
+              return (
+                <div className="space-y-2">
+                  {top10.map((v, i) => renderVoteCard(v, i + 1, v.myVote))}
+                  {outOfTop10Vote && (
+                    <>
+                      <p className="py-2 text-center text-[11px] text-muted">
+                        ─── 상위 10개 영화만 표시 중입니다 ───
+                      </p>
+                      {renderVoteCard(outOfTop10Vote, myVoteIdx + 1, true)}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
