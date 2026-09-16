@@ -131,17 +131,31 @@ async function searchCachedPeople(query: string): Promise<Array<KmdbPersonHit & 
 }
 
 // ── KOFIC 대표작 붙이기 ───────────────────────────────────────────────────────
+// KOFIC API 지연이 전체 검색 응답을 블로킹하지 않도록 800ms 타임아웃을 건다.
+// 시간 초과 시 representativeWorks를 빈 배열로 내려보내고 계속 진행한다.
+const KOFIC_TIMEOUT_MS = 800;
+
 async function withRepresentativeWorks(
   people: KmdbPersonHit[]
 ): Promise<(KmdbPersonHit & { representativeWorks: string[] })[]> {
-  return Promise.all(
-    people.map(async (person) => {
-      const koficHits = await searchKoficPeopleList(person.name);
-      const sameName = koficHits.filter((h) => h.name === person.name);
-      if (sameName.length !== 1) return { ...person, representativeWorks: [] };
-      return { ...person, representativeWorks: sameName[0].filmoNames.slice(0, 3) };
-    })
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("kofic_timeout")), KOFIC_TIMEOUT_MS)
   );
+  try {
+    return await Promise.race([
+      Promise.all(
+        people.map(async (person) => {
+          const koficHits = await searchKoficPeopleList(person.name);
+          const sameName = koficHits.filter((h) => h.name === person.name);
+          if (sameName.length !== 1) return { ...person, representativeWorks: [] };
+          return { ...person, representativeWorks: sameName[0].filmoNames.slice(0, 3) };
+        })
+      ),
+      timeout,
+    ]);
+  } catch {
+    return people.map((p) => ({ ...p, representativeWorks: [] }));
+  }
 }
 
 // ── PersonIdentityMapping 보정 ────────────────────────────────────────────────
