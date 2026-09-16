@@ -1,6 +1,7 @@
 import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
 import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, type TmdbMovieDetails } from "./tmdb";
+import { formatPosterUrl } from "./formatPosterUrl";
 import { db } from "./db";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -139,7 +140,7 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
     movieTitle: row.title,
     movieTitleEn: row.titleEn ?? null,
     description: row.overview ?? "아직 등록된 설명이 없어요.",
-    posterUrl: row.posterUrl,
+    posterUrl: formatPosterUrl(row.posterUrl),
     gradient: FALLBACK_GRADIENT,
     releaseDate: row.releaseDate,
     rereleaseDate: row.rereleaseDate,
@@ -276,6 +277,14 @@ const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const cached = await db.cachedMovie.findUnique({ where: { movieCd } });
   if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
+    // 포스터가 null로 캐시됐지만 tmdbId가 있으면 TTL 만료를 기다리지 않고 즉시 보정한다.
+    if (!cached.posterUrl && cached.tmdbId) {
+      const details = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
+      if (details?.posterUrl) {
+        await db.cachedMovie.update({ where: { movieCd }, data: { posterUrl: details.posterUrl } }).catch(() => null);
+        return rowToMeta({ ...cached, posterUrl: details.posterUrl });
+      }
+    }
     return rowToMeta(cached);
   }
 
