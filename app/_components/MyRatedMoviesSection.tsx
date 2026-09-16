@@ -6,6 +6,7 @@ import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import type { FestivalAward } from "../_lib/movie-rows";
+import DragScrollDiv from "./DragScrollDiv";
 
 // 포스터 로드 실패 상태를 카드별로 관리하기 위한 분리 컴포넌트
 function RatedMoviePoster({ posterUrl, gradient, title }: { posterUrl: string | null; gradient: string; title: string }) {
@@ -80,7 +81,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
           ))}
         </div>
       </div>
-      <div className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
+      <DragScrollDiv className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
         {sorted.map((movie, idx) => {
           const rateHref = movie.id.startsWith("tmdb-tv-")
             ? `/series/${movie.id}/rate`
@@ -140,7 +141,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
           </div>
           );
         })}
-      </div>
+      </DragScrollDiv>
     </div>
   );
 }
