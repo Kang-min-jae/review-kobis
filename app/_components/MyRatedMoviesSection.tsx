@@ -91,25 +91,25 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
             <Link href={rateHref}>
               <div className="relative aspect-2/3 overflow-hidden rounded-lg bg-surface">
                 <RatedMoviePoster posterUrl={movie.posterUrl} gradient={movie.gradient} title={movie.title} />
-                {movie.awardBadge && (
-                  <button
-                    type="button"
-                    aria-label={movie.festivalAwards?.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ") ?? "영화제 수상작"}
-                    className="absolute right-1.5 top-1.5 cursor-pointer"
-                    onMouseEnter={() => setAwardHovered(idx)}
-                    onMouseLeave={() => setAwardHovered(null)}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAwardHovered((v) => v === idx ? null : idx); }}
-                  >
-                    <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
-                      🏆
-                    </span>
-                    {movie.festivalAwards && groupAwards(movie.festivalAwards).length > 1 && (
-                      <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
-                        +{groupAwards(movie.festivalAwards).length - 1}
-                      </span>
-                    )}
-                  </button>
-                )}
+                {movie.awardBadge && movie.festivalAwards && movie.festivalAwards.length > 0 && (() => {
+                  const grouped = groupAwards(movie.festivalAwards);
+                  return grouped.length > 0 ? (
+                    <button
+                      type="button"
+                      aria-label={movie.festivalAwards.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ")}
+                      className="absolute right-1.5 top-1.5 flex cursor-pointer flex-col items-end gap-0.5"
+                      onMouseEnter={() => setAwardHovered(idx)}
+                      onMouseLeave={() => setAwardHovered(null)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAwardHovered((v) => v === idx ? null : idx); }}
+                    >
+                      {grouped.map((_, i) => (
+                        <span key={i} className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+                          🏆
+                        </span>
+                      ))}
+                    </button>
+                  ) : null;
+                })()}
               </div>
             </Link>
             {awardHovered === idx && movie.festivalAwards && movie.festivalAwards.length > 0 && (() => {

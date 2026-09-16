@@ -134,23 +134,20 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         {/* 우측 상단: 트로피 (수상작) + 순위·재개봉일 배지 세로 스택 */}
         {(movie.awardBadge || movie.badge) && (
           <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
-            {movie.awardBadge && (
+            {movie.awardBadge && groupedAwards.length > 0 && (
               <button
                 type="button"
                 aria-label={movie.festivalAwards?.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ") ?? "영화제 수상작"}
-                className="relative cursor-pointer"
+                className="flex cursor-pointer flex-col items-end gap-0.5"
                 onMouseEnter={() => setAwardTooltip(true)}
                 onMouseLeave={() => setAwardTooltip(false)}
                 onClick={(e) => { e.stopPropagation(); setAwardTooltip((v) => !v); }}
               >
-                <span className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
-                  🏆
-                </span>
-                {groupedAwards.length > 1 && (
-                  <span className="absolute -right-1.5 -bottom-1.5 rounded-full bg-yellow-400 px-1 text-[8px] font-bold leading-tight text-black">
-                    +{groupedAwards.length - 1}
+                {groupedAwards.map((_, i) => (
+                  <span key={i} className="rounded-full bg-yellow-500/30 px-1.5 py-0.5 text-[11px] leading-none ring-1 ring-inset ring-yellow-400/50">
+                    🏆
                   </span>
-                )}
+                ))}
               </button>
             )}
             {movie.badge && (
