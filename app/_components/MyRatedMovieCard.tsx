@@ -21,6 +21,7 @@ const FESTIVAL_KO: Record<string, string> = {
 export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyMovieRating; festivalAwards?: FestivalAward[] }) {
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
   const hasAward = festivalAwards && festivalAwards.length > 0;
   const rateHref = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
@@ -45,10 +46,10 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
       <Link
         href={rateHref}
         className={`relative block aspect-2/3 overflow-hidden rounded-lg ${
-          movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
+          movie.posterUrl && !posterFailed ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
         }`}
       >
-        {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+        {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} onError={() => setPosterFailed(true)} />}
         {hasAward && (
           <button
             type="button"

@@ -9,11 +9,13 @@ export default function PosterImage({
   alt,
   sizes = "200px",
   priority = false,
+  onError,
 }: {
   src: string;
   alt: string;
   sizes?: string;
   priority?: boolean;
+  onError?: () => void;
 }) {
   return (
     <div
@@ -29,6 +31,7 @@ export default function PosterImage({
         sizes={sizes}
         priority={priority}
         className="select-none object-cover"
+        onError={onError}
       />
       <div className="absolute inset-0" />
     </div>

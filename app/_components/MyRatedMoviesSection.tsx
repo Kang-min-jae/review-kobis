@@ -7,6 +7,17 @@ import StarRating from "./StarRating";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import type { FestivalAward } from "../_lib/movie-rows";
 
+// 포스터 로드 실패 상태를 카드별로 관리하기 위한 분리 컴포넌트
+function RatedMoviePoster({ posterUrl, gradient, title }: { posterUrl: string | null; gradient: string; title: string }) {
+  const [failed, setFailed] = useState(false);
+  const hasPoster = posterUrl && !failed;
+  return (
+    <div className={`absolute inset-0 ${hasPoster ? "" : `bg-gradient-to-br ${gradient}`}`}>
+      {hasPoster && <PosterImage src={posterUrl} alt={`${title} 포스터`} onError={() => setFailed(true)} />}
+    </div>
+  );
+}
+
 const FESTIVAL_KO: Record<string, string> = {
   academy: "아카데미상",
   cannes: "칸 영화제",
@@ -77,12 +88,8 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
           return (
           <div key={movie.id} className="relative w-32 shrink-0">
             <Link href={rateHref}>
-              <div
-                className={`relative aspect-2/3 overflow-hidden rounded-lg ${
-                  movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
-                }`}
-              >
-                {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+              <div className="relative aspect-2/3 overflow-hidden rounded-lg bg-surface">
+                <RatedMoviePoster posterUrl={movie.posterUrl} gradient={movie.gradient} title={movie.title} />
                 {movie.awardBadge && (
                   <button
                     type="button"

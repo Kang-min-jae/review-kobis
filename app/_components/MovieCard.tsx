@@ -39,6 +39,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   // 패널이 전부 이 하나의 상태로 같이 열리고 닫힌다.
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -117,13 +118,13 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     >
       <div
         className={`relative aspect-2/3 overflow-hidden rounded-lg ${
-          movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
+          movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
         onMouseEnter={() => setRevealed(true)}
         onMouseLeave={() => setRevealed(false)}
         onClick={() => setRevealed((v) => !v)}
       >
-        {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} />}
+        {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} onError={() => setPosterFailed(true)} />}
         {/* 왼쪽: 추천 % */}
         {matchBadge && (
           <span className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">

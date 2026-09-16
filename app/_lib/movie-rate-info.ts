@@ -282,9 +282,12 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const existing = inFlightMovieMeta.get(movieCd);
   if (existing) return existing;
 
-  const promise = fetchAndCacheMovieMeta(movieCd).finally(() => {
-    inFlightMovieMeta.delete(movieCd);
-  });
+  // 신선한 데이터 조회 실패 시 만료된 캐시라도 반환해 rate 페이지 404 방지
+  const promise = fetchAndCacheMovieMeta(movieCd)
+    .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
+    .finally(() => {
+      inFlightMovieMeta.delete(movieCd);
+    });
   inFlightMovieMeta.set(movieCd, promise);
   return promise;
 }
