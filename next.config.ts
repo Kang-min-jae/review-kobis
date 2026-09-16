@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
+        protocol: "https",
+        hostname: "file.koreafilm.or.kr",
+        pathname: "/**",
+      },
+      {
         protocol: "http",
         hostname: "file.koreafilm.or.kr",
         pathname: "/**",
