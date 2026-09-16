@@ -4,6 +4,7 @@ import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type Kmdb
 import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
+import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
 
 // ── 결과 타입 ─────────────────────────────────────────────────────────────────
 
@@ -305,6 +306,71 @@ async function runExternalSearch(query: string) {
   return { movieHits: finalMovieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits };
 }
 
+// ── DB 퍼지 검색 (자모 분리 + 레벤슈타인 유사도) ─────────────────────────────
+// 쿼리 앞 2글자를 단서로 후보를 좁힌 뒤, 자모 분리 유사도로 최종 필터한다.
+// TMDB/KOBIS/KMDb 에서도 결과가 없을 때 LLM 교정 전에 실행하는 빠른 로컬 대안.
+async function fuzzySearchDb(query: string): Promise<{ movies: MovieHit[]; people: Array<KmdbPersonHit & { tmdbId?: string }> }> {
+  const tokens = tokenizeQuery(query);
+  // 각 토큰 앞 2글자를 단서로 OR 쿼리 조건 구성
+  const leadingConditions = tokens
+    .map((t) => t.slice(0, 2))
+    .filter((s) => s.length >= 1);
+
+  if (leadingConditions.length === 0) return { movies: [], people: [] };
+
+  const [movieRows, personRows] = await Promise.all([
+    db.cachedMovie.findMany({
+      where: {
+        OR: leadingConditions.map((s) => ({ title: { contains: s, mode: "insensitive" as const } })),
+      },
+      select: { movieCd: true, title: true, releaseDate: true, posterUrl: true },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+    }),
+    db.cachedPerson.findMany({
+      where: {
+        OR: [
+          ...leadingConditions.map((s) => ({ name: { contains: s, mode: "insensitive" as const } })),
+          ...leadingConditions.map((s) => ({ nameEn: { contains: s, mode: "insensitive" as const } })),
+        ],
+      },
+      select: { kmdbId: true, name: true, role: true, tmdbId: true },
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+    }),
+  ]);
+
+  const scoredMovies = movieRows
+    .filter((r) => r.movieCd && !r.movieCd.startsWith("wikidata-"))
+    .map((r) => ({ ...r, score: koreanSimilarity(query, r.title) }))
+    .filter((r) => r.score >= FUZZY_THRESHOLD)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map((r) => ({
+      movieCd: r.movieCd,
+      title: r.title,
+      releaseDate: r.releaseDate,
+      genre: null,
+      posterUrl: r.posterUrl,
+    }));
+
+  const scoredPeople = personRows
+    .map((r) => ({ ...r, score: koreanSimilarity(query, r.name) }))
+    .filter((r) => r.score >= FUZZY_THRESHOLD)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((r) => ({
+      kmdbId: r.kmdbId,
+      name: r.name,
+      role: r.role as "감독" | "배우",
+      creditCount: 0,
+      latestYear: null as string | null,
+      tmdbId: r.tmdbId ?? undefined,
+    }));
+
+  return { movies: scoredMovies, people: scoredPeople };
+}
+
 // ── GET /api/search-movies?q=... ─────────────────────────────────────────────
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -386,7 +452,21 @@ export async function GET(request: Request) {
     return NextResponse.json(result);
   }
 
-  // ── 4단계: 결과 없음 → LLM 오타 교정 시도 ───────────────────────────────
+  // ── 4단계: DB 퍼지 검색 (자모/레벤슈타인) ────────────────────────────────
+  // 외부 API 에서도 결과가 없을 때 LLM 호출 전에 빠른 로컬 유사도 매칭을 시도.
+  const fuzzyDb = await fuzzySearchDb(query);
+  if (fuzzyDb.movies.length > 0 || fuzzyDb.people.length > 0) {
+    const result = {
+      movies: fuzzyDb.movies,
+      series: [],
+      people: fuzzyDb.people.map((p) => ({ ...p, representativeWorks: [] })),
+      correctedQuery: null,
+    };
+    setCache(cacheKey, result);
+    return NextResponse.json(result);
+  }
+
+  // ── 5단계: 결과 없음 → LLM 오타 교정 시도 ───────────────────────────────
   const llmCorrection = await correctQueryWithLlm(query);
 
   let keywordsToTry: string[] = [];
