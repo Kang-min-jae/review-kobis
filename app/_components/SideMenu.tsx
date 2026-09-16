@@ -294,7 +294,14 @@ export default function SideMenu({
                 })}
               </div>
 
-              <PlaceholderItem icon={<HelpIcon />} label="고객센터" onClose={close} />
+              <Link
+                href="/help"
+                onClick={close}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-muted transition-colors hover:bg-black/30 hover:text-text"
+              >
+                <HelpIcon />
+                고객센터
+              </Link>
               {session?.user && (
                 <button
                   type="button"
