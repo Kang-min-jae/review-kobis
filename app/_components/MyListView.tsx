@@ -5,7 +5,7 @@ import Link from "next/link";
 import PosterImage from "./PosterImage";
 import MyRatedMovieCard from "./MyRatedMovieCard";
 import MyRatedMoviesSection from "./MyRatedMoviesSection";
-import DragScrollDiv from "./DragScrollDiv";
+import ScrollRow from "./ScrollRow";
 import MyStyleReport from "./MyStyleReport";
 import MovieDiaryCalendar from "./MovieDiaryCalendar";
 import CustomListsSection from "./CustomListsSection";
@@ -136,22 +136,22 @@ export default function MyListView({
       {topRatedMovies.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-bold text-text">내가 높게 평가한 작품</h2>
-          <DragScrollDiv className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
+          <ScrollRow className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
             {topRatedMovies.map((movie) => (
               <MyRatedMovieCard key={movie.id} movie={movie} festivalAwards={awardMovieMap.get(movie.id)} />
             ))}
-          </DragScrollDiv>
+          </ScrollRow>
         </div>
       )}
 
       {recentRatedMovies.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-bold text-text">최근에 평가한 작품</h2>
-          <DragScrollDiv className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
+          <ScrollRow className="row-scrollbar mt-3 flex gap-4 overflow-x-auto pb-3">
             {recentRatedMovies.map((movie) => (
               <MyRatedMovieCard key={`recent-${movie.id}`} movie={movie} festivalAwards={awardMovieMap.get(movie.id)} />
             ))}
-          </DragScrollDiv>
+          </ScrollRow>
         </div>
       )}
 
