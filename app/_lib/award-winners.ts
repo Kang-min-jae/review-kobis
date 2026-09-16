@@ -10,7 +10,7 @@ import {
   type FestivalWinner,
   type FestivalType,
 } from "./wikidata";
-import { searchTmdbMovie, getTmdbMovieDetailsById, searchTmdbMoviePosterLoose, normalizeTitleStr } from "./tmdb";
+import { searchTmdbMovie, getTmdbMovieDetailsById, searchTmdbMoviePosterLoose } from "./tmdb";
 import { searchKmdbMovie } from "./kmdb";
 import { db } from "./db";
 import type { RowMovie } from "./movie-rows";
@@ -22,24 +22,12 @@ const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Promise<string | null> {
   const ctx = `[award-tmdb][${festival}] "${winner.titleKo ?? winner.titleEn}" (${winner.ceremonyYear}) [${winner.categoryLabel}]`;
 
-  // 1) Wikidata P4947 TMDB ID 직접 조회 + 제목 검증
-  //    Wikidata P4947 매핑이 잘못됐을 수 있으므로 영문 제목으로 실제 영화인지 확인한다.
+  // 1) Wikidata P4947 TMDB ID 직접 조회 — 제목 검증은 런타임 지연의 원인이 되므로 생략.
+  //    캐시(12h) 미스 시 TMDB 호출 수를 최소화하기 위해 포스터가 있으면 바로 반환한다.
   if (winner.tmdbId) {
     const details = await getTmdbMovieDetailsById(winner.tmdbId, "en-US");
-    if (details?.posterUrl) {
-      const norm = (s: string | null | undefined) => normalizeTitleStr(s ?? "");
-      const tTitle = norm(details.title);
-      const tOrig = norm(details.originalTitle);
-      const wEn = norm(winner.titleEn);
-      const wKo = norm(winner.titleKo);
-      const titleMatched = [wEn, wKo].filter((w) => w.length >= 2).some((w) =>
-        tTitle.includes(w) || w.includes(tTitle) || tOrig.includes(w) || w.includes(tOrig)
-      );
-      if (titleMatched) return details.posterUrl;
-      console.warn(
-        `${ctx} P4947 tmdbId=${winner.tmdbId} 제목 불일치 — TMDB: "${details.title}"/"${details.originalTitle}" vs "${winner.titleEn ?? winner.titleKo}"`
-      );
-    } else {
+    if (details?.posterUrl) return details.posterUrl;
+    if (!details?.posterUrl) {
       console.warn(`${ctx} P4947 tmdbId=${winner.tmdbId} 포스터 null`);
     }
   }

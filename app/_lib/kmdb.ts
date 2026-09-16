@@ -233,7 +233,7 @@ async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbR
   url.searchParams.set("detail", "Y");
   url.searchParams.set("listCount", String(listCount));
   url.searchParams.set("ServiceKey", key);
-  url.searchParams.set("query", query);
+  url.searchParams.set("query", query); // rawSearch에서 이미 특수문자 정제됨
 
   for (let attempt = 1; attempt <= RAW_SEARCH_MAX_ATTEMPTS; attempt++) {
     try {
@@ -260,19 +260,21 @@ async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbR
 }
 
 // 정제된 결과를 24시간 캐시 — 용량이 수십 KB여서 2MB 한도 내에서 안전하게 저장된다.
-function makeCachedSearch(query: string, listCount: number) {
+// 캐시 키는 fetchFromKmdb와 동일한 sanitizedQuery 기준으로 맞춘다.
+function makeCachedSearch(sanitizedQuery: string, listCount: number) {
   return unstable_cache(
-    () => fetchFromKmdb(query, listCount),
-    [`kmdb-search:${query}:${listCount}`],
+    () => fetchFromKmdb(sanitizedQuery, listCount),
+    [`kmdb-search:${sanitizedQuery}:${listCount}`],
     { revalidate: 60 * 60 * 24, tags: ["kmdb"] }
   );
 }
 
 async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
   if (!apiKey()) return [];
+  const sanitizedQuery = query.replace(/[:&]/g, " ").replace(/\s{2,}/g, " ").trim();
   await acquireKmdbSlot();
   try {
-    return await makeCachedSearch(query, listCount)();
+    return await makeCachedSearch(sanitizedQuery, listCount)();
   } finally {
     releaseKmdbSlot();
   }
