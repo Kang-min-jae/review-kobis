@@ -60,6 +60,7 @@ type UserProfile = {
 
 type DbMovie = {
   movieCd: string;
+  tmdbId: string | null;
   title: string;
   posterUrl: string | null;
   genreAlt: string | null;
@@ -69,6 +70,7 @@ type DbMovie = {
 
 type CandidateMovie = {
   movieCd: string;
+  tmdbId: string | null;
   title: string;
   posterUrl: string | null;
   genreAlt: string | null;
@@ -115,12 +117,16 @@ async function buildUserProfile(
   };
   if (ratings.length === 0) return empty;
 
-  const movieCds = ratings
+  // kobis- 접두사 제거 → KOBIS 숫자 코드; tmdb-* ID는 movieCd 자체로 DB 조회
+  const kobisCds = ratings
     .map((r) => r.movieId.replace(/^kobis-/, ""))
     .filter((cd) => /^\d+$/.test(cd));
+  const tmdbMovieCds = ratings
+    .map((r) => r.movieId)
+    .filter((id) => /^tmdb-/.test(id));
 
   const cachedMovies = await db.cachedMovie.findMany({
-    where: { movieCd: { in: movieCds } },
+    where: { movieCd: { in: [...kobisCds, ...tmdbMovieCds] } },
     select: { movieCd: true, genreAlt: true, directorName: true, cast: true },
   });
   const movieMeta = new Map(cachedMovies.map((m) => [m.movieCd, m]));
@@ -134,7 +140,9 @@ async function buildUserProfile(
   const directorDataCount = new Map<string, number>(); // 부정 감독 데이터 개수 추적
 
   for (const rating of ratings) {
-    const movieCd = rating.movieId.replace(/^kobis-/, "");
+    // kobis- 제거 시 숫자면 KOBIS CD; tmdb-* 는 그대로 movieCd로 조회
+    const rawId = rating.movieId.replace(/^kobis-/, "");
+    const movieCd = /^\d+$/.test(rawId) ? rawId : rating.movieId;
     const meta = movieMeta.get(movieCd);
     if (!meta) continue;
 
@@ -205,6 +213,7 @@ function parseCast(raw: unknown): { name: string }[] {
 function toCandidate(m: DbMovie, score: number): CandidateMovie {
   return {
     movieCd: m.movieCd,
+    tmdbId: m.tmdbId,
     title: m.title,
     posterUrl: m.posterUrl,
     genreAlt: m.genreAlt,
@@ -230,16 +239,16 @@ async function fetchByGenreDirector(profile: UserProfile, ratedMovieIds: Set<str
     where: { posterUrl: { not: null }, OR: conditions },
     orderBy: { updatedAt: "desc" },
     take: 150,
-    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
   });
-  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 100);
+  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 100);
 }
 
 // Channel 1 보조: 배우 단독 매칭 (JSONB raw query)
 async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   if (topActors.length === 0) return [];
   const rows = await db.$queryRaw<DbMovie[]>`
-    SELECT DISTINCT "movieCd", "title", "posterUrl", "genreAlt", "directorName", "cast"
+    SELECT DISTINCT "movieCd", "tmdbId", "title", "posterUrl", "genreAlt", "directorName", "cast"
     FROM "CachedMovie"
     WHERE "posterUrl" IS NOT NULL
       AND EXISTS (
@@ -249,7 +258,7 @@ async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): P
       )
     LIMIT 100
   `;
-  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 60);
+  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 60);
 }
 
 // Channel 2: 항목별 선호 특화
@@ -271,9 +280,9 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
     where: { posterUrl: { not: null }, OR: targetGenres.map((g) => ({ genreAlt: { contains: g } })) },
     orderBy: { updatedAt: "desc" },
     take: 80,
-    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
   });
-  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 60);
+  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 60);
 }
 
 // Channel 3: 최근 2년 최신작
@@ -283,9 +292,9 @@ async function fetchTrending(ratedMovieIds: Set<string>): Promise<DbMovie[]> {
     where: { posterUrl: { not: null }, releaseDate: { gte: twoYearsAgo } },
     orderBy: { updatedAt: "desc" },
     take: 60,
-    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
   });
-  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`)).slice(0, 40);
+  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 40);
 }
 
 // ─────────────────────────────────────────────────────
@@ -431,7 +440,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
       where: { posterUrl: { not: null }, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
       orderBy: { updatedAt: "desc" },
       take: 25,
-      select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+      select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
     });
     const coldCandidates = recent
       .filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`))
@@ -463,13 +472,21 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     fetchTrending(ratedMovieIds),
   ]);
 
-  const seen = new Set<string>();
+  const seenCd = new Set<string>();
+  const seenTmdbId = new Set<string>();
   const all: DbMovie[] = [];
-  for (const m of [...genreDirectorRows, ...actorRows, ...categoryRows, ...trendingRows]) {
-    if (!seen.has(m.movieCd) && !ratedMovieIds.has(`kobis-${m.movieCd}`)) {
-      seen.add(m.movieCd);
-      all.push(m);
-    }
+  // KOBIS-numeric entries first, then tmdb-* — so the dedup prefers the KOBIS version
+  const orderedRows = [
+    ...[...genreDirectorRows, ...actorRows, ...categoryRows, ...trendingRows].filter((m) => !/^tmdb-/.test(m.movieCd)),
+    ...[...genreDirectorRows, ...actorRows, ...categoryRows, ...trendingRows].filter((m) => /^tmdb-/.test(m.movieCd)),
+  ];
+  for (const m of orderedRows) {
+    if (seenCd.has(m.movieCd)) continue;
+    if (ratedMovieIds.has(`kobis-${m.movieCd}`) || ratedMovieIds.has(`tmdb-${m.tmdbId}`)) continue;
+    if (m.tmdbId && seenTmdbId.has(m.tmdbId)) continue;
+    seenCd.add(m.movieCd);
+    if (m.tmdbId) seenTmdbId.add(m.tmdbId);
+    all.push(m);
   }
 
   // 리뷰 집계 배치 조회 (Bayesian 품질 + 항목별 친화도용)
