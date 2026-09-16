@@ -157,6 +157,7 @@ model User {
   watchTriggers       WatchTrigger[]       @relation("Reader")
   passwordResetTokens PasswordResetToken[]
   awardVotes          AwardVote[]
+  inquiries           Inquiry[]
 
   createdAt DateTime @default(now())
 }
@@ -344,6 +345,35 @@ model PersonIdentityMapping {
   createdAt     DateTime @default(now())
 
   @@unique([personName, role])
+}
+
+// 1:1 문의·오류 제보 — 유저가 제출하고 관리자가 상태를 바꿔준다.
+model Inquiry {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   String   // "영화 정보 오류" | "신규 영화 추가 요청" | "버그 신고" | "기타 문의"
+  title      String
+  content    String
+  images     Json     @default("[]") // base64 data URI 배열 (최대 5장, 클라이언트에서 리사이즈)
+  status     String   @default("답변 대기") // "답변 대기" | "처리 완료"
+  adminReply String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+// 서비스 공지사항 — DB에 직접 INSERT하거나 관리 스크립트로 관리한다.
+model Notice {
+  id        String   @id @default(cuid())
+  type      String   // "업데이트" | "신규 기능" | "점검 안내" | "공지"
+  title     String
+  content   String?
+  isNew     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // 수상작 투표 — 사용자가 특정 영화제·시상 부문에 직접 투표한 영화.
