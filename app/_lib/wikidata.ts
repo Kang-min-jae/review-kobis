@@ -194,8 +194,8 @@ async function fetchFestivalWinnersRaw(
 }
 
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
-// 버전을 올리면 기존 DB 캐시를 무시하고 Wikidata를 즉시 재조회한다.
-const CACHE_VERSION = "v6";
+// 버전을 올리면 기존 DB 캐시와 unstable_cache 키 양쪽을 무효화한다.
+export const CACHE_VERSION = "v6";
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
 const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 (시상식 데이터는 자주 안 바뀜)

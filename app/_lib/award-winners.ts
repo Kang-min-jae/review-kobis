@@ -7,6 +7,7 @@ import {
   fetchLatestBerlinWinners,
   fetchLatestVeniceWinners,
   fetchMovieAwardWins,
+  CACHE_VERSION,
   type FestivalWinner,
   type FestivalType,
 } from "./wikidata";
@@ -177,7 +178,7 @@ export const getLatestAcademyWinnerRows = unstable_cache(
     const winners = await fetchLatestAcademyWinners();
     return winnersToRows(winners, "academy");
   },
-  ["award-winners-academy"],
+  [`award-winners-academy-${CACHE_VERSION}`],
   { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
 );
 
@@ -186,7 +187,7 @@ export const getLatestCannesWinnerRows = unstable_cache(
     const winners = await fetchLatestCannesWinners();
     return winnersToRows(winners, "cannes");
   },
-  ["award-winners-cannes"],
+  [`award-winners-cannes-${CACHE_VERSION}`],
   { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
 );
 
@@ -195,7 +196,7 @@ export const getLatestBerlinWinnerRows = unstable_cache(
     const winners = await fetchLatestBerlinWinners();
     return winnersToRows(winners, "berlin");
   },
-  ["award-winners-berlin"],
+  [`award-winners-berlin-${CACHE_VERSION}`],
   { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
 );
 
@@ -204,7 +205,7 @@ export const getLatestVeniceWinnerRows = unstable_cache(
     const winners = await fetchLatestVeniceWinners();
     return winnersToRows(winners, "venice");
   },
-  ["award-winners-venice"],
+  [`award-winners-venice-${CACHE_VERSION}`],
   { revalidate: AWARD_CACHE_TTL, tags: ["award-winners"] }
 );
 
