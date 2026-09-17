@@ -11,6 +11,20 @@ import { sendPasswordResetEmail } from "./mailer";
 const MIN_PASSWORD_LENGTH = 8;
 const RESET_TOKEN_TTL_MS = 1000 * 60 * 60; // 1시간
 
+// 비밀번호 재설정 요청 레이트 리미터 — 이메일당 1분에 최대 3회.
+// 단일 인스턴스 배포에서 완전 동작한다. 멀티 인스턴스라면 DB/Redis 기반으로 교체해야 한다.
+const RESET_RATE_WINDOW_MS = 60 * 1000;
+const RESET_RATE_MAX = 3;
+const resetRateMap = new Map<string, number[]>();
+
+function checkResetRateLimit(email: string): boolean {
+  const now = Date.now();
+  const prev = (resetRateMap.get(email) ?? []).filter((t) => now - t < RESET_RATE_WINDOW_MS);
+  if (prev.length >= RESET_RATE_MAX) return false;
+  resetRateMap.set(email, [...prev, now]);
+  return true;
+}
+
 export type ActionResult = { error: string } | { ok: true };
 
 function isValidEmail(email: string): boolean {
@@ -109,6 +123,10 @@ export async function requestPasswordResetAction(
 ): Promise<ResetRequestResult> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!isValidEmail(email)) return { message: "올바른 이메일 형식이 아니에요.", isError: true };
+
+  if (!checkResetRateLimit(email)) {
+    return { message: "잠시 후 다시 시도해 주세요. (1분에 최대 3회)", isError: true };
+  }
 
   const user = await db.user.findUnique({ where: { email } });
   if (user) {
