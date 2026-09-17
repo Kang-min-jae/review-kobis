@@ -37,8 +37,14 @@ export default function ScrollRow({ children, className }: { children: ReactNode
   }
 
   // 드래그 중에 자식 링크/버튼 클릭이 발생하지 않도록, 실제로 움직였으면 클릭 이벤트를 삼킨다.
+  // stopPropagation만으로는 <a>/<Link>의 기본 href 이동을 막을 수 없어서 preventDefault도 함께 호출한다.
+  // moved는 여기서 초기화해 드래그 직후 추가 클릭이 실수로 막히는 일을 방지한다.
   function onClickCapture(e: MouseEvent<HTMLDivElement>) {
-    if (drag.current.moved) e.stopPropagation();
+    if (drag.current.moved) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    drag.current.moved = false;
   }
 
   return (
