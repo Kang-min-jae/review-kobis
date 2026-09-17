@@ -3,6 +3,13 @@ import { db } from "../../_lib/db";
 import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
+import {
+  buildAffinityContext,
+  computeBayesianQuality,
+  calculateMovieAffinity,
+  type AffinityContext,
+  type RatedMovieForContext,
+} from "../../_lib/calculateAffinity";
 
 const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -107,7 +114,8 @@ function getTemporalWeight(rating: number, ratedAt: string, totalCount: number):
 async function buildUserProfile(
   ratings: IncomingRating[],
   categoryRatings: IncomingCategoryRating[]
-): Promise<UserProfile> {
+): Promise<{ profile: UserProfile; affinityCtx: AffinityContext }> {
+  const emptyCtx = buildAffinityContext([]);
   const empty: UserProfile = {
     topGenres: [], topDirectors: [], topActors: [],
     avoidedGenres: [], avoidedDirectors: [],
@@ -115,7 +123,7 @@ async function buildUserProfile(
     genreVec: {}, directorVec: {}, actorVec: {},
     avoidedGenreVec: {}, avoidedDirectorVec: {},
   };
-  if (ratings.length === 0) return empty;
+  if (ratings.length === 0) return { profile: empty, affinityCtx: emptyCtx };
 
   // kobis- 접두사 제거 → KOBIS 숫자 코드; tmdb-* ID는 movieCd 자체로 DB 조회
   const kobisCds = ratings
@@ -138,6 +146,9 @@ async function buildUserProfile(
   const avoidedGenreVec: Record<string, number> = {};
   const avoidedDirectorVec: Record<string, number> = {};
   const directorDataCount = new Map<string, number>(); // 부정 감독 데이터 개수 추적
+
+  // 추천도 배지 계산용: calculateAffinity 공통 함수에 넘길 평점 데이터
+  const ratedMoviesForCtx: RatedMovieForContext[] = [];
 
   for (const rating of ratings) {
     // kobis- 제거 시 숫자면 KOBIS CD; tmdb-* 는 그대로 movieCd로 조회
@@ -166,6 +177,13 @@ async function buildUserProfile(
     for (const person of castArr.slice(0, 5)) {
       if (isPositive) actorVec[person.name] = (actorVec[person.name] ?? 0) + w * 0.7;
     }
+
+    ratedMoviesForCtx.push({
+      rating: rating.rating,
+      genres: splitGenres(meta.genreAlt),
+      directorName: meta.directorName,
+      castNames: castArr.slice(0, 5).map((p) => p.name),
+    });
   }
 
   // 채널 검색용 리스트 파생 (벡터에서)
@@ -196,9 +214,12 @@ async function buildUserProfile(
   }
 
   return {
-    topGenres, topDirectors, topActors, avoidedGenres, avoidedDirectors,
-    categoryWeights, coldStart: false,
-    genreVec, directorVec, actorVec, avoidedGenreVec, avoidedDirectorVec,
+    profile: {
+      topGenres, topDirectors, topActors, avoidedGenres, avoidedDirectors,
+      categoryWeights, coldStart: false,
+      genreVec, directorVec, actorVec, avoidedGenreVec, avoidedDirectorVec,
+    },
+    affinityCtx: buildAffinityContext(ratedMoviesForCtx),
   };
 }
 
@@ -698,7 +719,7 @@ export async function POST(request: Request) {
 
   const ratedMovieIds = new Set(myRatings.map((r) => r.movieId));
 
-  const profile = await buildUserProfile(myRatings, myCategoryRatings);
+  const { profile, affinityCtx } = await buildUserProfile(myRatings, myCategoryRatings);
   const candidates = await getCandidates(profile, ratedMovieIds);
 
   if (candidates.length === 0) {
@@ -719,10 +740,14 @@ export async function POST(request: Request) {
     c: CandidateMovie,
     posterUrl: string | null,
     genreAlt: string | null,
-    finalScore: number,
     reason?: string,
   ): RowMovie => {
     const { genre, allGenres } = genreFields(genreAlt);
+    const affinityScore = calculateMovieAffinity(
+      { genres: allGenres, directorName: c.directorName, castNames: c.cast.map((p) => p.name) },
+      affinityCtx,
+      computeBayesianQuality(c.reviewAvg, c.reviewCount),
+    );
     return {
       id: `kobis-${c.movieCd}`,
       title: c.title,
@@ -731,15 +756,15 @@ export async function POST(request: Request) {
       isNowShowing: false,
       genre,
       allGenres,
-      recommendScore: Math.min(99, Math.max(1, Math.round(100 * finalScore))),
+      recommendScore: Math.min(99, Math.max(1, Math.round(100 * affinityScore))),
       recommendReason: reason,
     };
   };
 
   const results: RowMovie[] = final
-    .map(({ candidate: c, finalScore, reason }) => {
+    .map(({ candidate: c, reason }) => {
       const meta = metas.get(c.movieCd);
-      return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, finalScore, reason ?? undefined);
+      return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, reason ?? undefined);
     })
     .filter((r) => r.posterUrl !== null);
 
@@ -756,7 +781,7 @@ export async function POST(request: Request) {
         const meta = fallbackMetas.get(c.movieCd);
         const posterUrl = meta?.posterUrl ?? c.posterUrl;
         if (!posterUrl) continue;
-        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt, c.totalScore));
+        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt));
         if (results.length >= TARGET) break;
       }
     }
