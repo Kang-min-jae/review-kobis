@@ -17,17 +17,56 @@ import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
+// TMDB 조회 결과 제목이 수상작 제목(한국어/영어)과 충분히 일치하는지 검사한다.
+// 특수문자·공백 제거 + 소문자 정규화 후 포함 관계를 확인한다.
+// P4947(Wikidata TMDB ID)가 잘못 매핑된 경우 엉뚱한 포스터가 붙는 것을 차단한다.
+function normForComp(s: string): string {
+  return s.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+}
+
+function posterTitleMatchesWinner(
+  fetched: { title: string; originalTitle: string | null },
+  winner: FestivalWinner
+): boolean {
+  const fetchedNorms = [
+    normForComp(fetched.title),
+    fetched.originalTitle ? normForComp(fetched.originalTitle) : null,
+  ].filter(Boolean) as string[];
+
+  const expectedNorms = [
+    winner.titleKo ? normForComp(winner.titleKo) : null,
+    winner.titleEn ? normForComp(winner.titleEn) : null,
+  ].filter(Boolean) as string[];
+
+  for (const expected of expectedNorms) {
+    if (expected.length < 2) continue;
+    for (const fetched of fetchedNorms) {
+      if (fetched.length < 2) continue;
+      // 포함 관계 — 원제/번역제 표기 차이(관사 생략 등)를 흡수한다
+      if (fetched.includes(expected) || expected.includes(fetched)) return true;
+    }
+  }
+  return false;
+}
+
 // 포스터 검색 5단계 폴백.
 // 각 단계 실패 시 콘솔에 로그를 남겨 어느 단계에서 실패하는지 추적 가능.
 async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Promise<string | null> {
   const ctx = `[award-tmdb][${festival}] "${winner.titleKo ?? winner.titleEn}" (${winner.ceremonyYear}) [${winner.categoryLabel}]`;
 
-  // 1) Wikidata P4947 TMDB ID 직접 조회 — 제목 검증은 런타임 지연의 원인이 되므로 생략.
-  //    캐시(12h) 미스 시 TMDB 호출 수를 최소화하기 위해 포스터가 있으면 바로 반환한다.
+  // 1) Wikidata P4947 TMDB ID 직접 조회.
+  //    제목 불일치 시 포스터 차단 — P4947 매핑 오류로 전혀 다른 영화 포스터가 붙는 것을 방지.
   if (winner.tmdbId) {
     const details = await getTmdbMovieDetailsById(winner.tmdbId, "en-US");
-    if (details?.posterUrl) return details.posterUrl;
-    if (!details?.posterUrl) {
+    if (details?.posterUrl) {
+      if (posterTitleMatchesWinner(details, winner)) {
+        return details.posterUrl;
+      }
+      console.warn(
+        `${ctx} P4947 tmdbId=${winner.tmdbId} 제목 불일치 차단` +
+        ` — TMDB반환="${details.title}" / expected="${winner.titleEn ?? winner.titleKo}"`
+      );
+    } else {
       console.warn(`${ctx} P4947 tmdbId=${winner.tmdbId} 포스터 null`);
     }
   }

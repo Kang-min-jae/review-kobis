@@ -195,7 +195,7 @@ async function fetchFestivalWinnersRaw(
 
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
 // 버전을 올리면 기존 DB 캐시를 무시하고 Wikidata를 즉시 재조회한다.
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
 const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 (시상식 데이터는 자주 안 바뀜)
@@ -222,13 +222,13 @@ function nextCeremonyDate(type: FestivalType, maxYear: number): Date {
 const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   // 97회 아카데미 시상식 (2025년 3월)
   academy: [
-    { categoryLabel: "작품상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1209290" },
-    { categoryLabel: "감독상",    titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1023919" },
-    { categoryLabel: "남우주연상", titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1023919" },
-    { categoryLabel: "여우주연상", titleKo: null,            titleEn: "The Substance",  ceremonyYear: 2025, filmQid: "Q125889440", tmdbId: "933260" },
-    { categoryLabel: "국제영화상", titleKo: null,            titleEn: "I'm Still Here", ceremonyYear: 2025, filmQid: "Q128023745", tmdbId: "1156593" },
-    { categoryLabel: "각본상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1209290" },
-    { categoryLabel: "각색상",    titleKo: null,            titleEn: "Conclave",       ceremonyYear: 2025, filmQid: "Q128029218", tmdbId: "975902" },
+    { categoryLabel: "작품상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1064213"  }, // Anora (2024)
+    { categoryLabel: "감독상",    titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1010818"  }, // The Brutalist (2024)
+    { categoryLabel: "남우주연상", titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1010818"  }, // The Brutalist (2024)
+    { categoryLabel: "여우주연상", titleKo: null,            titleEn: "The Substance",  ceremonyYear: 2025, filmQid: "Q125889440", tmdbId: "933260"   }, // The Substance (2024)
+    { categoryLabel: "국제영화상", titleKo: null,            titleEn: "I'm Still Here", ceremonyYear: 2025, filmQid: "Q128023745", tmdbId: "1032823"  }, // Ainda Estou Aqui (2024)
+    { categoryLabel: "각본상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1064213"  }, // Anora (2024)
+    { categoryLabel: "각색상",    titleKo: null,            titleEn: "Conclave",       ceremonyYear: 2025, filmQid: "Q128029218", tmdbId: "1063879"  }, // Conclave (2024)
   ],
   // 78회 칸 영화제 (2025년 5월) — Wikidata 재조회로 자동 반영
   cannes: [
