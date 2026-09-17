@@ -45,6 +45,8 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
     >
       <Link
         href={rateHref}
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
         className={`relative block aspect-2/3 overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`
         }`}
