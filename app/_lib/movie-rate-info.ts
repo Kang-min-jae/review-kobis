@@ -358,6 +358,7 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
       // 1) TMDB: tmdbId 직접 조회 → 제목 검증 → 실패하면 제목 검색
       let tmdb: TmdbMovieDetails | null = null;
       let resolvedTmdbId: string | null = cached.tmdbId;
+      let tmdbIdWasWrong = false;
 
       if (cached.tmdbId) {
         const byId = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
@@ -372,9 +373,11 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
           if (matched) {
             tmdb = byId;
           } else {
-            // 잘못된 P4947 ID — DB에서 제거, 제목 검색으로 대체
+            // 잘못된 P4947 ID — DB에서 제거, 제목 검색으로 대체.
+            // tmdbIdWasWrong=true로 표시해서 이 tmdbId에 연결된 posterUrl도 신뢰하지 않는다.
             resolvedTmdbId = null;
-            await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null } }).catch(() => null);
+            tmdbIdWasWrong = true;
+            await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null, posterUrl: null } }).catch(() => null);
           }
         }
       }
@@ -415,7 +418,8 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
         releaseDate: tmdb?.releaseDate ?? kmdb?.releaseDate ?? cached.releaseDate,
         runtimeMinutes: tmdb?.runtimeMinutes ?? kmdb?.runtimeMinutes ?? cached.runtimeMinutes,
         genreAlt: tmdb?.genre ?? kmdb?.genre ?? cached.genreAlt,
-        posterUrl: tmdb?.posterUrl ?? cached.posterUrl,
+        // tmdbId가 잘못된 것으로 확인됐으면 기존 posterUrl도 오염돼 있으므로 사용하지 않는다.
+        posterUrl: tmdb?.posterUrl ?? (tmdbIdWasWrong ? null : cached.posterUrl),
         titleEn: tmdb?.originalTitle ?? cached.titleEn,
         tmdbId: resolvedTmdbId,
         directorName: director?.name ?? cached.directorName,
