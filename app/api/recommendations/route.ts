@@ -520,7 +520,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     if ((directorCount.get(dir) ?? 0) >= 2) continue;
     directorCount.set(dir, (directorCount.get(dir) ?? 0) + 1);
     topN.push(c);
-    if (topN.length >= 15) break;
+    if (topN.length >= 20) break;
   }
   return topN;
 }
@@ -603,7 +603,35 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
 }
 
 // ─────────────────────────────────────────────────────
-// 7. Final score blend + MMR diversity (→ Top 8)
+// 7. Fallback: fill remaining slots from recent catalogue
+// ─────────────────────────────────────────────────────
+
+// MMR 다양성 제약 또는 포스터 누락으로 목표 편수에 못 미칠 때 호출.
+// 후보 풀에 없던 최신 영화(포스터 있는 것)에서 부족분만 채운다.
+async function fetchFallbackCandidates(
+  ratedMovieIds: Set<string>,
+  excludeMovieCds: Set<string>,
+  needed: number,
+): Promise<CandidateMovie[]> {
+  const rows = await db.cachedMovie.findMany({
+    where: { posterUrl: { not: null } },
+    orderBy: { updatedAt: "desc" },
+    take: needed * 5,
+    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+  });
+  return rows
+    .filter(
+      (m) =>
+        !excludeMovieCds.has(m.movieCd) &&
+        !ratedMovieIds.has(`kobis-${m.movieCd}`) &&
+        (m.tmdbId === null || !ratedMovieIds.has(`tmdb-${m.tmdbId}`)),
+    )
+    .slice(0, needed)
+    .map((m) => toCandidate(m, 0.1));
+}
+
+// ─────────────────────────────────────────────────────
+// 8. Final score blend + MMR diversity (→ Top 10)
 // ─────────────────────────────────────────────────────
 
 type ScoredCandidate = {
@@ -685,28 +713,56 @@ export async function POST(request: Request) {
   ]);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
-  const final = blendAndMMR(candidates, llmMap, 8);
+  const final = blendAndMMR(candidates, llmMap, 10);
 
-  const results: RowMovie[] = final.map(({ candidate: c, finalScore, reason }) => {
-    const meta = metas.get(c.movieCd);
-    const rawScore = Math.round(100 * finalScore);
-    const recommendScore = Math.min(99, Math.max(1, rawScore));
-    const { genre, allGenres } = genreFields(meta?.genreAlt ?? c.genreAlt);
-
+  const buildRowMovie = (
+    c: CandidateMovie,
+    posterUrl: string | null,
+    genreAlt: string | null,
+    finalScore: number,
+    reason?: string,
+  ): RowMovie => {
+    const { genre, allGenres } = genreFields(genreAlt);
     return {
       id: `kobis-${c.movieCd}`,
       title: c.title,
-      posterUrl: meta?.posterUrl ?? c.posterUrl,
+      posterUrl,
       gradient: FALLBACK_GRADIENT_VAL,
       isNowShowing: false,
       genre,
       allGenres,
-      recommendScore,
-      recommendReason: reason ?? undefined,
+      recommendScore: Math.min(99, Math.max(1, Math.round(100 * finalScore))),
+      recommendReason: reason,
     };
-  });
+  };
 
-  const payload = { results: results.filter((r) => r.posterUrl !== null) };
+  const results: RowMovie[] = final
+    .map(({ candidate: c, finalScore, reason }) => {
+      const meta = metas.get(c.movieCd);
+      return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, finalScore, reason ?? undefined);
+    })
+    .filter((r) => r.posterUrl !== null);
+
+  // Fallback fill: MMR 다양성 제약 또는 포스터 없는 영화 제거로 10편 미만이 되면
+  // 후보 풀 밖의 최신 영화로 채운다.
+  const TARGET = 10;
+  if (results.length < TARGET) {
+    const needed = TARGET - results.length;
+    const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
+    const fallback = await fetchFallbackCandidates(ratedMovieIds, excludeMovieCds, needed);
+    if (fallback.length > 0) {
+      const fallbackMetas = await getMovieMetas(fallback.map((c) => c.movieCd));
+      for (const c of fallback) {
+        const meta = fallbackMetas.get(c.movieCd);
+        const posterUrl = meta?.posterUrl ?? c.posterUrl;
+        if (!posterUrl) continue;
+        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt, c.totalScore));
+        if (results.length >= TARGET) break;
+      }
+    }
+  }
+
+  const payload = { results };
 
   // 결과 캐싱 (FIFO 방식으로 최대 200개 유지)
   if (recServerCache.size >= REC_CACHE_MAX) {
