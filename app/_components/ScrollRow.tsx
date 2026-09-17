@@ -15,6 +15,9 @@ export default function ScrollRow({ children, className }: { children: ReactNode
     drag.current.active = false;
     el.style.cursor = "";
     el.style.userSelect = "";
+    // moved 리셋은 click 이벤트가 처리된 다음 틱으로 미룬다.
+    // 즉시 리셋하면 onClickCapture보다 먼저 실행되어 드래그 차단이 실패할 수 있다.
+    setTimeout(() => { drag.current.moved = false; }, 50);
   }
 
   function onMouseDown(e: MouseEvent<HTMLDivElement>) {
@@ -38,13 +41,12 @@ export default function ScrollRow({ children, className }: { children: ReactNode
 
   // 드래그 중에 자식 링크/버튼 클릭이 발생하지 않도록, 실제로 움직였으면 클릭 이벤트를 삼킨다.
   // stopPropagation만으로는 <a>/<Link>의 기본 href 이동을 막을 수 없어서 preventDefault도 함께 호출한다.
-  // moved는 여기서 초기화해 드래그 직후 추가 클릭이 실수로 막히는 일을 방지한다.
+  // moved 리셋은 stopDrag의 setTimeout에서 처리하므로 여기서는 읽기만 한다.
   function onClickCapture(e: MouseEvent<HTMLDivElement>) {
     if (drag.current.moved) {
       e.preventDefault();
       e.stopPropagation();
     }
-    drag.current.moved = false;
   }
 
   return (
