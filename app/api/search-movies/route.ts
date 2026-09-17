@@ -52,6 +52,29 @@ function setCache(key: string, data: object) {
   searchCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+// ── 동시 Upsert 제한 (DB 커넥션 풀 보호) ────────────────────────────────────
+// 백그라운드 저장이 동시에 폭주하면 Prisma 커넥션 풀(기본 10~15개)이 고갈되어
+// 평점 저장·로그인 등 실시간 쿼리가 500 에러를 낼 수 있다.
+// 최대 3개 동시 실행으로 제한해 주요 DB 쿼리가 영향받지 않게 한다.
+class ConcurrencyLimiter {
+  private running = 0;
+  private readonly queue: Array<() => void> = [];
+  constructor(private readonly max: number) {}
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.running >= this.max) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+    this.running++;
+    try {
+      return await fn();
+    } finally {
+      this.running--;
+      this.queue.shift()?.();
+    }
+  }
+}
+const upsertLimiter = new ConcurrencyLimiter(3);
+
 // ── 포스터 배치 조회 ──────────────────────────────────────────────────────────
 async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
   if (hits.length === 0) return [];
@@ -233,9 +256,12 @@ Output: {"isValid":true,"isCorrected":true,"originalQuery":"젠데이야","corre
 Input: "봉준호"
 Output: {"isValid":true,"isCorrected":false,"originalQuery":"봉준호","correctedQuery":"봉준호","didYouMean":null,"searchKeywords":["봉준호","Bong Joon-ho"]}`;
 
+  const llmAbort = new AbortController();
+  const llmTimeout = setTimeout(() => llmAbort.abort(), 1200);
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: llmAbort.signal,
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
@@ -253,6 +279,8 @@ Output: {"isValid":true,"isCorrected":false,"originalQuery":"봉준호","correct
     return JSON.parse(match[0]) as LlmCorrection;
   } catch {
     return null;
+  } finally {
+    clearTimeout(llmTimeout);
   }
 }
 
@@ -269,11 +297,13 @@ async function asyncSavePeopleToDb(
   for (const p of kmdbPeople.slice(0, 5)) {
     if (!p.kmdbId) continue;
     upserts.push(
-      db.cachedPerson.upsert({
-        where: { kmdbId: p.kmdbId },
-        create: { kmdbId: p.kmdbId, name: p.name, role: p.role, filmography: [] },
-        update: { name: p.name },
-      }).catch(() => {})
+      upsertLimiter.run(() =>
+        db.cachedPerson.upsert({
+          where: { kmdbId: p.kmdbId },
+          create: { kmdbId: p.kmdbId, name: p.name, role: p.role, filmography: [] },
+          update: { name: p.name },
+        })
+      ).catch(() => {})
     );
   }
 
@@ -281,11 +311,13 @@ async function asyncSavePeopleToDb(
   for (const p of tmdbPeople.slice(0, 3)) {
     const syntheticId = `tmdb-${p.tmdbId}`;
     upserts.push(
-      db.cachedPerson.upsert({
-        where: { kmdbId: syntheticId },
-        create: { kmdbId: syntheticId, name: p.name, role: "배우", filmography: [], tmdbId: p.tmdbId },
-        update: { name: p.name, tmdbId: p.tmdbId },
-      }).catch(() => {})
+      upsertLimiter.run(() =>
+        db.cachedPerson.upsert({
+          where: { kmdbId: syntheticId },
+          create: { kmdbId: syntheticId, name: p.name, role: "배우", filmography: [], tmdbId: p.tmdbId },
+          update: { name: p.name, tmdbId: p.tmdbId },
+        })
+      ).catch(() => {})
     );
   }
 
@@ -325,10 +357,19 @@ async function runExternalSearch(query: string) {
 // TMDB/KOBIS/KMDb 에서도 결과가 없을 때 LLM 교정 전에 실행하는 빠른 로컬 대안.
 async function fuzzySearchDb(query: string): Promise<{ movies: MovieHit[]; people: Array<KmdbPersonHit & { tmdbId?: string }> }> {
   const tokens = tokenizeQuery(query);
-  // 각 토큰 앞 2글자를 단서로 OR 쿼리 조건 구성
-  const leadingConditions = tokens
-    .map((t) => t.slice(0, 2))
-    .filter((s) => s.length >= 1);
+  // 슬라이딩 윈도우(2글자) + 각 토큰 앞 2글자를 OR 조건으로 구성.
+  // 앞 2글자만 쓰면 첫 글자 오타("전데이아" → "젠데이아") 시 후보군 추출 실패.
+  // 중간 위치의 2글자 조각도 함께 포함해 첫 글자 오타도 후보군에 잡힌다.
+  const stripped = query.replace(/\s+/g, "");
+  const windows = new Set<string>();
+  for (let i = 0; i + 1 < stripped.length; i++) {
+    windows.add(stripped.slice(i, i + 2));
+  }
+  for (const t of tokens) {
+    const lead = t.slice(0, 2);
+    if (lead.length >= 2) windows.add(lead);
+  }
+  const leadingConditions = [...windows];
 
   if (leadingConditions.length === 0) return { movies: [], people: [] };
 
@@ -421,6 +462,9 @@ export async function GET(request: Request) {
     return NextResponse.json(result);
   }
 
+  // 클라이언트가 이미 요청을 취소했으면 외부 API 호출 없이 즉시 중단한다.
+  if (request.signal.aborted) return new Response(null, { status: 499 });
+
   // ── 3단계: DB miss → 외부 API 병렬 호출 ──────────────────────────────────
   const { movieHits, rawPeople, multiHits, cachedPeople: freshCachedPeople, tmdbPersonHits } =
     await runExternalSearch(query);
@@ -466,6 +510,8 @@ export async function GET(request: Request) {
     return NextResponse.json(result);
   }
 
+  if (request.signal.aborted) return new Response(null, { status: 499 });
+
   // ── 4단계: DB 퍼지 검색 (자모/레벤슈타인) ────────────────────────────────
   // 외부 API 에서도 결과가 없을 때 LLM 호출 전에 빠른 로컬 유사도 매칭을 시도.
   const fuzzyDb = await fuzzySearchDb(query);
@@ -478,6 +524,15 @@ export async function GET(request: Request) {
     };
     setCache(cacheKey, result);
     return NextResponse.json(result);
+  }
+
+  if (request.signal.aborted) return new Response(null, { status: 499 });
+
+  // LLM 호출 스킵: 2글자 미만이거나 숫자로만 이루어진 쿼리는 교정 불가 → 비용 낭비 방지
+  if (query.length < 2 || /^\d+$/.test(query)) {
+    const empty = { movies: [], series: [], people: [], correctedQuery: null };
+    setCache(cacheKey, empty);
+    return NextResponse.json(empty);
   }
 
   // ── 5단계: 결과 없음 → LLM 오타 교정 시도 ───────────────────────────────
