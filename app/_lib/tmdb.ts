@@ -170,8 +170,10 @@ function pickBestMovieMatch(
 export async function searchTmdbMovie(
   title: string,
   yearHint: string | null,
-  titleEn?: string | null
+  titleEn?: string | null,
+  locale: string = "ko"
 ): Promise<TmdbMovieDetails | null> {
+  const lang = locale === "en" ? "en-US" : "ko-KR";
   const acceptableTitles = new Set([normalizeTitle(title)]);
   if (titleEn) acceptableTitles.add(normalizeTitle(titleEn));
 
@@ -186,7 +188,8 @@ export async function searchTmdbMovie(
   }
   if (!best) return null;
 
-  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${best.id}`);
+  // 상세 조회는 locale에 맞는 언어로 — 제목·줄거리·장르가 locale 언어로 반환된다.
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${best.id}`, {}, lang);
   if (!details) {
     return {
       tmdbId: String(best.id),
@@ -335,8 +338,9 @@ export type TmdbSeriesDetails = {
   genre: string | null; // 콤마 구분
 };
 
-export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
-  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true);
+export async function getTmdbSeriesDetails(tmdbId: string, locale: string = "ko"): Promise<TmdbSeriesDetails | null> {
+  const lang = locale === "en" ? "en-US" : "ko-KR";
+  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, lang, true);
   if (!details) return null;
   return {
     tmdbId: String(details.id),
