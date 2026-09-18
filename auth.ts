@@ -25,15 +25,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Naver,
     Credentials({
       credentials: {
-        email: { label: "이메일", type: "email" },
+        // 이메일 또는 닉네임 둘 다 받는다 — 필드명은 하위호환을 위해 email 유지
+        email: { label: "아이디 또는 이메일", type: "text" },
         password: { label: "비밀번호", type: "password" },
       },
       async authorize(credentials) {
-        const email = credentials?.email;
+        const identifier = credentials?.email;
         const password = credentials?.password;
-        if (typeof email !== "string" || typeof password !== "string") return null;
+        if (typeof identifier !== "string" || typeof password !== "string") return null;
 
-        const user = await db.user.findUnique({ where: { email } });
+        // @ 포함이면 이메일, 아니면 닉네임으로 조회
+        const isEmail = identifier.includes("@");
+        const user = isEmail
+          ? await db.user.findUnique({ where: { email: identifier.toLowerCase() } })
+          : await db.user.findUnique({ where: { nickname: identifier } });
+
         // OAuth로만 가입한 계정은 password가 없다 — 이메일/비밀번호로는 로그인 불가.
         if (!user?.password) return null;
 

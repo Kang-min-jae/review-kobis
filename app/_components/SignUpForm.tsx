@@ -91,8 +91,9 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
             id="nickname"
             name="nickname"
             type="text"
+            required
             maxLength={20}
-            placeholder="다른 사람에게 보여질 이름"
+            placeholder="다른 사람에게 보여질 이름 (로그인 아이디)"
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
             className={inputClass}
@@ -116,9 +117,9 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
 
         <div>
           <label htmlFor="email" className="text-xs text-muted">
-            이메일
+            이메일 <span className="text-muted/60">(선택)</span>
           </label>
-          <input id="email" name="email" type="email" required placeholder="name@example.com" className={inputClass} />
+          <input id="email" name="email" type="email" placeholder="name@example.com" className={inputClass} />
         </div>
 
         <div>
