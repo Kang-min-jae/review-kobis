@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import ProviderButton from "./ProviderButton";
 import { signInWithCredentialsAction, type ActionResult } from "../_lib/credentials-actions";
@@ -9,11 +9,27 @@ import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-neutral-700 bg-bg px-4 py-3 text-sm text-text placeholder:text-muted focus:border-brand focus:outline-none";
 
+const STORAGE_KEY = "login_email";
+
 export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     signInWithCredentialsAction,
     null
   );
+  const [email, setEmail] = useState("");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) setEmail(saved);
+    } catch {}
+  }, []);
+
+  function handleEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    setEmail(val);
+    try { localStorage.setItem(STORAGE_KEY, val); } catch {}
+  }
 
   return (
     <div className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-surface p-6">
@@ -26,7 +42,16 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
           <label htmlFor="email" className="text-xs text-muted">
             아이디 또는 이메일
           </label>
-          <input id="email" name="email" type="email" required placeholder="name@example.com" className={inputClass} />
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            placeholder="name@example.com"
+            value={email}
+            onChange={handleEmailChange}
+            className={inputClass}
+          />
         </div>
 
         <div>
