@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import TermsAgreement from "./TermsAgreement";
 import ProviderButton from "./ProviderButton";
@@ -36,12 +36,36 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
+type NicknameStatus = "idle" | "checking" | "available" | "taken" | "too_short" | "too_long";
+
 export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(signUpAction, null);
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
+  const [nickname, setNickname] = useState("");
+  const [nicknameStatus, setNicknameStatus] = useState<NicknameStatus>("idle");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = nickname.trim();
+    if (trimmed.length === 0) { setNicknameStatus("idle"); return; }
+    if (trimmed.length < 2) { setNicknameStatus("too_short"); return; }
+    if (trimmed.length > 20) { setNicknameStatus("too_long"); return; }
+    setNicknameStatus("checking");
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/check-nickname?nickname=${encodeURIComponent(trimmed)}`);
+        const data = await res.json() as { available: boolean };
+        setNicknameStatus(data.available ? "available" : "taken");
+      } catch {
+        setNicknameStatus("idle");
+      }
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [nickname]);
 
   const requiredAgreed = TERMS_ITEMS.filter((item) => item.required).every((item) => agreed[item.key]);
   const passwordMismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
@@ -63,7 +87,31 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
           <label htmlFor="nickname" className="text-xs text-muted">
             닉네임
           </label>
-          <input id="nickname" name="nickname" type="text" maxLength={20} placeholder="다른 사람에게 보여질 이름" className={inputClass} />
+          <input
+            id="nickname"
+            name="nickname"
+            type="text"
+            maxLength={20}
+            placeholder="다른 사람에게 보여질 이름"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            className={inputClass}
+          />
+          {nicknameStatus === "checking" && (
+            <p className="mt-1 text-xs text-muted">확인 중...</p>
+          )}
+          {nicknameStatus === "available" && (
+            <p className="mt-1 text-xs text-green-400">사용 가능한 닉네임이에요.</p>
+          )}
+          {nicknameStatus === "taken" && (
+            <p className="mt-1 text-xs text-brand">이미 사용 중인 닉네임이에요.</p>
+          )}
+          {nicknameStatus === "too_short" && (
+            <p className="mt-1 text-xs text-muted">닉네임은 2자 이상이어야 해요.</p>
+          )}
+          {nicknameStatus === "too_long" && (
+            <p className="mt-1 text-xs text-brand">닉네임은 20자 이하여야 해요.</p>
+          )}
         </div>
 
         <div>
