@@ -52,7 +52,7 @@ export default function MovieInfoHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="mt-3 flex flex-wrap gap-4">
+    <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
       <PosterWithFallback posterUrl={posterUrl} gradient={gradient} movieTitle={movieTitle} />
       <div className="min-w-0 flex-1">
         <h1 className="text-lg font-bold text-text">

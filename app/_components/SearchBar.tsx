@@ -35,7 +35,7 @@ function AuthButtonSkeleton() {
 // 비동기 로딩되므로 검색창과 헤더 프레임은 0ms 에 즉시 렌더된다.
 export default function SearchBar() {
   return (
-    <div className="flex items-center gap-2 px-5 pt-5 pb-5">
+    <div className="flex items-center gap-2 px-3 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-5">
       <Suspense fallback={<SideMenuSkeleton />}>
         <SideMenuWithData />
       </Suspense>

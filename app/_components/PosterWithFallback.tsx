@@ -17,7 +17,7 @@ export default function PosterWithFallback({
 
   return (
     <div
-      className={`relative aspect-2/3 w-24 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
+      className={`relative aspect-2/3 w-28 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
         showPoster ? "bg-surface" : `bg-gradient-to-br ${gradient}`
       }`}
     >

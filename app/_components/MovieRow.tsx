@@ -17,12 +17,12 @@ export default function MovieRow({
   if (movies.length === 0) return null;
 
   return (
-    <section className="px-5 py-6">
+    <section className="px-4 py-5 sm:px-5 sm:py-6">
       <h2 className="text-lg font-bold text-text">{title}</h2>
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
       <AffinityRegistrar movieIds={movies.map((m) => m.id)} />
-      <ScrollRow className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
+      <ScrollRow className="row-scrollbar mt-4 flex gap-3 overflow-x-auto pb-3 touch-pan-x scroll-smooth sm:gap-4">
         {movies.map((movie, index) => (
           <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} priority={index < priorityCount} />
         ))}

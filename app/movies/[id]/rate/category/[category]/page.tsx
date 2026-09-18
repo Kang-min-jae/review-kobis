@@ -57,7 +57,7 @@ export default async function CategoryRatePage({
   return (
     <main>
       <SiteHeader />
-      <div className="px-5 py-6">
+      <div className="px-4 py-5 sm:px-5 sm:py-6">
         <BackBar />
 
         <MovieInfoHeader

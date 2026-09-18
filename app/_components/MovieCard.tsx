@@ -112,7 +112,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
 
   return (
     <div
-      className={`relative w-40 shrink-0 rounded-xl border border-white/15 bg-white/5 p-2 shadow-lg backdrop-blur-sm sm:w-48 ${
+      className={`relative w-[130px] shrink-0 rounded-xl border border-white/15 bg-white/5 p-2 shadow-lg backdrop-blur-sm sm:w-40 ${
         revealed ? "z-10" : "z-0"
       }`}
     >
