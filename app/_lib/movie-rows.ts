@@ -538,7 +538,7 @@ export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
     ranking = await fetchMonthlyBestRanking(limit);
     await writeRankingSnapshot("monthly_best", ranking);
   }
-  return rankingRowsToCards(ranking, (e) => `누적 ${e.audiAcc.toLocaleString("ko-KR")}명`);
+  return rankingRowsToCards(ranking, () => "");
 }
 
 // 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
