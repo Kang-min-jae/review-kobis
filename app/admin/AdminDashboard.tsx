@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useTransition } from "react";
+import { revalidateOfficialWinnersCache } from "../_lib/award-vote-actions";
 
 // ── 공통 타입 ──────────────────────────────────────────────────────────────
 
@@ -322,7 +323,46 @@ function InquiryTab() {
 
 // ── 메인 대시보드 ────────────────────────────────────────────────────────────
 
-type Tab = "notice" | "inquiry";
+
+// ── 시상식 캐시 탭 ────────────────────────────────────────────────────────────
+function AwardCacheTab() {
+  const [isPending, startTransition] = useTransition();
+  const [msg, setMsg] = useState<string | null>(null);
+
+  function handleRevalidate() {
+    startTransition(async () => {
+      try {
+        await revalidateOfficialWinnersCache();
+        setMsg("공식 수상작 캐시가 즉시 재검증됐습니다.");
+      } catch {
+        setMsg("권한이 없거나 오류가 발생했습니다.");
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-neutral-700 bg-surface p-5">
+        <p className="text-sm font-semibold text-text">공식 수상작 캐시 재검증</p>
+        <p className="mt-1 text-xs text-muted">
+          Wikidata에서 수상작을 새로 불러온 뒤 캐시를 즉시 무효화합니다.
+          시상식 결과 발표 직후에 클릭하면 모든 사용자에게 즉시 반영됩니다.
+        </p>
+        <button
+          type="button"
+          onClick={handleRevalidate}
+          disabled={isPending}
+          className="mt-4 rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-40"
+        >
+          {isPending ? "재검증 중..." : "지금 재검증"}
+        </button>
+        {msg && <p className="mt-2 text-xs text-muted">{msg}</p>}
+      </div>
+    </div>
+  );
+}
+
+type Tab = "inquiry" | "notice" | "awards";
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("inquiry");
@@ -333,7 +373,7 @@ export default function AdminDashboard() {
       <p className="mt-1 text-sm text-muted">공지사항 관리 및 1:1 문의 답변</p>
 
       <div className="mt-5 flex gap-1 rounded-xl bg-surface p-1">
-        {([["inquiry", "1:1 문의"], ["notice", "공지사항"]] as [Tab, string][]).map(([key, label]) => (
+        {([["inquiry", "1:1 문의"], ["notice", "공지사항"], ["awards", "시상식"]] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -348,7 +388,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="mt-5">
-        {tab === "notice" ? <NoticeTab /> : <InquiryTab />}
+        {tab === "notice" ? <NoticeTab /> : tab === "awards" ? <AwardCacheTab /> : <InquiryTab />}
       </div>
     </div>
   );

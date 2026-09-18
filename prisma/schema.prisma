@@ -393,3 +393,17 @@ model AwardVote {
   @@unique([userId, festival, awardCategory])
   @@index([festival, awardCategory])
 }
+
+// 부문별 득표 집계 캐시 — 투표/취소 시점에만 upsert하여 매 조회 때
+// COUNT(*) GROUP BY 를 실행하지 않아도 된다.
+model AwardVoteSummary {
+  festival      String
+  awardCategory String
+  movieId       String
+  movieTitle    String
+  posterUrl     String?
+  voteCount     Int    @default(0)
+
+  @@id([festival, awardCategory, movieId])
+  @@index([festival, awardCategory])
+}
