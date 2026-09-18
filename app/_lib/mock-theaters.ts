@@ -28,7 +28,7 @@ const CHAIN_URLS: Record<string, string> = {
 
 export const INDIE_THEATERS: { name: string; url: string }[] = [
   { name: "아트나인", url: "https://www.dtryx.com/cinema/main.do?cgid=FE8EF4D2-F22D-4802-A39A-D58F23A29C1E&BrandCd=etc&CinemaCd=000162" },
-  { name: "아트하우스 모모", url: naverSearchUrl("아트하우스 모모 예매") },
+  { name: "아트하우스 모모", url: "https://arthousemomo.co.kr/" },
   { name: "씨네큐브 광화문", url: "https://www.cinecube.co.kr" },
   { name: "에무시네마", url: naverSearchUrl("에무시네마 예매") },
 ];
