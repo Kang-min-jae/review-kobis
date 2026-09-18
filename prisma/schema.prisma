@@ -142,6 +142,7 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null
+  role          String    @default("USER") // "USER" | "ADMIN"
   totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
   profileViewsTotal Int     @default(0) // 다른 사용자가 내 프로필을 방문한 누적 횟수
   profileViewsToday Int     @default(0) // 오늘(profileViewsDate 기준) 방문 횟수

@@ -46,12 +46,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   session: { strategy: "jwt" },
   callbacks: {
-    jwt({ token, user }) {
-      if (user) token.id = user.id;
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        // role은 DB에서 읽어야 하므로 로그인 시점에 한 번 조회한다
+        const dbUser = await db.user.findUnique({ where: { id: user.id as string }, select: { role: true } });
+        token.role = dbUser?.role ?? "USER";
+      }
       return token;
     },
     session({ session, token }) {
       if (typeof token.id === "string") session.user.id = token.id;
+      if (typeof token.role === "string") session.user.role = token.role;
       return session;
     },
   },

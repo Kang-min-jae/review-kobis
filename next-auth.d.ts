@@ -6,13 +6,14 @@ declare module "next-auth" {
   interface Session {
     user: {
       id: string;
+      role: string;
     } & DefaultSession["user"];
   }
 }
 
-// jwt 세션 전략에서 콜백에 넘어오는 토큰에도 같은 이유로 id를 추가해준다.
 declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
+    role?: string;
   }
 }
