@@ -343,7 +343,7 @@ export async function findMovieCdByTitleAndPerson(
 
 // ── 영화 상세 (searchMovieInfo) ─────────────────────────────────────────────
 
-export type KobisPersonRef = { name: string };
+export type KobisPersonRef = { name: string; nameEn?: string | null };
 export type KobisCastMember = KobisPersonRef & { role: string };
 
 export type KobisMovieDetails = {
@@ -369,8 +369,8 @@ type RawMovieInfo = {
   openDt?: string;
   genres?: { genreNm?: string }[];
   nations?: { nationNm?: string }[];
-  directors?: { peopleNm?: string }[];
-  actors?: { peopleNm?: string; cast?: string }[];
+  directors?: { peopleNm?: string; peopleNmEn?: string }[];
+  actors?: { peopleNm?: string; cast?: string; peopleNmEn?: string }[];
   audits?: { watchGradeNm?: string }[];
 };
 
@@ -418,13 +418,16 @@ export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDe
       openDate: toOpenDateIso(info.openDt),
       runtimeMinutes: info.showTm ? Number(info.showTm) : null,
       watchGrade: info.audits?.[0]?.watchGradeNm?.trim() || null,
-      director: info.directors?.[0]?.peopleNm ? { name: info.directors[0].peopleNm.trim() } : null,
+      director: info.directors?.[0]?.peopleNm ? {
+        name: info.directors[0].peopleNm.trim(),
+        nameEn: info.directors[0].peopleNmEn?.trim() || null,
+      } : null,
       // 상위 6명만 담으면 주연이 아닌 배우는 출연진 매칭(동명이인 구분, 포스터 검색 등)에서
       // 놓칠 수 있어 넉넉히 20명까지 담는다. 화면에 다 보여줄 필요는 없어 표시는 UI에서 잘라낸다.
       cast: (info.actors ?? [])
         .filter((a) => a.peopleNm)
         .slice(0, 20)
-        .map((a) => ({ name: a.peopleNm!.trim(), role: a.cast?.trim() ?? "" })),
+        .map((a) => ({ name: a.peopleNm!.trim(), role: a.cast?.trim() ?? "", nameEn: a.peopleNmEn?.trim() || null })),
       genreAlt: info.genres?.map((g) => g.genreNm).filter(Boolean).join(", ") || null,
       nationAlt: info.nations?.map((n) => n.nationNm).filter(Boolean).join(", ") || null,
     };
