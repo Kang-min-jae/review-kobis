@@ -136,7 +136,12 @@ export async function requestPasswordResetCodeAction(
       db.passwordResetCode.deleteMany({ where: { email } }),
       db.passwordResetCode.create({ data: { email, code, expiresAt } }),
     ]);
-    await sendPasswordResetCodeEmail(email, code);
+    try {
+      await sendPasswordResetCodeEmail(email, code);
+    } catch (err) {
+      console.error("[requestPasswordResetCodeAction] 이메일 발송 실패:", err);
+      return { message: "이메일 발송에 실패했어요. 잠시 후 다시 시도해 주세요.", isError: true };
+    }
   }
 
   return { message: GENERIC_CODE_MESSAGE, codeSent: true };
