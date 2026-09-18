@@ -25,35 +25,32 @@ export type ResolvedSeriesInfo = {
   seasonCount: number | null;
 };
 
-async function fetchAndCacheSeriesMeta(tmdbId: string, locale: string = "ko"): Promise<ResolvedSeriesInfo | null> {
-  const details = await getTmdbSeriesDetails(tmdbId, locale);
+async function fetchAndCacheSeriesMeta(tmdbId: string): Promise<ResolvedSeriesInfo | null> {
+  const details = await getTmdbSeriesDetails(tmdbId);
   if (!details) return null;
 
-  // 한국어(기본)만 캐시한다 — 영어는 요청마다 TMDB에서 fresh로 받는다.
-  if (locale === "ko") {
-    await db.cachedSeries.upsert({
-      where: { tmdbId },
-      update: {
-        name: details.name,
-        originalName: details.originalName,
-        posterUrl: details.posterUrl,
-        overview: details.overview,
-        firstAirDate: details.firstAirDate,
-        genreAlt: details.genre,
-        seasonCount: details.seasonCount,
-      },
-      create: {
-        tmdbId,
-        name: details.name,
-        originalName: details.originalName,
-        posterUrl: details.posterUrl,
-        overview: details.overview,
-        firstAirDate: details.firstAirDate,
-        genreAlt: details.genre,
-        seasonCount: details.seasonCount,
-      },
-    });
-  }
+  await db.cachedSeries.upsert({
+    where: { tmdbId },
+    update: {
+      name: details.name,
+      originalName: details.originalName,
+      posterUrl: details.posterUrl,
+      overview: details.overview,
+      firstAirDate: details.firstAirDate,
+      genreAlt: details.genre,
+      seasonCount: details.seasonCount,
+    },
+    create: {
+      tmdbId,
+      name: details.name,
+      originalName: details.originalName,
+      posterUrl: details.posterUrl,
+      overview: details.overview,
+      firstAirDate: details.firstAirDate,
+      genreAlt: details.genre,
+      seasonCount: details.seasonCount,
+    },
+  });
 
   const seriesId = `tmdb-tv-${tmdbId}`;
   return {
@@ -70,15 +67,10 @@ async function fetchAndCacheSeriesMeta(tmdbId: string, locale: string = "ko"): P
   };
 }
 
-export async function resolveSeriesRateInfo(id: string, locale: string = "ko"): Promise<ResolvedSeriesInfo | null> {
+export async function resolveSeriesRateInfo(id: string): Promise<ResolvedSeriesInfo | null> {
   if (!id.startsWith("tmdb-tv-")) return null;
   const tmdbId = id.slice("tmdb-tv-".length);
   if (!tmdbId) return null;
-
-  // 영어 요청은 캐시를 건너뛰고 TMDB en-US 응답을 바로 반환한다.
-  if (locale === "en") {
-    return fetchAndCacheSeriesMeta(tmdbId, "en");
-  }
 
   const cached = await db.cachedSeries.findUnique({ where: { tmdbId } });
   const isStale = !cached || Date.now() - cached.updatedAt.getTime() > CACHE_TTL_MS;
@@ -98,7 +90,7 @@ export async function resolveSeriesRateInfo(id: string, locale: string = "ko"): 
     };
   }
 
-  return fetchAndCacheSeriesMeta(tmdbId, "ko");
+  return fetchAndCacheSeriesMeta(tmdbId);
 }
 
 export function seriesGenreFields(genreAlt: string | null | undefined) {

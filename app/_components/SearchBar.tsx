@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import SearchInput from "./SearchInput";
 import SideMenuWithData from "./SideMenuWithData";
 import AuthButtonWithData from "./AuthButtonWithData";
-import LanguageSwitcher from "./LanguageSwitcher";
 
 // ── 스켈레톤 ─────────────────────────────────────────────────────────────────
 // Suspense fallback으로 쓰인다. 데이터 로딩 중에도 헤더 레이아웃이 흔들리지 않도록
@@ -42,8 +41,6 @@ export default function SearchBar() {
       </Suspense>
 
       <SearchInput />
-
-      <LanguageSwitcher />
 
       <Suspense fallback={<AuthButtonSkeleton />}>
         <AuthButtonWithData />

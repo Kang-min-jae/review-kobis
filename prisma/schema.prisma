@@ -21,7 +21,6 @@ model CachedMovie {
   titleEn        String?
   posterUrl      String?
   overview       String?
-  overviewEn     String?
   releaseDate    String? // ISO yyyy-mm-dd
   rereleaseDate  String?
   runtimeMinutes Int?

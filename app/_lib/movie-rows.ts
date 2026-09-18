@@ -15,7 +15,6 @@ import { getBulkMovieRatingAverages } from "./review-data";
 export type RowMovie = {
   id: string;
   title: string;
-  titleEn?: string | null;
   posterUrl: string | null;
   gradient: string;
   isNowShowing: boolean;
@@ -113,11 +112,10 @@ async function fetchOpenedBetween(
 // 겹쳐 요청이 크게 늘어나는 문제가 실제로 있었다.)
 // person-filmography.ts(감독 재검색 등)도 KOBIS 후보 목록 + 미리 배치 조회한 메타로
 // 카드를 만들 때 이 함수를 그대로 재사용한다.
-export function summaryToRowMovie(summary: KobisMovieSummary, meta: { posterUrl: string | null; genreAlt: string | null; movieTitleEn?: string | null } | null): RowMovie {
+export function summaryToRowMovie(summary: KobisMovieSummary, meta: { posterUrl: string | null; genreAlt: string | null } | null): RowMovie {
   return {
     id: `kobis-${summary.movieCd}`,
     title: summary.title,
-    titleEn: meta?.movieTitleEn ?? null,
     posterUrl: meta?.posterUrl ?? null,
     gradient: FALLBACK_GRADIENT,
     isNowShowing: isRecentlyOpened(summary.openDate),
@@ -289,7 +287,6 @@ async function classificationsToRows(
       movie: {
         id: `kobis-${r.movieCd}`,
         title: r.movieTitle,
-        titleEn: meta.movieTitleEn ?? null,
         posterUrl: meta.posterUrl,
         gradient: FALLBACK_GRADIENT,
         isNowShowing: isRecentlyOpened(r.rereleaseDate),
@@ -413,7 +410,6 @@ async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingE
     return {
       id: `kobis-${entry.movieCd}`,
       title: entry.movieTitle,
-      titleEn: meta?.movieTitleEn ?? null,
       posterUrl: meta?.posterUrl ?? null,
       gradient: FALLBACK_GRADIENT,
       isNowShowing: true,
@@ -726,7 +722,6 @@ export async function getUserPopularMoviesRow(
     rows.push({
       id: `kobis-${cd}`,
       title: metas.get(cd)?.movieTitle ?? cd,
-      titleEn: meta.movieTitleEn ?? null,
       posterUrl: meta.posterUrl,
       gradient: FALLBACK_GRADIENT,
       isNowShowing: false,

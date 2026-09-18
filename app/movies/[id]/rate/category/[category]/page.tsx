@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { auth } from "../../../../../../auth";
 import { resolveMovieRateInfo } from "../../../../../_lib/movie-rate-info";
-import { getLocale } from "../../../../../_lib/locale";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
 import {
   getAllCategoryAverages,
@@ -31,8 +30,7 @@ export default async function CategoryRatePage({
     notFound();
   }
 
-  const locale = await getLocale();
-  const info = await resolveMovieRateInfo(id, locale);
+  const info = await resolveMovieRateInfo(id);
   if (!info) {
     notFound();
   }

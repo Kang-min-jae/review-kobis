@@ -271,30 +271,10 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
 // 그 결과를 같이 기다리게 한다.
 const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 
-// locale='en' 요청 시, 캐시된 Korean meta에 영문 줄거리를 덮어씌운다.
-// 1) overviewEn이 이미 캐시돼 있으면 그대로 사용.
-// 2) 없으면 KOBIS titleEn으로 TMDB en-US를 조회해 overviewEn에 저장한 뒤 사용.
-async function applyEnglishOverride(meta: MovieMeta, cached: CachedMovieRow, movieCd: string): Promise<MovieMeta> {
-  if (cached.overviewEn) {
-    return { ...meta, description: cached.overviewEn };
-  }
-
-  const titleEn = cached.titleEn;
-  if (!titleEn) return { ...meta, description: "No English synopsis available." };
-
-  const year = cached.releaseDate?.slice(0, 4) ?? null;
-  const tmdbEn = await searchTmdbMovie(titleEn, year, null, "en").catch(() => null);
-  if (tmdbEn?.overview) {
-    await db.cachedMovie.update({ where: { movieCd }, data: { overviewEn: tmdbEn.overview } }).catch(() => null);
-    return { ...meta, description: tmdbEn.overview };
-  }
-  return { ...meta, description: "No English synopsis available." };
-}
-
 // 캐시에 신선한(TTL 이내) 데이터가 있으면 그대로 쓰고, 없거나 오래됐으면 새로 받아
 // 캐시에 채워 넣는다(lazy cache). 박스오피스 로우(movie-rows.ts)도 포스터 조회에
 // 이 캐시를 그대로 재사용한다 — 인기작은 홈 화면만 봐도 캐시가 데워진다.
-export async function getMovieMeta(movieCd: string, locale: string = "ko"): Promise<MovieMeta | null> {
+export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const cached = await db.cachedMovie.findUnique({ where: { movieCd } });
   if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
     // 포스터가 null로 캐시됐지만 tmdbId가 있으면 TTL 만료를 기다리지 않고 즉시 보정한다.
@@ -302,26 +282,14 @@ export async function getMovieMeta(movieCd: string, locale: string = "ko"): Prom
       const details = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
       if (details?.posterUrl) {
         await db.cachedMovie.update({ where: { movieCd }, data: { posterUrl: details.posterUrl } }).catch(() => null);
-        const meta = rowToMeta({ ...cached, posterUrl: details.posterUrl });
-        if (locale === "en") return applyEnglishOverride(meta, { ...cached, posterUrl: details.posterUrl }, movieCd);
-        return meta;
+        return rowToMeta({ ...cached, posterUrl: details.posterUrl });
       }
     }
-    const meta = rowToMeta(cached);
-    if (locale === "en") return applyEnglishOverride(meta, cached, movieCd);
-    return meta;
+    return rowToMeta(cached);
   }
 
   const existing = inFlightMovieMeta.get(movieCd);
-  if (existing) {
-    const meta = await existing;
-    if (!meta) return null;
-    if (locale === "en") {
-      const row = await db.cachedMovie.findUnique({ where: { movieCd } });
-      if (row) return applyEnglishOverride(meta, row, movieCd);
-    }
-    return meta;
-  }
+  if (existing) return existing;
 
   // 신선한 데이터 조회 실패 시 만료된 캐시라도 반환해 rate 페이지 404 방지
   const promise = fetchAndCacheMovieMeta(movieCd)
@@ -330,13 +298,7 @@ export async function getMovieMeta(movieCd: string, locale: string = "ko"): Prom
       inFlightMovieMeta.delete(movieCd);
     });
   inFlightMovieMeta.set(movieCd, promise);
-  const meta = await promise;
-  if (!meta) return null;
-  if (locale === "en") {
-    const row = await db.cachedMovie.findUnique({ where: { movieCd } });
-    if (row) return applyEnglishOverride(meta, row, movieCd);
-  }
-  return meta;
+  return promise;
 }
 
 // getMovieMeta를 movieCd 개수만큼 Promise.all로 돌리면, 캐시에 이미 있는 영화라도
@@ -344,7 +306,7 @@ export async function getMovieMeta(movieCd: string, locale: string = "ko"): Prom
 // 한 행이 영화 20~30편을 보여줄 때마다 20~30번 개별 왕복이 생긴다는 뜻이다. 캐시
 // 존재 여부 확인만 먼저 findMany 한 번으로 모아서 하고, 캐시 미스/만료인 것만
 // (진행 중인 조회 중복 제거를 그대로 활용해) 실제로 새로 받아온다.
-export async function getMovieMetas(movieCds: string[], locale: string = "ko"): Promise<Map<string, MovieMeta | null>> {
+export async function getMovieMetas(movieCds: string[]): Promise<Map<string, MovieMeta | null>> {
   const uniqueCds = Array.from(new Set(movieCds));
   if (uniqueCds.length === 0) return new Map();
 
@@ -375,7 +337,7 @@ export async function getMovieMetas(movieCds: string[], locale: string = "ko"): 
 // 평점 페이지와 항목별 평점 페이지가 공통으로 필요로 하는 영화 정보(포스터/개봉정보/
 // 줄거리/감독·출연/박스오피스)를 만든다. 상세정보는 캐시를 거치고, 박스오피스 순위는
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
-export async function resolveMovieRateInfo(id: string, locale: string = "ko"): Promise<ResolvedMovieInfo | null> {
+export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInfo | null> {
   // wikidata 수상작 — CachedMovie에서 조회 (award-winners.ts가 홈 화면 렌더 시 미리 저장)
   // award-winners.ts가 링크 id를 "wikidata-{filmQid}-{categoryLabel}" 형태로 만들지만
   // CachedMovie에는 "wikidata-{filmQid}" 형태로 저장되므로 카테고리 접미사를 제거한다.
@@ -475,18 +437,13 @@ export async function resolveMovieRateInfo(id: string, locale: string = "ko"): P
   // tmdb-tv-* 시리즈는 series-rate-info.ts에서 따로 처리한다.
   if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) {
     const tmdbId = id.slice("tmdb-".length);
-    const tmdbLang = locale === "en" ? "en-US" : "ko-KR";
 
     const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
     if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
-      if (locale === "en") {
-        const enMeta = await applyEnglishOverride(rowToMeta(cached), cached, id);
-        return { movieId: id, ...enMeta, boxOffice: null };
-      }
       return { movieId: id, ...rowToMeta(cached), boxOffice: null };
     }
 
-    const details = await getTmdbMovieDetailsById(tmdbId, tmdbLang);
+    const details = await getTmdbMovieDetailsById(tmdbId);
     if (!details) return null;
 
     const data = {
@@ -563,7 +520,7 @@ export async function resolveMovieRateInfo(id: string, locale: string = "ko"): P
   if (!id.startsWith("kobis-")) return null;
 
   const movieCd = id.slice("kobis-".length);
-  const meta = await getMovieMeta(movieCd, locale);
+  const meta = await getMovieMeta(movieCd);
   if (!meta) return null;
 
   const boxOffice = await getKoficBoxOfficeByTitle(meta.movieTitle);
