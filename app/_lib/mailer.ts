@@ -19,14 +19,14 @@ function transporter() {
   });
 }
 
-export async function sendPasswordResetEmail(to: string, resetUrl: string) {
+export async function sendPasswordResetCodeEmail(to: string, code: string) {
   const transport = transporter();
   const from = process.env.EMAIL_FROM || "no-reply@localhost";
 
   if (!transport) {
     console.warn(
       `[mailer] EMAIL_SERVER_* 환경변수가 없어 실제 메일을 보내지 않았습니다. ` +
-        `아래 링크를 직접 열어 비밀번호를 재설정하세요:\n  ${resetUrl}`
+        `인증 코드: ${code}`
     );
     return;
   }
@@ -34,8 +34,12 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   await transport.sendMail({
     from,
     to,
-    subject: "[무비리뷰] 비밀번호 재설정",
-    text: `아래 링크에서 비밀번호를 재설정하세요 (1시간 내 유효):\n${resetUrl}`,
-    html: `<p>아래 링크에서 비밀번호를 재설정하세요 (1시간 내 유효):</p><p><a href="${resetUrl}">${resetUrl}</a></p>`,
+    subject: "[무비리뷰] 비밀번호 재설정 인증 코드",
+    text: `비밀번호 재설정 인증 코드: ${code}\n\n10분 내에 입력해 주세요.`,
+    html: `
+      <p>아래 6자리 인증 코드를 입력해 비밀번호를 재설정하세요.</p>
+      <p style="font-size:32px;font-weight:bold;letter-spacing:8px;margin:16px 0">${code}</p>
+      <p style="color:#888">10분 내에 입력해 주세요. 본인이 요청하지 않았다면 무시하세요.</p>
+    `,
   });
 }

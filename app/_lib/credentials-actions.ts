@@ -1,18 +1,17 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { Prisma } from "../generated/prisma/client";
 import { signIn } from "../../auth";
 import { db } from "./db";
-import { sendPasswordResetEmail } from "./mailer";
+import { sendPasswordResetCodeEmail } from "./mailer";
 
 const MIN_PASSWORD_LENGTH = 8;
-const RESET_TOKEN_TTL_MS = 1000 * 60 * 60; // 1시간
+const OTP_TTL_MS = 10 * 60 * 1000; // 10분
 
-// 비밀번호 재설정 요청 레이트 리미터 — 이메일당 1분에 최대 3회.
-// 단일 인스턴스 배포에서 완전 동작한다. 멀티 인스턴스라면 DB/Redis 기반으로 교체해야 한다.
+// 레이트 리미터 — 이메일당 1분에 최대 3회 (단일 인스턴스).
 const RESET_RATE_WINDOW_MS = 60 * 1000;
 const RESET_RATE_MAX = 3;
 const resetRateMap = new Map<string, number[]>();
@@ -113,13 +112,12 @@ export async function signInWithCredentialsAction(
 }
 
 // 이메일이 실제로 가입돼 있는지 여부와 무관하게 항상 같은 메시지를 보여준다
-// (가입 여부를 외부에 노출하지 않기 위한 흔한 관례) — 그래서 error/ok 두 갈래인
-// ActionResult 대신, "보여줄 메시지 하나"만 있는 전용 타입을 쓴다.
-const GENERIC_RESET_MESSAGE = "해당 이메일로 가입된 계정이 있다면, 비밀번호 재설정 링크를 보냈어요.";
+// (가입 여부를 외부에 노출하지 않기 위한 흔한 관례).
+const GENERIC_CODE_MESSAGE = "해당 이메일로 가입된 계정이 있다면, 6자리 인증 코드를 보냈어요.";
 
-export type ResetRequestResult = { message: string; isError?: boolean };
+export type ResetRequestResult = { message: string; isError?: boolean; codeSent?: boolean };
 
-export async function requestPasswordResetAction(
+export async function requestPasswordResetCodeAction(
   _prevState: ResetRequestResult | null,
   formData: FormData
 ): Promise<ResetRequestResult> {
@@ -132,37 +130,42 @@ export async function requestPasswordResetAction(
 
   const user = await db.user.findUnique({ where: { email } });
   if (user) {
-    const token = randomBytes(32).toString("hex");
-    await db.passwordResetToken.create({
-      data: { userId: user.id, token, expires: new Date(Date.now() + RESET_TOKEN_TTL_MS) },
-    });
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.AUTH_URL || "http://localhost:3000";
-    const resetUrl = `${baseUrl}/reset-password/${token}`;
-    await sendPasswordResetEmail(email, resetUrl);
+    const code = randomInt(100000, 1000000).toString(); // 100000~999999
+    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+    await db.$transaction([
+      db.passwordResetCode.deleteMany({ where: { email } }),
+      db.passwordResetCode.create({ data: { email, code, expiresAt } }),
+    ]);
+    await sendPasswordResetCodeEmail(email, code);
   }
 
-  return { message: GENERIC_RESET_MESSAGE };
+  return { message: GENERIC_CODE_MESSAGE, codeSent: true };
 }
 
-export async function resetPasswordAction(
+export async function resetPasswordWithCodeAction(
   _prevState: ActionResult | null,
   formData: FormData
 ): Promise<ActionResult> {
-  const token = String(formData.get("token") ?? "");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const code = String(formData.get("code") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+
   if (password.length < MIN_PASSWORD_LENGTH) {
     return { error: `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상이어야 해요.` };
   }
 
-  const resetToken = await db.passwordResetToken.findUnique({ where: { token } });
-  if (!resetToken || resetToken.expires < new Date()) {
-    return { error: "링크가 만료됐거나 유효하지 않아요. 다시 요청해 주세요." };
+  const record = await db.passwordResetCode.findFirst({ where: { email, code } });
+  if (!record) return { error: "인증 코드가 올바르지 않아요." };
+
+  if (new Date() > record.expiresAt) {
+    await db.passwordResetCode.delete({ where: { id: record.id } });
+    return { error: "인증 코드가 만료됐어요. 다시 요청해 주세요." };
   }
 
   const passwordHash = await hash(password, 10);
   await db.$transaction([
-    db.user.update({ where: { id: resetToken.userId }, data: { password: passwordHash } }),
-    db.passwordResetToken.deleteMany({ where: { userId: resetToken.userId } }),
+    db.user.update({ where: { email }, data: { password: passwordHash } }),
+    db.passwordResetCode.deleteMany({ where: { email } }),
   ]);
 
   return { ok: true };

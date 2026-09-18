@@ -156,25 +156,24 @@ model User {
   following           Follow[]             @relation("Following")
   followers           Follow[]             @relation("Followers")
   watchTriggers       WatchTrigger[]       @relation("Reader")
-  passwordResetTokens PasswordResetToken[]
+  passwordResetCodes  PasswordResetCode[]
   awardVotes          AwardVote[]
   inquiries           Inquiry[]
 
   createdAt DateTime @default(now())
 }
 
-// "아이디·비밀번호 찾기"용 1회성 토큰. Auth.js 어댑터가 요구하는
-// VerificationToken(이메일 인증/매직링크 전용, 스키마 형태가 고정됨)과는
-// 목적이 달라 별도 모델로 뒀다.
-model PasswordResetToken {
+// 비밀번호 재설정용 6자리 OTP 코드. 링크 방식 대신 코드 입력 방식으로 전환.
+// Auth.js의 VerificationToken과 목적이 달라 별도 모델로 유지한다.
+model PasswordResetCode {
   id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expires   DateTime
+  email     String
+  user      User     @relation(fields: [email], references: [email], onDelete: Cascade)
+  code      String   // 6자리 난수 (예: "482910")
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
-  @@index([userId])
+  @@index([email])
 }
 
 model Account {
