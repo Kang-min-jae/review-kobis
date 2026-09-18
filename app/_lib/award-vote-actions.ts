@@ -18,6 +18,23 @@ export type OfficialWinner = {
 // 공식 수상작은 연 1회만 바뀌므로 24시간 캐시 + 어드민 등록 시 즉시 재검증.
 const getCachedOfficialWinner = unstable_cache(
   async (festival: string, awardCategory: string): Promise<OfficialWinner | null> => {
+    // 관리자가 직접 등록한 수상작이 있으면 최우선으로 반환한다.
+    const manual = await db.officialWinner.findFirst({
+      where: { festival, awardCategory },
+      orderBy: { year: "desc" },
+    });
+    if (manual) {
+      return {
+        title: manual.movieTitle,
+        titleEn: null,
+        posterUrl: manual.posterUrl ?? null,
+        ceremonyYear: manual.year,
+        categoryLabel: manual.awardCategory,
+        filmQid: manual.movieId,
+      };
+    }
+
+    // fallback: Wikidata 캐시
     const cached = await db.cachedAwardWinners.findUnique({ where: { id: festival } });
     if (!cached) return null;
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useCallback, useTransition } from "react";
 import { revalidateOfficialWinnersCache } from "../_lib/award-vote-actions";
 
@@ -357,6 +358,19 @@ function AwardCacheTab() {
           {isPending ? "재검증 중..." : "지금 재검증"}
         </button>
         {msg && <p className="mt-2 text-xs text-muted">{msg}</p>}
+      </div>
+
+      <div className="rounded-xl border border-neutral-700 bg-surface p-5">
+        <p className="text-sm font-semibold text-text">공식 수상작 수동 관리</p>
+        <p className="mt-1 text-xs text-muted">
+          영화제별 부문 수상작을 직접 등록하거나 삭제합니다. 등록된 수상작은 Wikidata보다 우선 표시됩니다.
+        </p>
+        <Link
+          href="/admin/winners"
+          className="mt-4 inline-block rounded-full bg-surface-hover px-5 py-2 text-sm font-semibold text-text transition-opacity hover:opacity-80"
+        >
+          수상작 관리 →
+        </Link>
       </div>
     </div>
   );

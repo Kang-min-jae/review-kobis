@@ -394,6 +394,23 @@ model AwardVote {
   @@index([festival, awardCategory])
 }
 
+// 관리자가 직접 등록한 공식 수상작 — Wikidata fallback보다 우선 적용된다.
+// 연도+영화제+부문 조합은 유일하다(upsert 기준).
+model OfficialWinner {
+  id            String   @id @default(cuid())
+  year          Int      // 시상식 연도 (예: 2025)
+  festival      String   // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String   // "작품상" | "황금종려상" | 등
+  movieId       String   // kobis-* | wikidata-* 등 내부 ID
+  movieTitle    String
+  posterUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([year, festival, awardCategory])
+  @@index([festival, awardCategory])
+}
+
 // 부문별 득표 집계 캐시 — 투표/취소 시점에만 upsert하여 매 조회 때
 // COUNT(*) GROUP BY 를 실행하지 않아도 된다.
 model AwardVoteSummary {
