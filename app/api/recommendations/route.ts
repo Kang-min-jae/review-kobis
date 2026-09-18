@@ -710,8 +710,12 @@ export async function POST(request: Request) {
 
   const { myRatings = [], myCategoryRatings = [] } = body;
 
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const localeMatch = cookieHeader.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/);
+  const locale = localeMatch?.[1] === "en" ? "en" : "ko";
+
   // 동일 입력에 대한 2분 캐시 히트 → 즉시 반환
-  const cacheKey = hashBody(myRatings, myCategoryRatings);
+  const cacheKey = `${locale}:${hashBody(myRatings, myCategoryRatings)}`;
   const cached = recServerCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json(cached.data);
@@ -730,7 +734,7 @@ export async function POST(request: Request) {
   const llmTimeout = new Promise<LlmResult>((resolve) => setTimeout(() => resolve([]), 400));
   const [llmResults, metas] = await Promise.all([
     Promise.race([callLlm(profile, candidates), llmTimeout]).catch(() => [] as LlmResult),
-    getMovieMetas(movieCds),
+    getMovieMetas(movieCds, locale),
   ]);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
@@ -741,6 +745,7 @@ export async function POST(request: Request) {
     posterUrl: string | null,
     genreAlt: string | null,
     reason?: string,
+    titleEn?: string | null,
   ): RowMovie => {
     const { genre, allGenres } = genreFields(genreAlt);
     const affinityScore = calculateMovieAffinity(
@@ -751,6 +756,7 @@ export async function POST(request: Request) {
     return {
       id: `kobis-${c.movieCd}`,
       title: c.title,
+      titleEn: titleEn ?? null,
       posterUrl,
       gradient: FALLBACK_GRADIENT_VAL,
       isNowShowing: false,
@@ -764,7 +770,7 @@ export async function POST(request: Request) {
   const results: RowMovie[] = final
     .map(({ candidate: c, reason }) => {
       const meta = metas.get(c.movieCd);
-      return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, reason ?? undefined);
+      return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, reason ?? undefined, meta?.movieTitleEn);
     })
     .filter((r) => r.posterUrl !== null);
 
@@ -776,12 +782,12 @@ export async function POST(request: Request) {
     const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
     const fallback = await fetchFallbackCandidates(ratedMovieIds, excludeMovieCds, needed);
     if (fallback.length > 0) {
-      const fallbackMetas = await getMovieMetas(fallback.map((c) => c.movieCd));
+      const fallbackMetas = await getMovieMetas(fallback.map((c) => c.movieCd), locale);
       for (const c of fallback) {
         const meta = fallbackMetas.get(c.movieCd);
         const posterUrl = meta?.posterUrl ?? c.posterUrl;
         if (!posterUrl) continue;
-        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt));
+        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt, undefined, meta?.movieTitleEn));
         if (results.length >= TARGET) break;
       }
     }

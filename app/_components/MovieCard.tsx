@@ -8,6 +8,7 @@ import HoverRating from "./HoverRating";
 import TopLikedReview from "./TopLikedReview";
 import TopReviewsPanel from "./TopReviewsPanel";
 import type { RowMovie } from "../_lib/movie-rows";
+import { GENRE_MAP } from "../_lib/constants";
 import {
   subscribe as subscribeSeedGenres,
   getSeedGenresSnapshot,
@@ -40,6 +41,11 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
+  const [locale, setLocale] = useState<"ko" | "en">("ko");
+  useEffect(() => {
+    const match = document.cookie.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/);
+    if (match?.[1] === "en") setLocale("en");
+  }, []);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -195,10 +201,19 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       </div>
 
       <div className="mt-2.5 space-y-1.5 px-0.5 pb-1">
-        <p className="line-clamp-2 text-sm font-bold text-text">{movie.title}</p>
-        {(movie.recommendReason ?? movie.genre) && (
-          <p className="text-xs text-sky-400">{movie.recommendReason ?? movie.genre}</p>
-        )}
+        <p className="line-clamp-2 text-sm font-bold text-text">
+          {locale === "en" ? (movie.titleEn || movie.title) : movie.title}
+        </p>
+        {(() => {
+          if (locale === "en") {
+            const enGenres = (movie.allGenres ?? []).slice(0, 2).map((g) => GENRE_MAP[g] ?? g);
+            const genreStr = enGenres.length > 0 ? enGenres.join(" · ") : null;
+            return genreStr ? <p className="text-xs text-sky-400">{genreStr}</p> : null;
+          }
+          return (movie.recommendReason ?? movie.genre)
+            ? <p className="text-xs text-sky-400">{movie.recommendReason ?? movie.genre}</p>
+            : null;
+        })()}
         <RatingSummary movieId={movie.id} shortAvg={movie.shortAvg} longAvg={movie.longAvg} />
         <TopLikedReview movieId={movie.id} />
       </div>

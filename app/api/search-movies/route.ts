@@ -76,9 +76,9 @@ class ConcurrencyLimiter {
 const upsertLimiter = new ConcurrencyLimiter(3);
 
 // ── 포스터 배치 조회 ──────────────────────────────────────────────────────────
-async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
+async function withPosters(hits: KobisSearchHit[], locale = "ko"): Promise<MovieHit[]> {
   if (hits.length === 0) return [];
-  const metas = await getMovieMetas(hits.map((h) => h.movieCd));
+  const metas = await getMovieMetas(hits.map((h) => h.movieCd), locale);
   return hits.map((hit) => ({ ...hit, posterUrl: metas.get(hit.movieCd)?.posterUrl ?? null }));
 }
 
@@ -435,8 +435,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ movies: [], series: [], people: [], correctedQuery: null });
   }
 
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const localeMatch = cookieHeader.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/);
+  const locale = localeMatch?.[1] === "en" ? "en" : "ko";
+
   // ── 1단계: 서버 인메모리 캐시 확인 ────────────────────────────────────────
-  const cacheKey = query.toLowerCase();
+  const cacheKey = `${locale}:${query.toLowerCase()}`;
   const cached = getCached(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
@@ -493,7 +497,7 @@ export async function GET(request: Request) {
 
   if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbMovies.length > 0) {
     const [movies, peopleWithWorks] = await Promise.all([
-      withPosters(movieHits),
+      withPosters(movieHits, locale),
       withRepresentativeWorks(kmdbPeople),
     ]);
 
@@ -614,7 +618,7 @@ export async function GET(request: Request) {
     if (!found) continue;
 
     const [correctedMovies, correctedPeopleWithWorks] = await Promise.all([
-      withPosters(correctedMovieHits),
+      withPosters(correctedMovieHits, locale),
       withRepresentativeWorks(correctedKmdbPeople),
     ]);
     const correctedKmdbNames = new Set(correctedKmdbPeople.map((p) => p.name.toLowerCase()));

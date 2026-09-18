@@ -344,7 +344,7 @@ export async function getMovieMeta(movieCd: string, locale: string = "ko"): Prom
 // 한 행이 영화 20~30편을 보여줄 때마다 20~30번 개별 왕복이 생긴다는 뜻이다. 캐시
 // 존재 여부 확인만 먼저 findMany 한 번으로 모아서 하고, 캐시 미스/만료인 것만
 // (진행 중인 조회 중복 제거를 그대로 활용해) 실제로 새로 받아온다.
-export async function getMovieMetas(movieCds: string[]): Promise<Map<string, MovieMeta | null>> {
+export async function getMovieMetas(movieCds: string[], locale: string = "ko"): Promise<Map<string, MovieMeta | null>> {
   const uniqueCds = Array.from(new Set(movieCds));
   if (uniqueCds.length === 0) return new Map();
 
