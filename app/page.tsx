@@ -58,6 +58,11 @@ async function RereleaseRowData() {
   return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} priorityCount={3} />;
 }
 
+async function WeeklyBoxOfficeRowData2() {
+  const movies = await getWeeklyBoxOfficeRow();
+  return <MovieRow title="이번주 박스오피스 TOP 10" subtitle="국내 실제 관객수 기준" movies={movies} priorityCount={3} />;
+}
+
 // 홈 화면 기본 탭이 예전엔 이 아래 8개 행 전부를 Promise.all로 한 번에 불러온 뒤에야
 // 화면을 그렸는데, 캐시가 비어 있는 첫 방문엔 영화 수십~백 편의 메타데이터를 한꺼번에
 // 기다려야 해서 그동안 화면이 통째로 멈춰 있는 것처럼 보였다(게다가 KMDb에 몰린
@@ -68,6 +73,9 @@ function NowShowingSection() {
     <>
       <Suspense fallback={<RowSkeleton />}>
         <NowShowingRowData />
+      </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <WeeklyBoxOfficeRowData2 />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RereleaseRowData />
