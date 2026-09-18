@@ -88,7 +88,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
             : `/movies/${movie.id}/rate`;
           return (
           <div key={movie.id} className="relative w-32 shrink-0">
-            <Link href={rateHref}>
+            <Link href={rateHref} draggable={false} onDragStart={(e) => e.preventDefault()}>
               <div className="relative aspect-2/3 overflow-hidden rounded-lg bg-surface">
                 <RatedMoviePoster posterUrl={movie.posterUrl} gradient={movie.gradient} title={movie.title} />
                 {movie.awardBadge && movie.festivalAwards && movie.festivalAwards.length > 0 && (() => {
@@ -132,7 +132,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
                 </div>
               );
             })()}
-            <Link href={rateHref}>
+            <Link href={rateHref} draggable={false} onDragStart={(e) => e.preventDefault()}>
               <p className="mt-2 line-clamp-2 text-xs font-medium text-text">{movie.title}</p>
               <div className="mt-1">
                 <StarRating rating={movie.rating} scale={10} size="h-3 w-3" />
