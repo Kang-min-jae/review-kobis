@@ -83,6 +83,10 @@ export default function SideMenu({
   followerCount?: number;
 }) {
   const [open, setOpen] = useState(false);
+  // 서버 prop(monthlyRatingCount)을 초기값으로 쓰되, 메뉴 열 때마다 실시간 fetch로 갱신한다.
+  const [liveMonthlyCount, setLiveMonthlyCount] = useState<number | undefined>(monthlyRatingCount);
+  // 서버 prop이 바뀌면(layout 재렌더) 로컬 상태도 동기화
+  useEffect(() => { setLiveMonthlyCount(monthlyRatingCount); }, [monthlyRatingCount]);
   const close = () => setOpen(false);
   const [notifOpen, setNotifOpen] = useState(false);
 
@@ -129,6 +133,16 @@ export default function SideMenu({
   const totalLikes = myReviews.reduce((sum, r) => sum + getReviewVote(votesState, r.id).likes, 0);
   const tier = getBadge(totalLikes);
 
+  // 메뉴가 열릴 때마다 최신 월간 관람 수를 서버에서 가져온다.
+  // 서버 렌더 시 전달된 초기값을 넘겨주고, 실제 fetch 결과로 교체한다.
+  useEffect(() => {
+    if (!open || !session?.user?.id) return;
+    fetch("/api/user/monthly-count")
+      .then((r) => r.json())
+      .then(({ count }: { count: number }) => setLiveMonthlyCount(count))
+      .catch(() => {});
+  }, [open, session?.user?.id]);
+
   const now = new Date();
   const thisMonthLocalCount = myReviews.filter((r) => {
     const d = new Date(r.createdAt);
@@ -150,8 +164,8 @@ export default function SideMenu({
       );
     });
   }).length;
-  // 로그인 사용자는 DB 평점 수(서버에서 전달) + 로그 수, 비로그인은 localStorage 수 + 로그 수
-  const thisMonthCount = (monthlyRatingCount ?? thisMonthLocalCount) + thisMonthLogCount;
+  // 로그인 사용자는 실시간 fetch한 DB 평점 수 + 로그 수, 비로그인은 localStorage 수 + 로그 수
+  const thisMonthCount = (liveMonthlyCount ?? thisMonthLocalCount) + thisMonthLogCount;
 
 
   return (
