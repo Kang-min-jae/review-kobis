@@ -211,15 +211,15 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
             예매/평점 바로가기. 안 보일 땐 pointer-events-none이라 숨어있는 버튼이
             먼저 탭을 가로채지 않고, 위 onClick으로 넘어가 열리기만 한다. */}
         <div
-          className={`pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-black/40 transition-opacity duration-200 ${
-            revealed ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-black/40 transition-opacity duration-200 ${
+            revealed ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
           <div className="flex gap-1.5 p-2">
             {movie.isNowShowing && (
               <Link
                 href={`/theaters?movie=${movie.id}`}
-                className="pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+                className="flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
               >
                 🎫 예매
               </Link>
@@ -227,14 +227,14 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
             {isRatable ? (
               <Link
                 href={rateHref}
-                className={`pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
+                className={`flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
                   myMovieRating !== null ? "bg-star/25 text-star" : "bg-black/50 text-star"
                 }`}
               >
                 {myMovieRating !== null ? `★ ${myMovieRating.toFixed(1)}점` : "★ 평점"}
               </Link>
             ) : (
-              <span className="pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
+              <span className="flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
                 평점 준비중
               </span>
             )}
