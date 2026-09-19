@@ -51,6 +51,7 @@ export default async function UserProfilePage({ params }: PageProps<"/users/[id]
       </div>
       <UserProfileView
         user={{ id: profileUser.id, name: profileUser.name, image: profileUser.image, nickname: profileUser.nickname }}
+        totalLikes={profileUser.totalLikes}
         followerCount={followerCount}
         isFollowing={isFollowing}
         isOwnProfile={isOwnProfile}

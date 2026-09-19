@@ -3,16 +3,19 @@
 import { useEffect, useState, useTransition } from "react";
 import { followUser, unfollowUser } from "../_lib/follow-actions";
 import { incrementProfileView } from "../_lib/profile-view-actions";
+import { getBadge, TIER_STYLES } from "../_lib/tier";
 
 type ProfileUser = { id: string; name: string | null; image: string | null; nickname: string | null };
 
 export default function UserProfileView({
   user,
+  totalLikes,
   followerCount: initialFollowerCount,
   isFollowing: initialIsFollowing,
   isOwnProfile,
 }: {
   user: ProfileUser;
+  totalLikes: number;
   followerCount: number;
   isFollowing: boolean;
   isOwnProfile: boolean;
@@ -45,17 +48,15 @@ export default function UserProfileView({
     });
   }
 
+  const tier = getBadge(totalLikes);
+  const tierStyle = TIER_STYLES[tier];
+
   return (
     <div className="px-5 py-8">
       <div className="flex items-center gap-4">
-        {user.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.image} alt="" className="h-16 w-16 shrink-0 rounded-full" />
-        ) : (
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-brand text-xl font-bold text-white">
-            {displayName.slice(0, 1)}
-          </div>
-        )}
+        <span className={`shrink-0 rounded border px-3 py-1.5 text-sm font-bold ${tierStyle.border} ${tierStyle.text} ${tierStyle.bg}`}>
+          {tier}
+        </span>
         <div className="flex-1">
           <h1 className="text-lg font-bold text-text">{displayName}</h1>
           <p className="mt-0.5 text-sm text-muted">팔로워 {followerCount}명</p>

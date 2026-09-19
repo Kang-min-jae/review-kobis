@@ -188,6 +188,7 @@ export async function getUserProfileData(userId: string) {
       name: true,
       nickname: true,
       image: true,
+      totalLikes: true,
       _count: { select: { followers: true, following: true, reviews: true } },
     },
   });
