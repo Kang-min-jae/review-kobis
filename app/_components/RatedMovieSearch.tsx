@@ -24,7 +24,7 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
     <div className="mt-6">
       <p className="mb-2 text-xs text-muted">내가 평점을 남긴 영화 검색</p>
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-sm">🔍</span>
+        <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
         <input
           type="text"
           placeholder="영화 제목으로 검색"
