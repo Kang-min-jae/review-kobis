@@ -14,7 +14,7 @@ export async function GET() {
     where: {
       userId: session.user.id,
       category: "전체",
-      createdAt: { gte: monthStart, lt: monthEnd },
+      updatedAt: { gte: monthStart, lt: monthEnd },
     },
   });
 
