@@ -49,8 +49,8 @@ export default function TopLikedReview({ movieId }: { movieId: string }) {
 
   if (!hasText) {
     return (
-      <p className="text-[11px] text-muted">
-        👍 {top.likes} ★ {top.review.rating.toFixed(1)} <span className="text-muted/60">(평점만 남김)</span>
+      <p className="line-clamp-1 text-[11px] text-muted">
+        👍 {top.likes} ★ {top.review.rating.toFixed(1)} <span className="whitespace-nowrap text-muted/60">(평점만 남김)</span>
       </p>
     );
   }

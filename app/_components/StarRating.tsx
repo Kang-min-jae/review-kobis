@@ -34,7 +34,7 @@ export default function StarRating({
           ))}
         </div>
       </div>
-      <span className="text-xs font-semibold text-text">{rating.toFixed(1)}</span>
+      <span className="text-xs font-semibold text-text">{(rating / scale * 10).toFixed(1)}</span>
     </div>
   );
 }
