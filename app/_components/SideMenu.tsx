@@ -34,7 +34,7 @@ import {
   getReviewVote,
 } from "../_lib/review-votes-store";
 
-import { getBadge } from "../_lib/tier";
+import { getBadge, TIER_STYLES } from "../_lib/tier";
 import {
   DiaryIcon,
   CollectionIcon,
@@ -198,7 +198,7 @@ export default function SideMenu({
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 text-sm font-bold text-text">
                   <span className="truncate">{displayName}님</span>
-                  <span className="shrink-0 rounded-full bg-brand/20 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TIER_STYLES[tier].border} ${TIER_STYLES[tier].text} ${TIER_STYLES[tier].bg}`}>
                     {tier}
                   </span>
                 </p>

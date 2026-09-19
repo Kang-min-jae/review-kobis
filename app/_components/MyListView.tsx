@@ -11,7 +11,7 @@ import MovieDiaryCalendar from "./MovieDiaryCalendar";
 import CustomListsSection from "./CustomListsSection";
 import RatedMovieSearch from "./RatedMovieSearch";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
-import { getBadge } from "../_lib/tier";
+import { getBadge, TIER_STYLES } from "../_lib/tier";
 import {
   subscribe as subscribeMyList,
   getMyListSnapshot,
@@ -131,8 +131,8 @@ export default function MyListView({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-white">
-            🏅 {myTier}
+          <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${TIER_STYLES[myTier].border} ${TIER_STYLES[myTier].text} ${TIER_STYLES[myTier].bg}`}>
+            {myTier}
           </span>
           <span className="rounded-full border border-brand px-3 py-1.5 text-xs font-semibold text-brand">
             팔로워 {followerCount}

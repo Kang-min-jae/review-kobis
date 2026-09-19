@@ -3,19 +3,14 @@
 import Link from "next/link";
 import StarRating from "./StarRating";
 import type { TopReview } from "../_lib/use-top-reviews";
-
-const TIER_STYLES: Record<string, { label: string; className: string }> = {
-  관객:   { label: "관객",   className: "border-neutral-600 text-muted" },
-  씨네필: { label: "씨네필", className: "border-sky-500/60 text-sky-400" },
-  평론가: { label: "평론가", className: "border-violet-500/60 text-violet-400" },
-  거장:   { label: "거장",   className: "border-yellow-400/60 text-yellow-300" },
-};
+import { TIER_STYLES } from "../_lib/tier";
+import type { Tier } from "../_lib/tier";
 
 function TierBadge({ tier }: { tier: string }) {
-  const style = TIER_STYLES[tier] ?? TIER_STYLES["관객"];
+  const style = TIER_STYLES[(tier as Tier)] ?? TIER_STYLES["관객"];
   return (
-    <span className={`shrink-0 rounded border px-1 py-px text-[8px] font-medium leading-none ${style.className}`}>
-      {style.label}
+    <span className={`shrink-0 rounded border px-1 py-px text-[8px] font-medium leading-none ${style.border} ${style.text}`}>
+      {tier}
     </span>
   );
 }
