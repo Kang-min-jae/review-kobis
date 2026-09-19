@@ -48,7 +48,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 // 실제 계정으로 "전체 평점"을 남기면 자동으로 채워지는 칸 — 게스트 모드 리뷰(위쪽
 // "내가 높게 평가한 영화"/"최근에 평가한 영화")와는 별개로, 로그인 계정의 평점만 모은다.
-export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[] }) {
+export default function MyRatedMoviesSection({ movies, userName }: { movies: MyRatedMovie[]; userName?: string }) {
   const [sortKey, setSortKey] = useState<SortKey>("latest");
   const [awardHovered, setAwardHovered] = useState<AwardHoverState>(null);
 
@@ -65,7 +65,7 @@ export default function MyRatedMoviesSection({ movies }: { movies: MyRatedMovie[
   return (
     <div className="mt-6">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-text">내가 평점 남긴 작품</h2>
+        <h2 className="text-sm font-bold text-text">{userName ? `${userName}님이 평점 남긴 작품` : "내가 평점 남긴 작품"}</h2>
         <div className="flex shrink-0 gap-1">
           {SORT_OPTIONS.map((opt) => (
             <button

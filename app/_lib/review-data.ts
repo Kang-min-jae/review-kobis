@@ -102,6 +102,53 @@ export async function getBulkMovieRatingAverages(
   return result;
 }
 
+export type UserReviewStats = {
+  movieCount: number;
+  reviewCount: number;
+  shortCount: number;
+  longCount: number;
+  shortAvg: number | null;
+  longAvg: number | null;
+  topLikedContent: string | null;
+  topLikedCount: number;
+};
+
+export async function getUserReviewStats(userId: string): Promise<UserReviewStats> {
+  const [grouped, topLiked, distinctMovies] = await Promise.all([
+    db.review.groupBy({
+      by: ["type"],
+      where: { userId },
+      _count: { _all: true },
+      _avg: { rating: true },
+    }),
+    db.review.findFirst({
+      where: { userId, likeCount: { gt: 0 } },
+      orderBy: { likeCount: "desc" },
+      select: { content: true, likeCount: true },
+    }),
+    db.review.findMany({
+      where: { userId },
+      select: { movieCd: true },
+      distinct: ["movieCd"],
+    }),
+  ]);
+
+  const byType = new Map(grouped.map((r) => [r.type, r]));
+  const short = byType.get("SHORT");
+  const long = byType.get("LONG");
+
+  return {
+    movieCount: distinctMovies.length,
+    reviewCount: grouped.reduce((s, r) => s + r._count._all, 0),
+    shortCount: short?._count._all ?? 0,
+    longCount: long?._count._all ?? 0,
+    shortAvg: short?._avg.rating ?? null,
+    longAvg: long?._avg.rating ?? null,
+    topLikedContent: topLiked?.content ?? null,
+    topLikedCount: topLiked?.likeCount ?? 0,
+  };
+}
+
 export type UserReview = {
   id: string;
   movieCd: string;
