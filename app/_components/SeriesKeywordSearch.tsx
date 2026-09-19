@@ -23,11 +23,15 @@ export default function SeriesKeywordSearch() {
   const [searched, setSearched] = useState(false);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+  // 레이스 컨디션 방지: 마지막으로 보낸 요청 ID만 상태에 반영
+  const reqIdRef = useRef(0);
 
   async function fetchResults(params: Record<string, string>) {
+    const reqId = ++reqIdRef.current;
     const qs = new URLSearchParams(params).toString();
     const res = await fetch(`/api/search-series?${qs}`);
     const json = await res.json();
+    if (reqId !== reqIdRef.current) return; // stale 응답 — 폐기
     setResults(json.results ?? []);
     setFoundPerson(json.foundPerson ?? null);
     setSearched(true);
@@ -36,8 +40,8 @@ export default function SeriesKeywordSearch() {
   function handleGenreClick(genre: string) {
     setActiveGenre(genre);
     setInputValue("");
-    startTransition(() => {
-      fetchResults({ genre });
+    startTransition(async () => {
+      await fetchResults({ genre });
     });
   }
 
@@ -46,8 +50,8 @@ export default function SeriesKeywordSearch() {
     const q = inputValue.trim();
     if (!q) return;
     setActiveGenre(null);
-    startTransition(() => {
-      fetchResults({ q });
+    startTransition(async () => {
+      await fetchResults({ q });
     });
   }
 

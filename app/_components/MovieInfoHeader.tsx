@@ -1,5 +1,5 @@
 import Link from "next/link";
-import PosterImage from "./PosterImage";
+import PosterWithFallback from "./PosterWithFallback";
 import type { KoficBoxOffice } from "../_lib/kobis";
 import type { ReactNode } from "react";
 
@@ -52,14 +52,8 @@ export default function MovieInfoHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="mt-3 flex flex-wrap gap-4">
-      <div
-        className={`relative aspect-2/3 w-24 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
-          posterUrl ? "bg-surface" : `bg-gradient-to-br ${gradient}`
-        }`}
-      >
-        {posterUrl && <PosterImage src={posterUrl} alt={`${movieTitle} 포스터`} />}
-      </div>
+    <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+      <PosterWithFallback posterUrl={posterUrl} gradient={gradient} movieTitle={movieTitle} />
       <div className="min-w-0 flex-1">
         <h1 className="text-lg font-bold text-text">
           {movieTitle}
@@ -67,7 +61,7 @@ export default function MovieInfoHeader({
             <span className="ml-2 text-sm font-normal text-muted">
               {releaseDate && `| 개봉연도 ${releaseDate}`}
               {rereleaseDate && ` (재개봉 ${rereleaseDate})`}
-              {runtimeMinutes && ` · 러닝타임 ${runtimeMinutes}분`}
+              {runtimeMinutes != null && runtimeMinutes > 0 && ` · 러닝타임 ${runtimeMinutes}분`}
               {boxOffice && ` · 누적 관객수 ${formatCount(boxOffice.audiAcc)}`}
               {boxOffice && ` · 누적 흥행 수익 ${formatWon(boxOffice.salesAcc)}`}
             </span>

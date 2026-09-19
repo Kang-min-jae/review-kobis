@@ -6,7 +6,39 @@
 // 1968년 계몽영화, 2019년 봉준호 영화 등 25편), KOBIS에서 알아낸 개봉연도(prodYear)를
 // 힌트로 넘겨 가장 가능성 높은 한 편을 고른다.
 
+import { unstable_cache } from "next/cache";
 import { toChosung, isChosungOnly } from "./hangul";
+
+// ── 외래어 표기 변형 정규화 ───────────────────────────────────────────────────
+// 검색어와 DB 저장 이름 양쪽에 모두 적용해서 "앤소니/안소니", "쓰/스" 류를 흡수한다.
+// 모음이 짧아서 비교할 글자 수가 적은 외래어 이름은 한 글자 차이로 아예 안 잡히기 때문에
+// 정규화를 양방향으로 적용해 같은 canonical form으로 수렴시킨다.
+function normalizePhoneme(text: string): string {
+  return text
+    .replace(/앤/g, "안")   // 앤서니→안서니, 앤더슨→안더슨
+    .replace(/엔/g, "안")   // 엔드류→안드류
+    .replace(/쓰/g, "스")   // 드림웍쓰→드림웍스
+    .replace(/빼/g, "패")   // 빼트릭→패트릭
+    .replace(/까/g, "카")   // 까뮈→카뮈
+    .replace(/꾸/g, "쿠")
+    .replace(/끄/g, "크")
+    .replace(/쁘/g, "프");
+}
+
+// 검색어의 음소 변형을 최대 2개 생성한다.
+// rawSearch를 여러 변형으로 병렬 실행할 때 사용한다.
+function getPhonemeVariants(query: string): string[] {
+  const variants = new Set<string>();
+  // 앤↔안 (가장 흔한 쌍)
+  if (query.includes("앤")) variants.add(query.replace(/앤/g, "안"));
+  if (query.includes("안")) variants.add(query.replace(/안/g, "앤"));
+  // 스↔쓰
+  if (query.includes("쓰")) variants.add(query.replace(/쓰/g, "스"));
+  // 정규화 결과와 같으면 제거 (중복 쿼리 방지)
+  const normalized = normalizePhoneme(query);
+  if (normalized !== query) variants.add(normalized);
+  return Array.from(variants).filter((v) => v !== query);
+}
 
 const KMDB_API_BASE =
   "http://api.koreafilm.or.kr/openapi-data2/wisenut/search_api/search_json2.jsp";
@@ -163,7 +195,36 @@ function releaseKmdbSlot(): void {
   }
 }
 
-async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
+// KMDB 응답의 필수 필드만 남겨 캐시 크기를 줄인다.
+// 원본 응답(listCount=20 기준 ~1.5MB)에는 stlls(스틸컷 URL 수십 개), 전체 출연진 등이
+// 포함돼 있어 Next.js 2MB 캐시 한도를 넘길 수 있다. 필요한 필드만 남기면 수십 KB로 줄어든다.
+function pruneResult(raw: RawKmdbResult): RawKmdbResult {
+  return {
+    DOCID: raw.DOCID,
+    title: raw.title,
+    titleEng: raw.titleEng,
+    prodYear: raw.prodYear,
+    nation: raw.nation,
+    runtime: raw.runtime,
+    rating: raw.rating,
+    genre: raw.genre,
+    type: raw.type,
+    repRlsDate: raw.repRlsDate,
+    // 포스터는 첫 번째 URL만 보존 (나머지 수십 개 제거)
+    posters: raw.posters?.split("|")[0],
+    // 줄거리는 한국어만, 1개만
+    plots: raw.plots?.plot ? { plot: raw.plots.plot.filter((p) => p.plotLang === "한국어").slice(0, 1) } : undefined,
+    // 감독은 첫 3명만
+    directors: raw.directors?.director ? { director: raw.directors.director.slice(0, 3) } : undefined,
+    // 출연진은 앞 10명만 (toDetails에서 어차피 20명까지만 쓰지만 여기서 더 줄임)
+    actors: raw.actors?.actor ? { actor: raw.actors.actor.slice(0, 10) } : undefined,
+    // stlls(스틸컷)은 사용하지 않으므로 완전 제거
+  };
+}
+
+// 실제 HTTP 요청 — cache: 'no-store'로 Next.js 데이터 캐시를 우회해
+// 2MB 초과 경고가 발생하지 않게 한다. 캐싱은 아래 unstable_cache에서 담당.
+async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbResult[]> {
   const key = apiKey();
   if (!key) return [];
 
@@ -172,32 +233,48 @@ async function rawSearch(query: string, listCount: number): Promise<RawKmdbResul
   url.searchParams.set("detail", "Y");
   url.searchParams.set("listCount", String(listCount));
   url.searchParams.set("ServiceKey", key);
-  url.searchParams.set("query", query);
+  url.searchParams.set("query", query); // rawSearch에서 이미 특수문자 정제됨
 
-  await acquireKmdbSlot();
-  try {
-    for (let attempt = 1; attempt <= RAW_SEARCH_MAX_ATTEMPTS; attempt++) {
-      try {
-        const res = await fetch(url, {
-          next: { revalidate: 60 * 60 * 24 },
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-        if (!res.ok) {
-          console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
-          return [];
-        }
-        const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
-        return data.Data?.[0]?.Result ?? [];
-      } catch (error) {
-        if (attempt < RAW_SEARCH_MAX_ATTEMPTS) {
-          await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
-          continue;
-        }
-        console.warn(`[kmdb] "${query}" 요청 중 오류(재시도 ${RAW_SEARCH_MAX_ATTEMPTS}회 실패):`, error);
+  for (let attempt = 1; attempt <= RAW_SEARCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url.toString(), {
+        cache: "no-store",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
         return [];
       }
+      const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
+      return (data.Data?.[0]?.Result ?? []).map(pruneResult);
+    } catch (error) {
+      if (attempt < RAW_SEARCH_MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+        continue;
+      }
+      console.warn(`[kmdb] "${query}" 요청 중 오류(재시도 ${RAW_SEARCH_MAX_ATTEMPTS}회 실패):`, error);
+      return [];
     }
-    return [];
+  }
+  return [];
+}
+
+// 정제된 결과를 24시간 캐시 — 용량이 수십 KB여서 2MB 한도 내에서 안전하게 저장된다.
+// 캐시 키는 fetchFromKmdb와 동일한 sanitizedQuery 기준으로 맞춘다.
+function makeCachedSearch(sanitizedQuery: string, listCount: number) {
+  return unstable_cache(
+    () => fetchFromKmdb(sanitizedQuery, listCount),
+    [`kmdb-search:${sanitizedQuery}:${listCount}`],
+    { revalidate: 60 * 60 * 24, tags: ["kmdb"] }
+  );
+}
+
+async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
+  if (!apiKey()) return [];
+  const sanitizedQuery = query.replace(/[:&]/g, " ").replace(/\s{2,}/g, " ").trim();
+  await acquireKmdbSlot();
+  try {
+    return await makeCachedSearch(sanitizedQuery, listCount)();
   } finally {
     releaseKmdbSlot();
   }
@@ -266,7 +343,7 @@ export async function searchKmdbMoviesByTitle(title: string, titleEn?: string | 
     acceptableTitles.add(normalizeTitle(titleEn));
   }
 
-  const results = await rawSearch(stripEdition(title), 50);
+  const results = await rawSearch(stripEdition(title), 20);
   const pool = results.filter((r) => acceptableTitles.has(normalizeTitle(stripHighlight(r.title))));
 
   const deduped = new Map<string, RawKmdbResult>();
@@ -299,16 +376,16 @@ export async function searchKmdbMovie(
     acceptableTitles.add(normalizeTitle(extra.titleEn));
   }
 
-  const byKorean = await rawSearch(stripEdition(title), 50);
+  const byKorean = await rawSearch(stripEdition(title), 20);
   let best = pickBestMatch(byKorean, acceptableTitles, yearHint);
 
   if (!best && extra?.titleEn) {
-    const byEnglish = await rawSearch(stripEdition(extra.titleEn), 50);
+    const byEnglish = await rawSearch(stripEdition(extra.titleEn), 20);
     best = pickBestMatch(byEnglish, acceptableTitles, yearHint);
   }
 
   if (!best && extra?.director) {
-    const byDirector = await rawSearch(extra.director, 50);
+    const byDirector = await rawSearch(extra.director, 15);
     best = pickBestMatch(byDirector, acceptableTitles, yearHint);
   }
 
@@ -318,7 +395,7 @@ export async function searchKmdbMovie(
   const CAST_FALLBACK_LIMIT = 5;
   if (!best && extra?.cast) {
     for (const member of extra.cast.slice(0, CAST_FALLBACK_LIMIT)) {
-      const byCastMember = await rawSearch(member, 50);
+      const byCastMember = await rawSearch(member, 15);
       best = pickBestMatch(byCastMember, acceptableTitles, yearHint);
       if (best) break;
     }
@@ -355,10 +432,10 @@ export async function searchKmdbFilmography(
   role?: "감독" | "배우" | null,
   nameEn?: string | null
 ): Promise<KmdbMovieDetails[]> {
-  const results = await rawSearch(personName, 100);
+  const results = await rawSearch(personName, 20);
   // 외국 배우는 한글 이름 검색과 병행해 영문 이름으로도 검색 — KMDb에 영문으로만
   // 등록돼 있거나 한글 이름 검색 결과에 이 인물의 작품이 충분히 안 걸리는 경우를 보완.
-  const enResults = nameEn && nameEn !== personName ? await rawSearch(nameEn, 100) : [];
+  const enResults = nameEn && nameEn !== personName ? await rawSearch(nameEn, 20) : [];
   const allResults = enResults.length > 0
     ? Array.from(new Map([...results, ...enResults].filter(r => r.DOCID).map(r => [r.DOCID!, r])).values())
     : results;
@@ -454,14 +531,23 @@ export type KmdbPersonHit = {
 // 같은 순수 초성 검색어는 KMDb 검색엔진이 애초에 이해하지 못해 후보 자체가 안 잡힐 수
 // 있다 — 그런 경우 이 초성 비교 로직까지 갈 후보 풀 자체가 비어 있게 된다.
 export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbPersonHit[]> {
-  // 30건으론 활동량이 많은 배우/감독의 최근작이 검색 결과에 다 안 들어올 수 있다
-  // (KMDb 전문검색이 관련도순이라 최신순 정렬이 보장 안 됨) — 실제로 황정민(24개
-  // credit 확인됨)의 활동연도범위가 30건 기준으론 최근작이 빠진 채로 나온 사례가
-  // 있어서, searchKmdbFilmography와 같은 100건으로 넉넉히 늘렸다.
-  const results = await rawSearch(query, 100);
+  // 음소 변형 쿼리와 원본을 병렬로 KMDb에 요청한다.
+  // "앤소니 홉킨스" 입력 시 "안소니 홉킨스"로도 검색해 KMDb DB에 저장된 표기를 모두 잡는다.
+  const variants = getPhonemeVariants(query);
+  const [originalResults, ...variantResults] = await Promise.all([
+    rawSearch(query, 20),
+    ...variants.map((v) => rawSearch(v, 15)),
+  ]);
+  // DOCID 기준 중복 제거 후 합산
+  const seenDocIds = new Set(originalResults.map((r) => r.DOCID));
+  const results = [
+    ...originalResults,
+    ...variantResults.flat().filter((r) => !seenDocIds.has(r.DOCID)),
+  ];
   if (results.length === 0) return [];
 
   const normalizedQuery = normalizeTitle(query);
+  const normalizedQueryPhoneme = normalizeTitle(normalizePhoneme(query));
   const queryChosung = isChosungOnly(query) ? query.replace(/\s+/g, "") : null;
   // 키를 kmdbId 하나로만 두면, 같은 숫자 코드가 (드물게도) 감독 credit과 배우 credit
   // 양쪽에 다 등장할 때 둘이 하나로 합쳐져서 creditCount가 뒤섞이고 role은 먼저 잡힌
@@ -472,7 +558,10 @@ export async function searchKmdbPeople(query: string, limit = 10): Promise<KmdbP
 
   const matches = (korean?: string, english?: string) => {
     if (korean) {
-      if (normalizeTitle(korean).includes(normalizedQuery)) return true;
+      const normalizedKorean = normalizeTitle(korean);
+      if (normalizedKorean.includes(normalizedQuery)) return true;
+      // 음소 정규화 후 비교 — "앤소니"와 "안소니"를 같은 표기로 취급
+      if (normalizeTitle(normalizePhoneme(korean)).includes(normalizedQueryPhoneme)) return true;
       if (queryChosung && toChosung(korean).includes(queryChosung)) return true;
     }
     if (english && normalizeTitle(english).includes(normalizedQuery)) return true;
@@ -557,7 +646,7 @@ export async function resolvePersonId(
   role: "감독" | "배우",
   contextYear?: string | null
 ): Promise<string | null> {
-  const results = await rawSearch(name, 100);
+  const results = await rawSearch(name, 20);
   if (results.length === 0) return null;
 
   const normalizedName = normalizeTitle(name);

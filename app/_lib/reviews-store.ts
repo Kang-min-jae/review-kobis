@@ -8,7 +8,24 @@ function categoryOf(review: Review): RatingCategory {
   return review.category ?? "전체";
 }
 
-const STORAGE_KEY = "review-site:user-reviews:v1";
+const BASE_STORAGE_KEY = "review-site:user-reviews:v1";
+let currentStorageKey = BASE_STORAGE_KEY;
+
+// 로그인한 사용자의 userId로 스토리지 키를 격리한다.
+// MyListView / CategoryRateForm 등 클라이언트 컴포넌트 렌더 초입에 호출해
+// 모든 useSyncExternalStore 훅보다 먼저 키를 세팅하면 첫 렌더부터 올바른 사용자
+// 데이터만 읽히고, 쓸 때도 같은 키에 저장돼 다른 계정 데이터와 섞이지 않는다.
+export function initForUser(userId: string | null): void {
+  const newKey = userId ? `${BASE_STORAGE_KEY}:${userId}` : BASE_STORAGE_KEY;
+  if (newKey === currentStorageKey) return;
+  currentStorageKey = newKey;
+  reviewsCache.clear();
+  reviewsByAuthorCache.clear();
+  combinedRatingCache.clear();
+  cachedUserReviewedMovies = null;
+  cachedMyReviews = null;
+  cachedMyMovieRatings = null;
+}
 
 const listeners = new Set<() => void>();
 
@@ -40,7 +57,26 @@ function emitChange() {
 function readUserReviews(): Review[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(currentStorageKey);
+    const all = raw ? (JSON.parse(raw) as Review[]) : [];
+    // 비로그인 상태(BASE_STORAGE_KEY)에서는 플랫폼 평균을 위해 모든 유저의 리뷰가
+    // 이 키에 합산되어 있다. 자기 자신의 리뷰만 "내 리뷰"로 반환해 이전 로그인
+    // 유저의 데이터가 비로그인 마이페이지에 노출되는 것을 막는다.
+    if (currentStorageKey === BASE_STORAGE_KEY) {
+      const guestId = getGuestIdentity().id;
+      return all.filter((r) => r.authorId === guestId);
+    }
+    return all;
+  } catch {
+    return [];
+  }
+}
+
+// 플랫폼 전체 평균(모든 사용자 포함)을 계산할 때 사용 — 공유 키에서 읽는다.
+function readAllReviews(): Review[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(BASE_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Review[]) : [];
   } catch {
     return [];
@@ -48,7 +84,14 @@ function readUserReviews(): Review[] {
 }
 
 function writeUserReviews(reviews: Review[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+  window.localStorage.setItem(currentStorageKey, JSON.stringify(reviews));
+  // 사용자별 키에 쓸 때 공유 키도 동기화해 플랫폼 평균에 반영한다.
+  if (currentStorageKey !== BASE_STORAGE_KEY) {
+    const identity = getGuestIdentity();
+    const shared = readAllReviews();
+    const others = shared.filter((r) => r.authorId !== identity.id);
+    window.localStorage.setItem(BASE_STORAGE_KEY, JSON.stringify([...others, ...reviews]));
+  }
 }
 
 function average(reviews: Review[]): number | null {
@@ -98,7 +141,7 @@ export function getReviewsSnapshot(
   let cached = reviewsCache.get(key);
   if (!cached) {
     cached = sortByNewest(
-      [...seedReviews, ...readUserReviews()].filter(
+      [...seedReviews, ...readAllReviews()].filter(
         (r) => r.movieId === movieId && r.type === type && categoryOf(r) === category
       )
     );
@@ -133,7 +176,7 @@ export function getCombinedRatingSnapshot(movieId: string, category: RatingCateg
   const key = `${movieId}:${category}`;
   let cached = combinedRatingCache.get(key);
   if (!cached) {
-    const all = [...seedReviews, ...readUserReviews()].filter(
+    const all = [...seedReviews, ...readAllReviews()].filter(
       (r) => r.movieId === movieId && categoryOf(r) === category
     );
     cached = { average: averageNormalized(all), count: all.length };
@@ -242,7 +285,7 @@ export function getReviewsByAuthorSnapshot(authorId: string): Review[] {
   let cached = reviewsByAuthorCache.get(authorId);
   if (!cached) {
     cached = sortByNewest(
-      [...seedReviews, ...readUserReviews()].filter((r) => r.authorId === authorId)
+      [...seedReviews, ...readAllReviews()].filter((r) => r.authorId === authorId)
     );
     reviewsByAuthorCache.set(authorId, cached);
   }
@@ -273,8 +316,53 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
 
   return Array.from(bestByMovie.values())
     .sort((a, b) => b.normalizedRating - a.normalizedRating)
-    .slice(0, 5)
+    .slice(0, 10)
     .map((entry) => entry.movieCd);
+}
+
+// DB에 저장된 "전체" 평점을 localStorage에 없으면 추가한다 — 다른 기기/세션에서 남긴
+// 평점은 이 브라우저의 localStorage에 없어서 통계 리포트에 반영되지 않는 문제를 해결.
+// 이미 같은 movieId+type+category가 있으면 덮어쓰지 않고(리뷰 텍스트 보존) 건너뛴다.
+// 변경이 있을 때만 write + emitChange를 한 번 호출한다.
+export type ServerRating = {
+  movieId: string;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieGradient: string;
+  movieCd: string | null;
+  rating: number; // 0~10
+  ratedAt: string; // ISO
+};
+
+export function syncServerRatings(serverRatings: ServerRating[]): void {
+  if (typeof window === "undefined" || serverRatings.length === 0) return;
+  const identity = getGuestIdentity();
+  const existing = readUserReviews();
+  const existingKeys = new Set(
+    existing
+      .filter((r) => r.type === "short" && (r.category ?? "전체") === "전체")
+      .map((r) => r.movieId)
+  );
+  const toAdd: Review[] = serverRatings
+    .filter((s) => !existingKeys.has(s.movieId))
+    .map((s) => ({
+      id: `server-sync-${s.movieId}-${Date.now()}`,
+      movieId: s.movieId,
+      movieTitle: s.movieTitle,
+      moviePosterUrl: s.moviePosterUrl,
+      movieGradient: s.movieGradient,
+      movieCd: s.movieCd,
+      type: "short" as const,
+      category: "전체" as const,
+      rating: s.rating,
+      content: "",
+      authorId: identity.id,
+      authorName: identity.name,
+      createdAt: s.ratedAt,
+    }));
+  if (toAdd.length === 0) return;
+  writeUserReviews([...existing, ...toAdd]);
+  emitChange();
 }
 
 export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" | "authorName">): Review {
@@ -291,6 +379,29 @@ export function addReview(review: Omit<Review, "id" | "createdAt" | "authorId" |
   return newReview;
 }
 
+// 서버에 저장된 리뷰를 localStorage에도 동기화한다 — 같은 영화+타입+카테고리의 기존
+// 항목을 교체하고, 없으면 새로 추가한다.
+export function upsertMyReview(
+  review: Omit<Review, "id" | "authorId" | "authorName" | "createdAt"> & { createdAt?: string }
+): void {
+  const identity = getGuestIdentity();
+  const existing = readUserReviews();
+  const idx = existing.findIndex(
+    (r) => r.movieId === review.movieId && r.type === review.type && (r.category ?? "전체") === (review.category ?? "전체")
+  );
+  const upserted: Review = {
+    ...review,
+    authorId: identity.id,
+    authorName: identity.name,
+    id: idx >= 0 ? existing[idx].id : `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: review.createdAt ?? existing[idx]?.createdAt ?? new Date().toISOString(),
+  };
+  const next = [...existing];
+  if (idx >= 0) next[idx] = upserted; else next.push(upserted);
+  writeUserReviews(next);
+  emitChange();
+}
+
 // createdAt(ISO, UTC)을 이 리뷰를 남긴 사람의 로컬 날짜 기준 "YYYY-MM-DD" 키로
 // 바꾼다 — MovieDiaryCalendar의 toLocalDateKey와 동일한 계산이다(무비 다이어리
 // 칸이 이 키로 하루를 구분하므로, 삭제도 같은 기준으로 맞춰야 한다).
@@ -305,6 +416,12 @@ function toLocalDateKey(iso: string): string {
 // 무비 다이어리에서 "삭제"를 누르면 그 날짜에 그 영화로 남긴 리뷰를 전부(한줄평+
 // 장문평, 항목별 리뷰 포함) 지운다 — "그 날 이 영화를 봤다는 기록 자체"를 지우는
 // 개념이라 항목 하나만 남기지 않는다.
+export function removeReview(reviewId: string) {
+  const remaining = readUserReviews().filter((r) => r.id !== reviewId);
+  writeUserReviews(remaining);
+  emitChange();
+}
+
 export function removeReviewsForMovieOnDate(movieId: string, dateKey: string) {
   const remaining = readUserReviews().filter(
     (r) => !(r.movieId === movieId && toLocalDateKey(r.createdAt) === dateKey)

@@ -41,7 +41,7 @@ export default function HomeCategories() {
         </>
       )}
 
-      {(active === "TV·시리즈물" || active === "단편·독립") && (
+      {active === "TV·시리즈물" && (
         <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
       )}
     </>

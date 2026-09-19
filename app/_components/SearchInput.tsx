@@ -25,6 +25,14 @@ type PersonHit = {
   creditCount: number;
   latestYear: string | null;
   representativeWorks: string[];
+  tmdbId?: string;
+};
+
+type CachedResult = {
+  movies: MovieHit[];
+  series: SeriesHit[];
+  people: PersonHit[];
+  correctedQuery: string | null;
 };
 
 export default function SearchInput() {
@@ -37,40 +45,72 @@ export default function SearchInput() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  // 브라우저 인메모리 캐시 — 백스페이스·재검색 시 네트워크 요청 없이 0ms로 즉시 렌더링.
+  // 최대 50개 항목 유지 (FIFO 방식으로 오래된 항목 제거).
+  const clientCacheRef = useRef<Map<string, CachedResult>>(new Map());
 
-  // 이 컴포넌트가 클라이언트에서 실제로 마운트(하이드레이션)되는지 확인용.
-  useEffect(() => {
-    console.log("[search] SearchInput 마운트됨 (app/_components/SearchInput.tsx)");
-  }, []);
+  function applyResult(result: CachedResult) {
+    setMovies(result.movies);
+    setSeries(result.series);
+    setPeople(result.people);
+    setCorrectedQuery(result.correctedQuery);
+    setError(false);
+    setLoading(false);
+    setOpen(true);
+  }
 
   async function runSearch(rawQuery: string) {
     const trimmed = rawQuery.trim();
-    console.debug("[search] runSearch 호출:", trimmed);
     if (!trimmed) return;
+
+    const cacheKey = trimmed.toLowerCase();
+
+    // 클라이언트 캐시 히트 → 네트워크 없이 즉시 렌더링
+    const clientHit = clientCacheRef.current.get(cacheKey);
+    if (clientHit) {
+      applyResult(clientHit);
+      return;
+    }
+
+    // 이전 요청이 아직 진행 중이면 취소한다.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/search-movies?q=${encodeURIComponent(trimmed)}`);
-      console.debug("[search] 응답 status:", res.status);
-      if (!res.ok) throw new Error(`검색 요청 실패: HTTP ${res.status}`);
+      const res = await fetch(`/api/search-movies?q=${encodeURIComponent(trimmed)}`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: { movies?: MovieHit[]; series?: SeriesHit[]; people?: PersonHit[]; correctedQuery?: string | null } =
         await res.json();
-      console.debug("[search] 결과:", data);
-      setMovies(data.movies ?? []);
-      setSeries(data.series ?? []);
-      setPeople(data.people ?? []);
-      setCorrectedQuery(data.correctedQuery ?? null);
-      setError(false);
+
+      const result: CachedResult = {
+        movies: data.movies ?? [],
+        series: data.series ?? [],
+        people: data.people ?? [],
+        correctedQuery: data.correctedQuery ?? null,
+      };
+
+      // 클라이언트 캐시에 저장 (최대 50개, FIFO 방식)
+      if (clientCacheRef.current.size >= 50) {
+        const oldest = clientCacheRef.current.keys().next().value;
+        if (oldest !== undefined) clientCacheRef.current.delete(oldest);
+      }
+      clientCacheRef.current.set(cacheKey, result);
+
+      applyResult(result);
     } catch (err) {
-      console.error("[search] 요청 실패:", err);
+      if ((err as { name?: string }).name === "AbortError") return; // stale 요청 — 무시
       setMovies([]);
       setSeries([]);
       setPeople([]);
       setCorrectedQuery(null);
       setError(true);
-    } finally {
-      setOpen(true);
       setLoading(false);
+      setOpen(true);
     }
   }
 
@@ -88,18 +128,16 @@ export default function SearchInput() {
     }
   }
 
-  // 입력을 멈추면 350ms 후 자동으로 검색한다 (실시간 검색).
+  // 입력을 멈추면 300ms 후 자동으로 검색한다 (실시간 검색).
   useEffect(() => {
-    console.log("[search] effect fired", query);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = query.trim();
     if (!trimmed) return;
 
     debounceRef.current = setTimeout(() => {
-      console.log("[search] fetching...");
       runSearch(query);
-    }, 350);
+    }, 300);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -108,7 +146,6 @@ export default function SearchInput() {
 
   // 돋보기 버튼 또는 Enter 키: 기다리지 않고 즉시 검색한다.
   function handleSubmit() {
-    console.debug("[search] handleSubmit 클릭/Enter, 현재 query:", query);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     runSearch(query);
   }
@@ -170,23 +207,34 @@ export default function SearchInput() {
 
             {!loading && !error && hasResults && correctedQuery && (
               <p className="border-b border-neutral-700 px-3 py-2 text-xs text-muted">
-                &quot;{correctedQuery}&quot;로 검색한 결과
+                혹시{" "}
+                <button
+                  type="button"
+                  onClick={() => { setQuery(correctedQuery); setCorrectedQuery(null); }}
+                  className="font-semibold text-brand underline underline-offset-2 hover:opacity-80"
+                >
+                  &apos;{correctedQuery}&apos;
+                </button>
+                {correctedQuery.match(/[가-힣]/) ? "(을)를" : ""}
+                {" "}찾으시나요?
               </p>
             )}
 
             {!loading && !error && people.length > 0 && (
               <div className="border-b border-neutral-700 py-1">
                 <p className="px-3 py-1 text-[10px] font-semibold text-muted">배우 · 감독</p>
-                {people.map((person) => {
-                  // 이름+역할이 같은 동명이인이 실제로 여러 명 있을 때만(진짜 구분이 필요할
-                  // 때만) 참여작 수·최근 활동연도를 같이 보여준다 — 한 명뿐이면 굳이 안 보여줘도
-                  // 헷갈리지 않는다.
+                {people.map((person, idx) => {
                   const isAmbiguous =
                     people.filter((p) => p.name === person.name && p.role === person.role).length > 1;
                   return (
                     <Link
-                      key={person.kmdbId}
-                      href={`/people/${encodeURIComponent(person.name)}?pid=${encodeURIComponent(person.kmdbId)}&role=${encodeURIComponent(person.role)}`}
+                      key={`${person.tmdbId ?? person.kmdbId}-${idx}`}
+                      href={(() => {
+                        const params = new URLSearchParams({ role: person.role });
+                        if (person.kmdbId) params.set("pid", person.kmdbId);
+                        if (person.tmdbId) params.set("tmdbId", person.tmdbId);
+                        return `/people/${encodeURIComponent(person.name)}?${params.toString()}`;
+                      })()}
                       onClick={() => setOpen(false)}
                       className="flex items-center gap-3 p-2.5 hover:bg-black/30"
                     >
@@ -197,8 +245,6 @@ export default function SearchInput() {
                         <p className="truncate text-sm text-text">{person.name}</p>
                         <p className="truncate text-[10px] text-muted">
                           {person.role}
-                          {/* KOFIC 대표작이 있으면 그게 사람이 실제로 알아볼 수 있는 가장 확실한
-                              구분 정보라 우선 보여주고, 없을 때만 KMDb 기반 참여작 수·최근작으로 대체한다. */}
                           {person.representativeWorks.length > 0 ? (
                             <> · {person.representativeWorks.join(", ")} 외</>
                           ) : (
@@ -230,11 +276,12 @@ export default function SearchInput() {
                         <span className="text-xs font-bold text-white/70">{hit.name.slice(0, 1)}</span>
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-text">{hit.name}</p>
-                      <p className="text-[10px] text-muted">
-                        시리즈{hit.firstAirDate ? ` · ${hit.firstAirDate.slice(0, 4)}` : ""}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-neutral-700 px-1 py-0.5 text-[9px] font-semibold text-muted">시리즈</span>
+                        {hit.firstAirDate && <span className="text-[10px] text-muted">{hit.firstAirDate.slice(0, 4)}</span>}
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -258,9 +305,12 @@ export default function SearchInput() {
                         <span className="text-xs font-bold text-white/70">{hit.title.slice(0, 1)}</span>
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-text">{hit.title}</p>
-                      <p className="text-[10px] text-muted">{hit.releaseDate?.slice(0, 4)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-neutral-700 px-1 py-0.5 text-[9px] font-semibold text-muted">영화</span>
+                        {hit.releaseDate && <span className="text-[10px] text-muted">{hit.releaseDate.slice(0, 4)}</span>}
+                      </div>
                     </div>
                   </Link>
                 ))}

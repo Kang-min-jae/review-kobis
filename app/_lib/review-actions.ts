@@ -42,6 +42,7 @@ export async function submitCategoryRatingAction(
   }
 
   revalidatePath(categoryPath(movieId, category));
+  revalidatePath("/", "layout");
 }
 
 // 무비 다이어리/나만의 영화 리스트의 "계정 평점"(전체 평점 남기기로 자동 기록된
@@ -59,10 +60,12 @@ export async function deleteAccountRatingAction(movieCd: string) {
   });
 
   revalidatePath("/my-list");
+  revalidatePath("/", "layout");
 }
 
 // 한줄평/장문평 등록/수정. 같은 사람이 같은 영화·항목·타입에 이미 남긴 리뷰가
 // 있으면 그 리뷰를 덮어쓴다(한 사람당 한 항목엔 리뷰 하나).
+// "전체" 한줄평을 남기면 CategoryRating도 함께 동기화해 다이어리·리스트에 반영한다.
 export async function submitReviewAction(input: {
   movieId: string;
   movieCd: string;
@@ -83,5 +86,148 @@ export async function submitReviewAction(input: {
     update: { rating: input.rating, content: input.content, hasSpoiler },
   });
 
+  // 한줄평은 모든 카테고리를 CategoryRating에 동기화해 항목별 평균에 반영한다.
+  // 장문평은 "전체"만 동기화하되 0~100 → 0~10으로 정규화한다.
+  if (input.type === "SHORT") {
+    await db.categoryRating.upsert({
+      where: { userId_movieCd_category: { userId, movieCd: input.movieCd, category: input.category } },
+      create: { userId, movieCd: input.movieCd, category: input.category, score: input.rating },
+      update: { score: input.rating },
+    });
+  } else if (input.type === "LONG" && input.category === "전체") {
+    const score = Math.round((input.rating / 100) * 10 * 10) / 10;
+    await db.categoryRating.upsert({
+      where: { userId_movieCd_category: { userId, movieCd: input.movieCd, category: "전체" } },
+      create: { userId, movieCd: input.movieCd, category: "전체", score },
+      update: { score },
+    });
+  }
+
   revalidatePath(categoryPath(input.movieId, input.category));
+  revalidatePath("/", "layout");
+}
+
+// 내가 남긴 리뷰 하나를 삭제한다. 보안상 자기 리뷰만 지울 수 있도록 userId도
+// 조건에 포함한다.
+export async function deleteReviewAction(input: {
+  reviewId: string;
+  movieId: string;
+  category: string;
+}) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
+  const userId = session.user.id;
+
+  await db.review.deleteMany({ where: { id: input.reviewId, userId } });
+
+  revalidatePath(categoryPath(input.movieId, input.category));
+  revalidatePath("/my-list");
+  revalidatePath("/", "layout");
+}
+
+export async function adminDeleteReviewAction(input: { reviewId: string }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const review = await db.review.findUnique({
+    where: { id: input.reviewId },
+    select: { movieCd: true, category: true, userId: true },
+  });
+  if (!review) return;
+
+  await db.review.delete({ where: { id: input.reviewId } });
+
+  revalidatePath(categoryPath(`kobis-${review.movieCd}`, review.category));
+  revalidatePath(`/users/${review.userId}`);
+  revalidatePath("/my-list");
+  revalidatePath("/", "layout");
+}
+
+export async function getAdminStats() {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [totalUsers, newUsersToday, totalReviews, pendingInquiries] = await Promise.all([
+    db.user.count(),
+    db.user.count({ where: { createdAt: { gte: today } } }),
+    db.review.count(),
+    db.inquiry.count({ where: { status: "답변 대기" } }),
+  ]);
+
+  return { totalUsers, newUsersToday, totalReviews, pendingInquiries };
+}
+
+export async function getAllReviewsForAdmin(opts: { search?: string; skip?: number; take?: number }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const { search, skip = 0, take = 50 } = opts;
+  const [rows, movies] = await Promise.all([
+    db.review.findMany({
+      where: search
+        ? {
+            OR: [
+              { user: { nickname: { contains: search, mode: "insensitive" } } },
+              { user: { name: { contains: search, mode: "insensitive" } } },
+            ],
+          }
+        : undefined,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+      select: {
+        id: true,
+        movieCd: true,
+        category: true,
+        type: true,
+        rating: true,
+        content: true,
+        createdAt: true,
+        userId: true,
+        user: { select: { id: true, nickname: true, name: true } },
+      },
+    }),
+    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
+  ]);
+
+  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  return rows.map((r) => ({
+    ...r,
+    movieTitle: titleMap.get(r.movieCd) ?? r.movieCd,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function getAllUsersForAdmin(opts: { search?: string; skip?: number; take?: number }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const { search, skip = 0, take = 50 } = opts;
+  return db.user.findMany({
+    where: search
+      ? {
+          OR: [
+            { nickname: { contains: search, mode: "insensitive" } },
+            { name: { contains: search, mode: "insensitive" } },
+            { email: { contains: search, mode: "insensitive" } },
+          ],
+        }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    skip,
+    take,
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      email: true,
+      role: true,
+      totalLikes: true,
+      createdAt: true,
+      _count: { select: { reviews: true, followers: true } },
+    },
+  });
 }

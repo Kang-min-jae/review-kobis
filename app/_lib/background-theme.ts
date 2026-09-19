@@ -3,7 +3,7 @@
 // 넣지 않고 localStorage에 저장한다. 이 코드베이스의 다른 클라이언트 스토어
 // (reviews-store 등)와 같은 구독/알림 패턴을 그대로 따른다.
 //
-// 기본값은 "네온 마퀴"다. 이미 선택된 프리셋을 다시 누르면 선택이 풀리고
+// 기본값은 "선택 안 함(순수 검정)"이다. 이미 선택된 프리셋을 다시 누르면 선택이 풀리고
 // (id는 null), 이때는 그라데이션 없이 기본 배경색(검정, --color-bg)만 보인다.
 
 export type BackgroundTheme = {
@@ -62,7 +62,7 @@ export const BACKGROUND_THEMES: BackgroundTheme[] = [
   },
 ];
 
-const DEFAULT_THEME_ID: string = "glass-mesh";
+const DEFAULT_THEME_ID: string | null = null;
 const STORAGE_KEY = "review-site:bg-theme:v1";
 // localStorage엔 문자열만 저장할 수 있어서, "선택 안 함(null)" 상태를 나타내는
 // 값이 따로 필요하다 — 이 키가 아예 없는 것("한 번도 안 건드림" = 기본값 사용)과

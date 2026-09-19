@@ -1,8 +1,13 @@
+import { redirect } from "next/navigation";
+import { auth } from "../../auth";
 import SiteHeader from "../_components/SiteHeader";
 import BackBar from "../_components/BackBar";
 import LoginForm from "../_components/LoginForm";
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const session = await auth();
+  if (session?.user) redirect("/");
+
   const { callbackUrl } = await searchParams;
   const callback = typeof callbackUrl === "string" ? callbackUrl : "/";
 

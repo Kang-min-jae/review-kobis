@@ -2,12 +2,14 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../app/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [pg_trgm]
 }
 
 // 영화 상세정보 캐시(KOBIS+KMDb를 합쳐 만든 결과) — 특정 영화 하나를 볼 때만
@@ -36,6 +38,9 @@ model CachedMovie {
   // KOFIC+KMDb 조합) | "tmdb"(KMDb에 없어서 TMDB로 보완함).
   source         String   @default("kmdb")
   updatedAt      DateTime @updatedAt
+
+  // ILIKE '%query%' 검색 속도를 위한 GIN trigram 인덱스 (전체 테이블 스캔 제거)
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 // TV 시리즈 상세정보 캐시 — TMDB /tv/{id} 응답을 저장한다. CachedMovie와 달리
@@ -68,6 +73,10 @@ model CachedPerson {
   // 추출해 여기 저장해두면 캐시가 만료돼 다시 계산할 때 재추출 없이 바로 쓸 수 있다.
   nameEn      String?
   updatedAt   DateTime @updatedAt
+
+  // name / nameEn ILIKE 검색을 위한 GIN trigram 인덱스
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([nameEn(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 // 박스오피스 순위·이 달의 Best처럼 자주 조회되는 랭킹류 목록 — 요청마다 새로
@@ -112,6 +121,13 @@ model RereleaseClassification {
   @@index([isRerelease, status])
 }
 
+// 영화제 수상작 캐시 — Wikidata SPARQL 결과를 하루 1회 저장해 429 반복 호출을 방지한다.
+model CachedAwardWinners {
+  id        String   @id // "academy" | "cannes" | "berlin" | "venice"
+  winners   Json     // FestivalWinner[]
+  updatedAt DateTime @updatedAt
+}
+
 // ── 로그인 (Auth.js) ─────────────────────────────────────────────────────
 // User/Account/Session/VerificationToken은 Auth.js의 PrismaAdapter가 요구하는
 // 정확한 형태 그대로다 — 필드명을 바꾸면 어댑터가 못 찾는다. nickname/totalLikes만
@@ -121,12 +137,17 @@ model RereleaseClassification {
 model User {
   id            String    @id @default(cuid())
   name          String? // OAuth 제공자가 준 원래 이름
-  nickname      String?   @unique // 사이트에서 실제로 보여주는 이름 — 처음엔 name으로 채우고 나중에 바꿀 수 있게. 중복 불가(NULL은 여러 개 허용).
-  email         String?   @unique // 카카오는 이메일 동의를 안 받은 앱이면 안 줄 수도 있어 nullable
+  nickname      String?   @unique // 다른 사람에게 보여지는 표시 이름. 중복 불가(NULL은 여러 개 허용).
+  username      String?   @unique // 크레덴셜 로그인용 아이디 — 소셜 가입 유저는 null
+  email         String?   @unique // 비밀번호 찾기·소셜 로그인용. 카카오는 동의 안 받으면 null
   emailVerified DateTime?
   image         String?
   password      String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null
+  role          String    @default("USER") // "USER" | "ADMIN"
   totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
+  profileViewsTotal Int     @default(0) // 다른 사용자가 내 프로필을 방문한 누적 횟수
+  profileViewsToday Int     @default(0) // 오늘(profileViewsDate 기준) 방문 횟수
+  profileViewsDate  String? // 오늘 카운터를 마지막으로 초기화한 날짜(yyyy-mm-dd)
 
   accounts            Account[]
   sessions            Session[]
@@ -136,23 +157,24 @@ model User {
   following           Follow[]             @relation("Following")
   followers           Follow[]             @relation("Followers")
   watchTriggers       WatchTrigger[]       @relation("Reader")
-  passwordResetTokens PasswordResetToken[]
+  passwordResetCodes  PasswordResetCode[]
+  awardVotes          AwardVote[]
+  inquiries           Inquiry[]
 
   createdAt DateTime @default(now())
 }
 
-// "아이디·비밀번호 찾기"용 1회성 토큰. Auth.js 어댑터가 요구하는
-// VerificationToken(이메일 인증/매직링크 전용, 스키마 형태가 고정됨)과는
-// 목적이 달라 별도 모델로 뒀다.
-model PasswordResetToken {
+// 비밀번호 재설정용 6자리 OTP 코드. 링크 방식 대신 코드 입력 방식으로 전환.
+// Auth.js의 VerificationToken과 목적이 달라 별도 모델로 유지한다.
+model PasswordResetCode {
   id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expires   DateTime
+  email     String
+  user      User     @relation(fields: [email], references: [email], onDelete: Cascade)
+  code      String   // 6자리 난수 (예: "482910")
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
-  @@index([userId])
+  @@index([email])
 }
 
 model Account {
@@ -272,6 +294,7 @@ model Follow {
   createdAt   DateTime @default(now())
 
   @@unique([followerId, followingId])
+  @@index([followingId])
 }
 
 // "이 리뷰 때문에 봤어요" 추적.
@@ -324,4 +347,82 @@ model PersonIdentityMapping {
   createdAt     DateTime @default(now())
 
   @@unique([personName, role])
+}
+
+// 1:1 문의·오류 제보 — 유저가 제출하고 관리자가 상태를 바꿔준다.
+model Inquiry {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   String   // "영화 정보 오류" | "신규 영화 추가 요청" | "버그 신고" | "기타 문의"
+  title      String
+  content    String
+  images     Json     @default("[]") // base64 data URI 배열 (최대 5장, 클라이언트에서 리사이즈)
+  status     String   @default("답변 대기") // "답변 대기" | "처리 완료"
+  adminReply String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+// 서비스 공지사항 — DB에 직접 INSERT하거나 관리 스크립트로 관리한다.
+model Notice {
+  id        String   @id @default(cuid())
+  type      String   // "업데이트" | "신규 기능" | "점검 안내" | "공지"
+  title     String
+  content   String?
+  isNew     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// 수상작 투표 — 사용자가 특정 영화제·시상 부문에 직접 투표한 영화.
+// 1인 1표(userId + festival + awardCategory unique).
+model AwardVote {
+  id            String   @id @default(cuid())
+  userId        String
+  festival      String   // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String   // "작품상" | "감독상" | ...
+  movieId       String   // kobis-* | wikidata-* 등
+  movieTitle    String
+  posterUrl     String?
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, festival, awardCategory])
+  @@index([festival, awardCategory])
+}
+
+// 관리자가 직접 등록한 공식 수상작 — Wikidata fallback보다 우선 적용된다.
+// 연도+영화제+부문 조합은 유일하다(upsert 기준).
+model OfficialWinner {
+  id            String   @id @default(cuid())
+  year          Int      // 시상식 연도 (예: 2025)
+  festival      String   // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String   // "작품상" | "황금종려상" | 등
+  movieId       String   // kobis-* | wikidata-* 등 내부 ID
+  movieTitle    String
+  posterUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([year, festival, awardCategory])
+  @@index([festival, awardCategory])
+}
+
+// 부문별 득표 집계 캐시 — 투표/취소 시점에만 upsert하여 매 조회 때
+// COUNT(*) GROUP BY 를 실행하지 않아도 된다.
+model AwardVoteSummary {
+  festival      String
+  awardCategory String
+  movieId       String
+  movieTitle    String
+  posterUrl     String?
+  voteCount     Int    @default(0)
+
+  @@id([festival, awardCategory, movieId])
+  @@index([festival, awardCategory])
 }

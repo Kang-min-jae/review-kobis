@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import type { Session } from "next-auth";
 import { db } from "./db";
 import { auth } from "../../auth";
@@ -61,6 +62,11 @@ export async function toggleReviewVote(reviewId: string, type: VoteType) {
   }
   await db.$transaction(writes);
 
+  // totalLikes가 바뀌었을 때만 리뷰 작성자의 마이페이지 캐시를 무효화한다.
+  if (totalLikes !== 0) {
+    revalidatePath("/my-list");
+  }
+
   return { myVote: to };
 }
 
@@ -76,10 +82,14 @@ export async function toggleFollow(followingId: string) {
 
   if (existing) {
     await db.follow.delete({ where: { id: existing.id } });
+    revalidatePath("/my-list");
+    revalidatePath(`/users/${followingId}`);
     return { following: false };
   }
 
   await db.follow.create({ data: { followerId, followingId } });
+  revalidatePath("/my-list");
+  revalidatePath(`/users/${followingId}`);
   return { following: true };
 }
 

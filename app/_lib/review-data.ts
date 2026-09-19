@@ -1,17 +1,19 @@
 import { db } from "./db";
 import { RATING_CATEGORIES, type RatingCategory } from "./category-ratings-store";
+import { getBadge } from "./tier";
 
 export type CategoryAverage = { category: RatingCategory; average: number | null; count: number };
 
 // 항목별 페이지 사이드바(CategoryRatings)에 필요한, 6개 항목 전부의 평균+참여 수.
+// review 테이블의 SHORT 한줄평을 직접 집계 — 신구 데이터 모두 반영된다.
 export async function getAllCategoryAverages(movieCd: string): Promise<CategoryAverage[]> {
-  const rows = await db.categoryRating.groupBy({
+  const rows = await db.review.groupBy({
     by: ["category"],
-    where: { movieCd },
-    _avg: { score: true },
-    _count: { score: true },
+    where: { movieCd, type: "SHORT" },
+    _avg: { rating: true },
+    _count: { rating: true },
   });
-  const byCategory = new Map(rows.map((r) => [r.category, { average: r._avg.score, count: r._count.score }]));
+  const byCategory = new Map(rows.map((r) => [r.category as string, { average: r._avg.rating, count: r._count.rating }]));
 
   return RATING_CATEGORIES.map((category) => ({
     category,
@@ -42,6 +44,7 @@ export type ReviewWithAuthor = {
   hasSpoiler: boolean;
   authorId: string;
   authorName: string;
+  authorTier: string; // 관객 / 씨네필 / 평론가 / 거장
   createdAt: string;
   likeCount: number;
   dislikeCount: number;
@@ -57,12 +60,10 @@ export async function getReviewsForCategoryType(
   userId: string | null
 ): Promise<ReviewWithAuthor[]> {
   const rows = await db.review.findMany({
-    // 글 없이 평점만 남겨서 생긴 빈 한줄평(submitCategoryRatingAction 참고)은 다른
-    // 사람에게 보여줄 목록에선 뺀다 — 빈 리뷰 항목을 목록에 보여줄 필요는 없다.
-    where: { movieCd, category, type, content: { not: "" } },
+    where: { movieCd, category, type },
     orderBy: { createdAt: "desc" },
     include: {
-      user: { select: { nickname: true, name: true } },
+      user: { select: { nickname: true, name: true, totalLikes: true } },
       likes: userId ? { where: { userId }, select: { type: true } } : false,
     },
   });
@@ -73,6 +74,7 @@ export async function getReviewsForCategoryType(
     hasSpoiler: r.hasSpoiler,
     authorId: r.userId,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
+    authorTier: getBadge(r.user.totalLikes),
     createdAt: r.createdAt.toISOString(),
     likeCount: r.likeCount,
     dislikeCount: r.dislikeCount,
@@ -80,7 +82,119 @@ export async function getReviewsForCategoryType(
   }));
 }
 
-export type MyReview = { rating: number; content: string } | null;
+// 홈 화면 영화 카드 평균 평점 — 여러 영화의 SHORT/LONG "전체" 평점 평균을 한 번에 조회.
+export async function getBulkMovieRatingAverages(
+  movieCds: string[]
+): Promise<Map<string, { shortAvg: number | null; longAvg: number | null }>> {
+  if (movieCds.length === 0) return new Map();
+  const rows = await db.review.groupBy({
+    by: ["movieCd", "type"],
+    where: { movieCd: { in: movieCds }, category: "전체" },
+    _avg: { rating: true },
+  });
+  const result = new Map<string, { shortAvg: number | null; longAvg: number | null }>();
+  for (const row of rows) {
+    const entry = result.get(row.movieCd) ?? { shortAvg: null, longAvg: null };
+    if (row.type === "SHORT") entry.shortAvg = row._avg.rating ?? null;
+    else if (row.type === "LONG") entry.longAvg = row._avg.rating ?? null;
+    result.set(row.movieCd, entry);
+  }
+  return result;
+}
+
+export type UserReviewStats = {
+  movieCount: number;
+  reviewCount: number;
+  shortCount: number;
+  longCount: number;
+  shortAvg: number | null;
+  longAvg: number | null;
+  topLikedContent: string | null;
+  topLikedCount: number;
+};
+
+export async function getUserReviewStats(userId: string): Promise<UserReviewStats> {
+  const [grouped, topLiked, distinctMovies] = await Promise.all([
+    db.review.groupBy({
+      by: ["type"],
+      where: { userId },
+      _count: { _all: true },
+      _avg: { rating: true },
+    }),
+    db.review.findFirst({
+      where: { userId, likeCount: { gt: 0 } },
+      orderBy: { likeCount: "desc" },
+      select: { content: true, likeCount: true },
+    }),
+    db.review.findMany({
+      where: { userId },
+      select: { movieCd: true },
+      distinct: ["movieCd"],
+    }),
+  ]);
+
+  const byType = new Map(grouped.map((r) => [r.type, r]));
+  const short = byType.get("SHORT");
+  const long = byType.get("LONG");
+
+  return {
+    movieCount: distinctMovies.length,
+    reviewCount: grouped.reduce((s, r) => s + r._count._all, 0),
+    shortCount: short?._count._all ?? 0,
+    longCount: long?._count._all ?? 0,
+    shortAvg: short?._avg.rating ?? null,
+    longAvg: long?._avg.rating ?? null,
+    topLikedContent: topLiked?.content ?? null,
+    topLikedCount: topLiked?.likeCount ?? 0,
+  };
+}
+
+export type UserReview = {
+  id: string;
+  movieCd: string;
+  movieTitle: string;
+  category: string;
+  type: "SHORT" | "LONG";
+  rating: number;
+  content: string;
+  hasSpoiler: boolean;
+  createdAt: string;
+};
+
+export async function getReviewsByUser(userId: string): Promise<UserReview[]> {
+  const [rows, movies] = await Promise.all([
+    db.review.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
+    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
+  ]);
+  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  return rows.map((r) => ({
+    id: r.id,
+    movieCd: r.movieCd,
+    movieTitle: titleMap.get(r.movieCd) ?? r.movieCd,
+    category: r.category,
+    type: r.type as "SHORT" | "LONG",
+    rating: r.rating,
+    content: r.content,
+    hasSpoiler: r.hasSpoiler,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function getUserProfileData(userId: string) {
+  return db.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      image: true,
+      totalLikes: true,
+      _count: { select: { followers: true, following: true, reviews: true } },
+    },
+  });
+}
+
+export type MyReview = { rating: number; content: string; createdAt: string } | null;
 
 // 지금 로그인한 사람이 이 영화의 이 항목·타입(한줄평/장문평)에 이미 남긴 리뷰(있으면).
 export async function getMyReview(
@@ -93,5 +207,5 @@ export async function getMyReview(
   const row = await db.review.findFirst({
     where: { userId, movieCd, category, type },
   });
-  return row ? { rating: row.rating, content: row.content } : null;
+  return row ? { rating: row.rating, content: row.content, createdAt: row.createdAt.toISOString() } : null;
 }

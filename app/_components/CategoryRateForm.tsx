@@ -2,16 +2,29 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import StarRating from "./StarRating";
 import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
-import { submitCategoryRatingAction, submitReviewAction } from "../_lib/review-actions";
+import { submitReviewAction, deleteReviewAction, adminDeleteReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
+import { upsertMyReview, initForUser, removeReview } from "../_lib/reviews-store";
+import { TIER_STYLES } from "../_lib/tier";
+import type { Tier } from "../_lib/tier";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function TierBadge({ tier }: { tier: string }) {
+  const style = TIER_STYLES[(tier as Tier)] ?? TIER_STYLES["관객"];
+  return (
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${style.border} ${style.text}`}>
+      {tier}
+    </span>
+  );
 }
 
 // 리뷰 하나에 대한 좋아요/싫어요 버튼. 낙관적으로 먼저 화면을 바꾸고, 서버 액션이
@@ -66,27 +79,36 @@ function ReviewVoteButtons({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={() => handleVote("LIKE")}
-        className={`flex items-center gap-1 text-xs font-semibold transition-colors ${
-          myVote === "LIKE" ? "text-brand" : "text-muted hover:text-text"
+        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+          myVote === "LIKE"
+            ? "bg-brand text-white"
+            : "border border-neutral-700 text-muted hover:border-neutral-500 hover:text-text"
         }`}
       >
-        👍 {likeCount}
+        좋아요 {likeCount}
       </button>
       <button
         type="button"
         onClick={() => handleVote("DISLIKE")}
-        className={`flex items-center gap-1 text-xs font-semibold transition-colors ${
-          myVote === "DISLIKE" ? "text-brand" : "text-muted hover:text-text"
+        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+          myVote === "DISLIKE"
+            ? "bg-neutral-600 text-white"
+            : "border border-neutral-700 text-muted hover:border-neutral-500 hover:text-text"
         }`}
       >
-        👎 {dislikeCount}
+        싫어요 {dislikeCount}
       </button>
     </div>
   );
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
 type ReviewTab = "SHORT" | "LONG";
@@ -106,44 +128,33 @@ const SHORT_MAX_SENTENCES = 2;
 export default function CategoryRateForm({
   movieId,
   movieCd,
+  movieTitle,
+  moviePosterUrl,
+  movieGradient,
   category,
   isLoggedIn,
-  categoryAverage,
-  myScore,
+  userId = null,
+  isAdmin = false,
   reviews,
   myReviews,
 }: {
   movieId: string;
   movieCd: string;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieGradient: string;
   category: RatingCategory;
   isLoggedIn: boolean;
-  categoryAverage: { average: number | null; count: number };
-  myScore: number | null;
+  userId?: string | null;
+  isAdmin?: boolean;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
 }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [value, setValue] = useState(myScore ?? 8);
-  const [submittingScore, setSubmittingScore] = useState(false);
-
   function goToSignIn() {
     router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
-  }
-
-  async function handleSubmitCategoryRating() {
-    if (!isLoggedIn) {
-      goToSignIn();
-      return;
-    }
-    setSubmittingScore(true);
-    try {
-      await submitCategoryRatingAction(movieId, movieCd, category, value);
-      router.refresh();
-    } finally {
-      setSubmittingScore(false);
-    }
   }
 
   const [activeTab, setActiveTab] = useState<ReviewTab>("SHORT");
@@ -152,6 +163,7 @@ export default function CategoryRateForm({
   const [shortContent, setShortContent] = useState(myReviews.SHORT?.content ?? "");
   const [longContent, setLongContent] = useState(myReviews.LONG?.content ?? "");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
 
   const content = activeTab === "SHORT" ? shortContent : longContent;
   const setContent = activeTab === "SHORT" ? setShortContent : setLongContent;
@@ -159,9 +171,37 @@ export default function CategoryRateForm({
   const scale = activeTab === "SHORT" ? 10 : 100;
   const sentenceCount = activeTab === "SHORT" ? countSentences(content) : 0;
   const tooManySentences = activeTab === "SHORT" && sentenceCount > SHORT_MAX_SENTENCES;
-  const canSubmitReview = content.trim().length > 0 && !tooManySentences;
+  const canSubmitReview = !tooManySentences;
   const myReview = myReviews[activeTab];
-  const activeReviews = reviews[activeTab];
+  // SHORT: 평점만 남긴 것도 포함해서 모두 표시, LONG: 텍스트 있는 것만 표시
+  const displayReviews = activeTab === "SHORT"
+    ? reviews[activeTab]
+    : reviews[activeTab].filter((r) => r.content.trim().length > 0);
+
+  async function handleDeleteReview(reviewId: string) {
+    if (deletingReviewId) return;
+    setDeletingReviewId(reviewId);
+    try {
+      await deleteReviewAction({ reviewId, movieId, category });
+      removeReview(reviewId);
+      router.refresh();
+    } finally {
+      setDeletingReviewId(null);
+    }
+  }
+
+  async function handleAdminDelete(reviewId: string, content: string) {
+    if (!confirm(`관리자 권한으로 이 리뷰를 삭제하시겠습니까?\n\n"${content.slice(0, 60)}"`)) return;
+    if (deletingReviewId) return;
+    setDeletingReviewId(reviewId);
+    try {
+      await adminDeleteReviewAction({ reviewId });
+      removeReview(reviewId);
+      router.refresh();
+    } finally {
+      setDeletingReviewId(null);
+    }
+  }
 
   async function handleSubmitReview(e: FormEvent) {
     e.preventDefault();
@@ -178,6 +218,18 @@ export default function CategoryRateForm({
         movieCd,
         category,
         type: activeTab,
+        rating: reviewRating,
+        content: content.trim(),
+      });
+      initForUser(userId);
+      upsertMyReview({
+        movieId,
+        movieCd,
+        movieTitle,
+        moviePosterUrl,
+        movieGradient,
+        category,
+        type: activeTab === "SHORT" ? "short" : "long",
         rating: reviewRating,
         content: content.trim(),
       });
@@ -198,61 +250,7 @@ export default function CategoryRateForm({
         </p>
       )}
 
-      <div className="rounded-lg border border-neutral-700 bg-surface p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-text">{category} 평점 남기기</h2>
-          <span className="text-sm text-muted">
-            평균{" "}
-            <span className="font-bold text-star">
-              {categoryAverage.average !== null ? categoryAverage.average.toFixed(1) : "-"}
-            </span>
-            {categoryAverage.count > 0 && ` (${categoryAverage.count}명)`}
-          </span>
-        </div>
-        {category === "전체" && (
-          <p className="mt-1 text-[11px] text-muted">
-            리뷰 없이 평점만 남겨도 한줄평 평점에 같이 기록돼요
-          </p>
-        )}
-
-        <div className="mt-4">
-          <StarRating rating={value} scale={10} size="h-6 w-6" />
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={10}
-              step={0.1}
-              value={value}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (!Number.isNaN(next)) {
-                  setValue(Math.round(clamp(next, 0, 10) * 10) / 10);
-                }
-              }}
-              className="w-24 rounded-lg border border-neutral-700 bg-bg px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
-            />
-            <span className="text-xs text-muted">/ 10.0 (소수점 첫째 자리까지)</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSubmitCategoryRating}
-          disabled={submittingScore}
-          className="mt-6 w-full rounded-full bg-brand py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {myScore !== null ? "평점 수정하기" : "평점 등록하기"}
-        </button>
-
-        {myScore !== null && (
-          <p className="mt-2 text-center text-xs text-muted">
-            내가 남긴 {category} 평점: {myScore.toFixed(1)}
-          </p>
-        )}
-      </div>
-
-      <div className="mt-6 flex gap-2">
+      <div className="flex gap-2">
         {tabs.map((tab) => (
           <button
             key={tab.type}
@@ -269,7 +267,29 @@ export default function CategoryRateForm({
         ))}
       </div>
 
-      <form onSubmit={handleSubmitReview} className="mt-6 space-y-4">
+      {myReview && (
+        <div className="mt-4 rounded-lg border border-neutral-700 bg-surface px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-star">내 평점</span>
+              <StarRating rating={myReview.rating} scale={scale} size="h-5 w-5" />
+              <span className="text-xs font-normal text-muted">/{scale.toFixed(1)}</span>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted">
+                {myReview.content.trim()
+                  ? myReview.content.trim().slice(0, 24) + (myReview.content.trim().length > 24 ? "…" : "")
+                  : `${activeTab === "SHORT" ? "한줄평" : "장문평"} 없음`}
+              </p>
+              <p className="mt-0.5 text-xs text-muted">
+                {formatDate(myReview.createdAt)} 등록 · 수정
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmitReview} className="mt-4 space-y-4">
         <div>
           <div className="flex items-center gap-3">
             <StarRating rating={reviewRating} scale={scale} size="h-5 w-5" />
@@ -304,19 +324,25 @@ export default function CategoryRateForm({
               placeholder={`${category}에 대해 한 줄로 남겨보세요 (최대 2문장)`}
               className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
             />
-            <p className={`mt-1 text-xs ${tooManySentences ? "text-brand" : "text-muted"}`}>
-              {sentenceCount}/{SHORT_MAX_SENTENCES}문장
-              {tooManySentences && " · 한줄평은 2문장까지만 가능해요"}
-            </p>
+            <div className="mt-1 flex items-center justify-between">
+              <p className={`text-xs ${tooManySentences ? "text-brand" : "text-muted"}`}>
+                {sentenceCount}/{SHORT_MAX_SENTENCES}문장
+                {tooManySentences && " · 한줄평은 2문장까지만 가능해요"}
+              </p>
+              <p className="text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
+            </div>
           </div>
         ) : (
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={8}
-            placeholder={`${category}에 대한 자세한 감상평을 남겨주세요`}
-            className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
-          />
+          <div>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={8}
+              placeholder={`${category}에 대한 자세한 감상평을 남겨주세요`}
+              className="w-full rounded-lg border border-neutral-700 bg-surface px-4 py-3 text-text placeholder:text-muted focus:border-brand focus:outline-none"
+            />
+            <p className="mt-1 text-right text-[11px] text-muted">글 없이 평점만 남겨도 등록할 수 있어요</p>
+          </div>
         )}
 
         <button
@@ -330,19 +356,34 @@ export default function CategoryRateForm({
 
       <div className="mt-8">
         <h2 className="text-sm font-bold text-text">
-          {category} {tabs.find((t) => t.type === activeTab)?.label} ({activeReviews.length})
+          전체 {tabs.find((t) => t.type === activeTab)?.label} ({displayReviews.length})
         </h2>
         <ul className="mt-3 space-y-3">
-          {activeReviews.map((review) => (
-            <li key={review.id} className="rounded-lg bg-surface p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-text">{review.authorName}</span>
-                <StarRating rating={review.rating} scale={scale} size="h-3 w-3" />
+          {displayReviews.map((review) => (
+            <li key={review.id} className="rounded-xl bg-surface px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <Link
+                  href={`/users/${review.authorId}`}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text hover:opacity-80"
+                >
+                  {review.authorName.charAt(0)}
+                </Link>
+                <Link href={`/users/${review.authorId}`} className="text-sm font-semibold text-text hover:underline">
+                  {review.authorName}
+                </Link>
+                <TierBadge tier={review.authorTier} />
+                <div className="ml-auto">
+                  <StarRating rating={review.rating} scale={scale} size="h-3.5 w-3.5" />
+                </div>
               </div>
-              <div className="mt-1.5">
-                <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
-              </div>
-              <div className="mt-2">
+              {review.content.trim() ? (
+                <div className="mt-2">
+                  <SpoilerText content={review.content} className="whitespace-pre-wrap text-sm text-text" />
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted">평점만 남김</p>
+              )}
+              <div className="mt-3 flex items-center justify-between gap-2">
                 <ReviewVoteButtons
                   reviewId={review.id}
                   isLoggedIn={isLoggedIn}
@@ -351,6 +392,26 @@ export default function CategoryRateForm({
                   initialDislikeCount={review.dislikeCount}
                   initialMyVote={review.myVote}
                 />
+                {userId && review.authorId === userId && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteReview(review.id)}
+                    disabled={deletingReviewId === review.id}
+                    className="rounded px-2 py-1 text-xs text-muted transition-colors hover:text-red-400 disabled:opacity-50"
+                  >
+                    {deletingReviewId === review.id ? "삭제 중…" : "삭제"}
+                  </button>
+                )}
+                {isAdmin && review.authorId !== userId && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminDelete(review.id, review.content)}
+                    disabled={deletingReviewId === review.id}
+                    className="rounded px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:text-red-400 disabled:opacity-50"
+                  >
+                    {deletingReviewId === review.id ? "삭제 중…" : "🚨 관리자 삭제"}
+                  </button>
+                )}
               </div>
             </li>
           ))}

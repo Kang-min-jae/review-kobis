@@ -19,10 +19,16 @@ export default function MyStyleReport() {
   if (reviews.length === 0) return null;
 
   const movieCount = new Set(reviews.map((r) => r.movieId)).size;
-  const shortCount = reviews.filter((r) => r.type === "short").length;
-  const longCount = reviews.filter((r) => r.type === "long").length;
-  const avgNormalized =
-    reviews.reduce((sum, r) => sum + r.rating / (r.type === "short" ? 10 : 100), 0) / reviews.length;
+  const shortReviews = reviews.filter((r) => r.type === "short");
+  const longReviews = reviews.filter((r) => r.type === "long");
+
+  // 한줄평 평균: 0~10 척도 그대로, 장문평 평균: 0~100을 10으로 환산
+  const shortAvg = shortReviews.length > 0
+    ? shortReviews.reduce((sum, r) => sum + r.rating, 0) / shortReviews.length
+    : null;
+  const longAvg = longReviews.length > 0
+    ? longReviews.reduce((sum, r) => sum + r.rating, 0) / longReviews.length
+    : null;
 
   const [topLiked] = [...reviews]
     .map((review) => ({ review, likes: getReviewVote(votesState, review.id).likes }))
@@ -35,19 +41,23 @@ export default function MyStyleReport() {
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg bg-black/30 p-3 text-center">
           <p className="text-lg font-bold text-brand">{movieCount}</p>
-          <p className="mt-0.5 text-[11px] text-muted">평가한 영화</p>
+          <p className="mt-0.5 text-[11px] text-muted">평가한 작품</p>
         </div>
         <div className="rounded-lg bg-black/30 p-3 text-center">
           <p className="text-lg font-bold text-brand">{reviews.length}</p>
           <p className="mt-0.5 text-[11px] text-muted">남긴 리뷰</p>
         </div>
         <div className="rounded-lg bg-black/30 p-3 text-center">
-          <p className="text-lg font-bold text-star">{(avgNormalized * 10).toFixed(1)}</p>
-          <p className="mt-0.5 text-[11px] text-muted">내 평균 평점</p>
+          <p className="text-lg font-bold text-star">
+            {shortAvg !== null ? shortAvg.toFixed(1) : "—"}
+            <span className="mx-1 text-muted">/</span>
+            {longAvg !== null ? longAvg.toFixed(1) : "—"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted">한줄평(10) / 장문평(100) 평균</p>
         </div>
         <div className="rounded-lg bg-black/30 p-3 text-center">
           <p className="text-lg font-bold text-text">
-            {shortCount} / {longCount}
+            {shortReviews.length} / {longReviews.length}
           </p>
           <p className="mt-0.5 text-[11px] text-muted">한줄평 / 장문평</p>
         </div>
@@ -56,7 +66,7 @@ export default function MyStyleReport() {
       {topLiked && topLiked.likes > 0 && (
         <div className="mt-4 border-t border-neutral-700 pt-3">
           <p className="text-[11px] text-muted">가장 많은 좋아요를 받은 내 평론</p>
-          <p className="mt-1 line-clamp-2 text-sm text-text">“{topLiked.review.content}”</p>
+          <p className="mt-1 line-clamp-2 text-sm text-text">"{topLiked.review.content}"</p>
           <p className="mt-1 text-[11px] font-semibold text-star">👍 {topLiked.likes}</p>
         </div>
       )}

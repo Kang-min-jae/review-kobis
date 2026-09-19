@@ -1,56 +1,32 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import {
-  subscribe,
-  getReviewsSnapshot,
-  getSeedReviewsSnapshot,
-  getCombinedRatingSnapshot,
-} from "../_lib/reviews-store";
-import {
-  subscribe as subscribeVotes,
-  getVotesSnapshot,
-  getServerVotesSnapshot,
-  getReviewVote,
-} from "../_lib/review-votes-store";
+import { getCombinedRatingSnapshot } from "../_lib/reviews-store";
+import { useTopReviews } from "../_lib/use-top-reviews";
+import TopReviewsList from "./TopReviewsList";
 
-const MAX_REVIEWS = 2;
+// 카드를 펼쳤을 때(hover/탭) 포스터 옆에 뜨는 패널.
+// 집계 평점 + 서버 기반 상위 한줄평 2개를 보여준다.
+// BoxOfficeCoverflow 뒤집기 카드와 동일한 useTopReviews/TopReviewsList를 사용한다.
+// KOBIS: "kobis-20241234" → "20241234"
+// 시리즈: "tmdb-tv-4613" → "tmdb-tv-4613" (review DB의 movieCd 키와 동일)
+function toApiMovieCd(movieId: string): string | null {
+  if (movieId.startsWith("kobis-")) return movieId.replace("kobis-", "");
+  if (movieId.startsWith("tmdb-tv-")) return movieId;
+  return null;
+}
 
-// 카드를 펼쳤을 때(hover/탭) 포스터 옆에 뜨는 패널 — 전체 평점과, 좋아요를 가장
-// 많이 받은 한줄평 최대 2개를 보여준다.
-export default function TopReviewsPanel({ movieId }: { movieId: string }) {
-  const reviews = useSyncExternalStore(
-    subscribe,
-    () => getReviewsSnapshot(movieId, "short"),
-    () => getSeedReviewsSnapshot(movieId, "short")
-  );
-  const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
+export default function TopReviewsPanel({ movieId, side = "right" }: { movieId: string; side?: "left" | "right" }) {
   const { average, count } = getCombinedRatingSnapshot(movieId);
-
-  const topReviews = [...reviews]
-    .map((review) => ({ review, likes: getReviewVote(votesState, review.id).likes }))
-    .sort((a, b) => b.likes - a.likes)
-    .slice(0, MAX_REVIEWS);
+  const movieCd = toApiMovieCd(movieId);
+  const { reviews, loading } = useTopReviews(movieCd);
 
   return (
-    <div className="absolute left-full top-0 z-20 ml-2 w-44 rounded-lg border border-neutral-700 bg-surface p-3 shadow-xl sm:w-52">
+    <div className={`absolute top-0 z-20 w-44 rounded-lg border border-neutral-700 bg-surface p-3 shadow-xl sm:w-52 ${side === "left" ? "right-full mr-2" : "left-full ml-2"}`}>
       <p className="text-xs font-semibold text-text">
         평점 <span className="text-star">{average !== null ? (average * 10).toFixed(1) : "-"}</span>
         {count > 0 && <span className="text-muted"> ({count}명)</span>}
       </p>
-
-      {topReviews.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted">아직 등록된 한줄평이 없어요.</p>
-      ) : (
-        <ul className="mt-2 space-y-2">
-          {topReviews.map(({ review }) => (
-            <li key={review.id}>
-              <span className="text-[11px] font-bold text-star">★ {review.rating.toFixed(1)}</span>
-              <p className="mt-0.5 line-clamp-2 text-[11px] text-text">{review.content}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+      <TopReviewsList reviews={reviews} loading={loading} />
     </div>
   );
 }
