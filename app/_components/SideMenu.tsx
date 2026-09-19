@@ -227,7 +227,7 @@ export default function SideMenu({
                 컬렉션
               </Link>
               <Link
-                href="/my-list#following"
+                href="/following"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
