@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 const SITE_NAME = "무비리뷰";
 const SITE_DESCRIPTION = "한국 영화 평점과 리뷰를 남기고, 영화제 수상작을 한눈에 — 나만의 영화 리스트를 만들어 보세요.";
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://review-kobis.vercel.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://review-kobis.vercel.app";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
