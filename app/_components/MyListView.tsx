@@ -295,7 +295,7 @@ export default function MyListView({
               return (
                 <Link
                   key={user.id}
-                  href={`/user/${user.id}`}
+                  href={`/users/${user.id}`}
                   className="flex items-center gap-3 rounded-lg bg-surface p-3 transition-colors hover:bg-surface/80"
                 >
                   {user.image ? (
