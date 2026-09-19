@@ -9,6 +9,7 @@ const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 const CURATED_SERIES_IDS = [
   "93405", "128064", "4613", "87108", "1396",
   "95396", "63333", "71446", "1399", "60059",
+  "84958", "100088", "76479", "94997", "202555",
 ];
 
 type IncomingRating = {
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
       const popular = await getTmdbPopularSeries();
       const results: RowMovie[] = popular
         .filter((s) => s.posterUrl && !ratedSeriesIds.has(`tmdb-tv-${s.tmdbId}`))
-        .slice(0, 8)
+        .slice(0, 15)
         .map((s) => ({
           id: `tmdb-tv-${s.tmdbId}`,
           title: s.name,
@@ -191,22 +192,22 @@ export async function POST(request: Request) {
 
   scored.sort((a, b) => b.totalScore - a.totalScore);
 
-  // Genre diversity: max 50% cap (4 of 8), take top 8
+  // Genre diversity: max 50% cap (7 of 15), take top 15
   const result: typeof scored = [];
   const genreCount = new Map<string, number>();
-  const genreCap = 4;
+  const genreCap = 7;
 
   for (const c of scored) {
-    if (result.length >= 8) break;
+    if (result.length >= 15) break;
     if (c.allGenres.length > 0 && c.allGenres.some((g) => (genreCount.get(g) ?? 0) >= genreCap)) continue;
     for (const g of c.allGenres) genreCount.set(g, (genreCount.get(g) ?? 0) + 1);
     result.push(c);
   }
 
-  // Fill to 8 if diversity pruned too many
-  if (result.length < 4) {
+  // Fill to 15 if diversity pruned too many
+  if (result.length < 8) {
     for (const c of scored) {
-      if (result.length >= 8) break;
+      if (result.length >= 15) break;
       if (!result.includes(c)) result.push(c);
     }
   }
