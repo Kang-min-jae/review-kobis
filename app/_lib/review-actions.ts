@@ -42,6 +42,7 @@ export async function submitCategoryRatingAction(
   }
 
   revalidatePath(categoryPath(movieId, category));
+  revalidatePath("/", "layout");
 }
 
 // 무비 다이어리/나만의 영화 리스트의 "계정 평점"(전체 평점 남기기로 자동 기록된
@@ -59,6 +60,7 @@ export async function deleteAccountRatingAction(movieCd: string) {
   });
 
   revalidatePath("/my-list");
+  revalidatePath("/", "layout");
 }
 
 // 한줄평/장문평 등록/수정. 같은 사람이 같은 영화·항목·타입에 이미 남긴 리뷰가
@@ -102,6 +104,7 @@ export async function submitReviewAction(input: {
   }
 
   revalidatePath(categoryPath(input.movieId, input.category));
+  revalidatePath("/", "layout");
 }
 
 // 내가 남긴 리뷰 하나를 삭제한다. 보안상 자기 리뷰만 지울 수 있도록 userId도

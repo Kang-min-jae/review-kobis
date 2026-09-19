@@ -708,7 +708,7 @@ export const getAllTimeBestRow = unstable_cache(
     }
     return rows;
   },
-  ["all-time-best-row"],
+  ["all-time-best-row-v2"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
