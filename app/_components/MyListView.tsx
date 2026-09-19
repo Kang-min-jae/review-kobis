@@ -300,18 +300,10 @@ export default function MyListView({
                   href={`/users/${user.id}`}
                   className="flex items-center gap-3 rounded-lg bg-surface p-3 transition-colors hover:bg-surface/80"
                 >
-                  {user.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={user.image} alt="" className="h-8 w-8 shrink-0 rounded-full" />
-                  ) : (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
-                      {name.slice(0, 1)}
-                    </div>
-                  )}
-                  <span className="flex-1 truncate text-sm text-text">{name}</span>
-                  <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${tierStyle.border} ${tierStyle.text}`}>
+                  <span className={`shrink-0 rounded border px-2 py-1 text-xs font-bold ${tierStyle.border} ${tierStyle.text} ${tierStyle.bg}`}>
                     {tier}
                   </span>
+                  <span className="flex-1 truncate text-sm text-text">{name}</span>
                 </Link>
               );
             })}
