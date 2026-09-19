@@ -18,6 +18,22 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// 소수점 없는 정수 입력을 자동 변환: SHORT "89"→8.9, LONG "899"→89.9
+// 정수값이 maxScale 이하면 그대로 사용한다 (LONG "89"→89)
+function smartFormatRating(raw: string, maxScale: number): number {
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  if (!cleaned || cleaned === ".") return 0;
+  let num: number;
+  if (cleaned.includes(".")) {
+    num = parseFloat(cleaned);
+  } else {
+    const integer = parseInt(cleaned, 10);
+    num = integer > maxScale ? integer / 10 : integer;
+  }
+  if (Number.isNaN(num)) return 0;
+  return Math.round(clamp(num, 0, maxScale) * 10) / 10;
+}
+
 function TierBadge({ tier }: { tier: string }) {
   const style = TIER_STYLES[(tier as Tier)] ?? TIER_STYLES["관객"];
   return (
@@ -160,10 +176,35 @@ export default function CategoryRateForm({
   const [activeTab, setActiveTab] = useState<ReviewTab>("SHORT");
   const [shortRating, setShortRating] = useState(myReviews.SHORT?.rating ?? 8);
   const [longRating, setLongRating] = useState(myReviews.LONG?.rating ?? 80);
+  const [shortInput, setShortInput] = useState(String(myReviews.SHORT?.rating ?? 8));
+  const [longInput, setLongInput] = useState(String(myReviews.LONG?.rating ?? 80));
   const [shortContent, setShortContent] = useState(myReviews.SHORT?.content ?? "");
   const [longContent, setLongContent] = useState(myReviews.LONG?.content ?? "");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+
+  function handleRatingChange(value: string) {
+    // 숫자와 소수점만 허용, 소수점 중복 방지
+    const parts = value.replace(/[^0-9.]/g, "").split(".");
+    const cleaned = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : parts.join(".");
+    if (activeTab === "SHORT") setShortInput(cleaned);
+    else setLongInput(cleaned);
+    // 별점 실시간 반영
+    const num = parseFloat(cleaned);
+    if (!Number.isNaN(num)) {
+      const rounded = Math.round(clamp(num, 0, activeTab === "SHORT" ? 10 : 100) * 10) / 10;
+      if (activeTab === "SHORT") setShortRating(rounded);
+      else setLongRating(rounded);
+    }
+  }
+
+  function commitRatingInput() {
+    const currentScale = activeTab === "SHORT" ? 10 : 100;
+    const raw = activeTab === "SHORT" ? shortInput : longInput;
+    const formatted = smartFormatRating(raw, currentScale);
+    if (activeTab === "SHORT") { setShortRating(formatted); setShortInput(String(formatted)); }
+    else { setLongRating(formatted); setLongInput(String(formatted)); }
+  }
 
   const content = activeTab === "SHORT" ? shortContent : longContent;
   const setContent = activeTab === "SHORT" ? setShortContent : setLongContent;
@@ -296,18 +337,12 @@ export default function CategoryRateForm({
           </div>
           <div className="mt-2 flex items-center gap-2">
             <input
-              type="number"
-              min={0}
-              max={scale}
-              step={0.1}
-              value={activeTab === "SHORT" ? shortRating : longRating}
-              onChange={(e) => {
-                const next = Number(e.target.value);
-                if (Number.isNaN(next)) return;
-                const rounded = Math.round(clamp(next, 0, scale) * 10) / 10;
-                if (activeTab === "SHORT") setShortRating(rounded);
-                else setLongRating(rounded);
-              }}
+              type="text"
+              inputMode="decimal"
+              value={activeTab === "SHORT" ? shortInput : longInput}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => handleRatingChange(e.target.value)}
+              onBlur={commitRatingInput}
               className="w-24 rounded-lg border border-neutral-700 bg-surface px-3 py-2 text-sm text-text focus:border-brand focus:outline-none"
             />
             <span className="text-xs text-muted">/ {scale.toFixed(1)} (소수점 첫째 자리까지)</span>
