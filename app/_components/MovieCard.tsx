@@ -116,6 +116,14 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         revealed ? "z-10" : "z-0"
       }`}
     >
+      {/* 오버레이가 열렸을 때 외부 탭으로 닫기 — 전체화면 투명 레이어(z-9)가
+          카드(z-10)·패널(z-20) 아래에 깔려 외부 터치를 가로챈다. */}
+      {revealed && (
+        <div
+          className="fixed inset-0 z-[9]"
+          onClick={() => setRevealed(false)}
+        />
+      )}
       <div
         className={`relative aspect-2/3 overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
