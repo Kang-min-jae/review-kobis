@@ -106,6 +106,13 @@ export default function MyListView({
   );
   const topRatedMovies = [...myMovieRatings].sort((a, b) => b.rating - a.rating);
   const recentRatedMovies = [...myMovieRatings].sort((a, b) => (a.ratedAt < b.ratedAt ? 1 : -1));
+
+  // localStorage에 있지만 DB에 없는 항목도 "내가 평점 남긴 작품"에 포함
+  const dbRatedIds = new Set(myRatedMovies.map((m) => m.id));
+  const extraFromLocal = myMovieRatings
+    .filter((m) => !dbRatedIds.has(m.id))
+    .map((m) => ({ id: m.id, title: m.title, posterUrl: m.posterUrl, gradient: m.gradient, rating: m.rating, ratedAt: m.ratedAt }));
+  const allRatedMovies = [...myRatedMovies, ...extraFromLocal];
   const myTier = getBadge(totalLikes);
 
   return (
@@ -155,7 +162,7 @@ export default function MyListView({
         </div>
       )}
 
-      <MyRatedMoviesSection movies={myRatedMovies} />
+      <MyRatedMoviesSection movies={allRatedMovies} />
 
       <div className="mt-6">
         <MyStyleReport />
