@@ -69,8 +69,14 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         if (dx > 8 || dy > 8) movedRef.current = true;
       }
     }
+    // 스크롤 시작 시 브라우저가 포인터를 취소하면 이동한 것으로 간주해 click 토글을 막는다.
+    function onCancel() { movedRef.current = true; }
     el.addEventListener("pointermove", onMove, { passive: true });
-    return () => el.removeEventListener("pointermove", onMove);
+    el.addEventListener("pointercancel", onCancel, { passive: true });
+    return () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointercancel", onCancel);
+    };
   }, []);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
@@ -153,7 +159,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     >
       <div
         ref={posterRef}
-        className={`relative aspect-2/3 touch-pan-y overflow-hidden rounded-lg ${
+        className={`relative aspect-2/3 touch-manipulation overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
         onPointerDown={(e) => {
