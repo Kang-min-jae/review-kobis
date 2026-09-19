@@ -1,10 +1,16 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
+import {
+  subscribe as subscribeReviews,
+  getMyReviewsSnapshot,
+  getServerMyReviewsSnapshot,
+} from "../_lib/reviews-store";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -13,6 +19,18 @@ function formatDate(iso: string): string {
 
 export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] }) {
   const [query, setQuery] = useState("");
+  const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
+
+  // movieId → 한줄평(전체, SHORT) 맵
+  const reviewMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of myReviews) {
+      if (r.type === "short" && (r.category ?? "전체") === "전체" && r.content.trim()) {
+        if (!map.has(r.movieId)) map.set(r.movieId, r.content.trim());
+      }
+    }
+    return map;
+  }, [myReviews]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -50,6 +68,7 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
             const href = movie.id.startsWith("tmdb-tv-")
               ? `/series/${movie.id}/rate`
               : `/movies/${movie.id}/rate`;
+            const reviewContent = reviewMap.get(movie.id);
             return (
               <Link
                 key={movie.id}
@@ -65,7 +84,11 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-text">{movie.title}</p>
-                  <p className="text-[11px] text-muted">내 평점</p>
+                  {reviewContent ? (
+                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">{reviewContent}</p>
+                  ) : (
+                    <p className="text-[11px] text-muted">내 평점</p>
+                  )}
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-[11px] text-muted">{formatDate(movie.ratedAt)}</p>
