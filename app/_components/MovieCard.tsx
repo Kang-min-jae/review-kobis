@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
@@ -40,6 +40,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
+  const touchStartYRef = useRef<number | null>(null);
+  const verticalMovedRef = useRef(false);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -120,17 +122,23 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
           카드(z-10)·패널(z-20) 아래에 깔려 외부 터치를 가로챈다. */}
       {revealed && (
         <div
-          className="fixed inset-0 z-[9]"
+          className="fixed inset-0 z-[9] touch-pan-y"
           onClick={() => setRevealed(false)}
         />
       )}
       <div
-        className={`relative aspect-2/3 overflow-hidden rounded-lg ${
+        className={`relative aspect-2/3 touch-pan-y overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
         onPointerEnter={(e) => { if (e.pointerType !== "touch") setRevealed(true); }}
         onPointerLeave={(e) => { if (e.pointerType !== "touch") setRevealed(false); }}
-        onClick={() => setRevealed((v) => !v)}
+        onPointerDown={(e) => { touchStartYRef.current = e.clientY; verticalMovedRef.current = false; }}
+        onPointerMove={(e) => {
+          if (touchStartYRef.current !== null && Math.abs(e.clientY - touchStartYRef.current) > 10) {
+            verticalMovedRef.current = true;
+          }
+        }}
+        onClick={() => { if (!verticalMovedRef.current) setRevealed((v) => !v); }}
       >
         {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} onError={() => setPosterFailed(true)} />}
         {/* 왼쪽: 추천 % */}
