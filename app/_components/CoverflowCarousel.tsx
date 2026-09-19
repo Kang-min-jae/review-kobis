@@ -134,6 +134,8 @@ export default function CoverflowCarousel({
   const [dragging, setDragging] = useState(false);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
   const dragStartXRef = useRef<number | null>(null);
+  const dragStartYRef = useRef<number | null>(null);
+  const directionRef = useRef<"h" | "v" | null>(null);
   const draggedRef = useRef(false);
   const pressedCardRef = useRef<{ index: number; offset: number } | null>(null);
 
@@ -167,24 +169,44 @@ export default function CoverflowCarousel({
       return;
     }
     dragStartXRef.current = e.clientX;
+    dragStartYRef.current = e.clientY;
+    directionRef.current = null;
     draggedRef.current = false;
-    setDragging(true);
     const cardEl = (e.target as HTMLElement).closest<HTMLElement>("[data-card-index]");
     pressedCardRef.current = cardEl
       ? { index: Number(cardEl.dataset.cardIndex), offset: Number(cardEl.dataset.cardOffset) }
       : null;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // setPointerCapture는 수평 방향이 확정된 뒤에만 호출 — 여기서 즉시 호출하면
+    // touch-pan-y가 있어도 브라우저 수직 스크롤이 막힌다.
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (dragStartXRef.current === null) return;
-    const delta = e.clientX - dragStartXRef.current;
-    if (Math.abs(delta) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
-    setDragOffsetPx(delta);
+    if (dragStartXRef.current === null || dragStartYRef.current === null) return;
+    const deltaX = e.clientX - dragStartXRef.current;
+    const deltaY = e.clientY - dragStartYRef.current;
+    if (directionRef.current === null) {
+      if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
+      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        // 수직 이동 — 브라우저 스크롤에 위임하고 드래그 상태를 초기화
+        directionRef.current = "v";
+        dragStartXRef.current = null;
+        dragStartYRef.current = null;
+        pressedCardRef.current = null;
+        return;
+      }
+      directionRef.current = "h";
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (directionRef.current !== "h") return;
+    if (Math.abs(deltaX) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
+    setDragOffsetPx(deltaX);
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     if (dragStartXRef.current === null) return;
     const delta = e.clientX - dragStartXRef.current;
     dragStartXRef.current = null;
+    dragStartYRef.current = null;
+    directionRef.current = null;
     setDragging(false);
     setDragOffsetPx(0);
     if (Math.abs(delta) > DRAG_ADVANCE_THRESHOLD_PX) {
