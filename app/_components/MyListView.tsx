@@ -9,6 +9,7 @@ import ScrollRow from "./ScrollRow";
 import MyStyleReport from "./MyStyleReport";
 import MovieDiaryCalendar from "./MovieDiaryCalendar";
 import CustomListsSection from "./CustomListsSection";
+import RatedMovieSearch from "./RatedMovieSearch";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import { getBadge } from "../_lib/tier";
 import {
@@ -118,6 +119,8 @@ export default function MyListView({
   return (
     <div className="px-5 py-6">
       {showCalendar && <MovieDiaryCalendar reviews={myReviews} serverRatedMovies={myRatedMovies} userId={userId} />}
+
+      {allRatedMovies.length > 0 && <RatedMovieSearch movies={allRatedMovies} />}
 
       <div className="mt-6 flex items-start justify-between gap-4">
         <div>
