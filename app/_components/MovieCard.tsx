@@ -43,6 +43,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const movedRef = useRef(false);
+  const lastPointerTypeRef = useRef<string>("");
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -118,6 +119,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       className={`relative w-[130px] shrink-0 rounded-xl border border-white/15 bg-white/5 p-2 shadow-lg backdrop-blur-sm sm:w-40 ${
         revealed ? "z-10" : "z-0"
       }`}
+      onPointerEnter={(e) => { if (e.pointerType !== "touch") setRevealed(true); }}
+      onPointerLeave={(e) => { if (e.pointerType !== "touch") setRevealed(false); }}
     >
       {/* 오버레이가 열렸을 때 외부 탭으로 닫기 — 전체화면 투명 레이어(z-9)가
           카드(z-10)·패널(z-20) 아래에 깔려 외부 터치를 가로챈다. */}
@@ -131,9 +134,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         className={`relative aspect-2/3 touch-auto overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
-        onPointerEnter={(e) => { if (e.pointerType !== "touch") setRevealed(true); }}
-        onPointerLeave={(e) => { if (e.pointerType !== "touch") setRevealed(false); }}
         onPointerDown={(e) => {
+          lastPointerTypeRef.current = e.pointerType;
           touchStartXRef.current = e.clientX;
           touchStartYRef.current = e.clientY;
           movedRef.current = false;
@@ -145,7 +147,9 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
             if (dx > 8 || dy > 8) movedRef.current = true;
           }
         }}
-        onClick={() => { if (!movedRef.current) setRevealed((v) => !v); }}
+        onClick={() => {
+          if (lastPointerTypeRef.current === "touch" && !movedRef.current) setRevealed((v) => !v);
+        }}
       >
         {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} onError={() => setPosterFailed(true)} />}
         {/* 왼쪽: 추천 % */}
@@ -186,15 +190,15 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
             예매/평점 바로가기. 안 보일 땐 pointer-events-none이라 숨어있는 버튼이
             먼저 탭을 가로채지 않고, 위 onClick으로 넘어가 열리기만 한다. */}
         <div
-          className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-black/40 transition-opacity duration-200 ${
-            revealed ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+          className={`pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/20 to-black/40 transition-opacity duration-200 ${
+            revealed ? "opacity-100" : "opacity-0"
           }`}
         >
           <div className="flex gap-1.5 p-2">
             {movie.isNowShowing && (
               <Link
                 href={`/theaters?movie=${movie.id}`}
-                className="flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+                className="pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
               >
                 🎫 예매
               </Link>
@@ -202,14 +206,14 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
             {isRatable ? (
               <Link
                 href={rateHref}
-                className={`flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
+                className={`pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
                   myMovieRating !== null ? "bg-star/25 text-star" : "bg-black/50 text-star"
                 }`}
               >
                 {myMovieRating !== null ? `★ ${myMovieRating.toFixed(1)}점` : "★ 평점"}
               </Link>
             ) : (
-              <span className="flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
+              <span className="pointer-events-auto flex-1 whitespace-nowrap rounded-full border border-neutral-600 bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-muted">
                 평점 준비중
               </span>
             )}
