@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import StarRating from "./StarRating";
 import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
@@ -351,10 +352,15 @@ export default function CategoryRateForm({
           {displayReviews.map((review) => (
             <li key={review.id} className="rounded-xl bg-surface px-4 py-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text">
+                <Link
+                  href={`/users/${review.authorId}`}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text hover:opacity-80"
+                >
                   {review.authorName.charAt(0)}
-                </div>
-                <span className="text-sm font-semibold text-text">{review.authorName}</span>
+                </Link>
+                <Link href={`/users/${review.authorId}`} className="text-sm font-semibold text-text hover:underline">
+                  {review.authorName}
+                </Link>
                 <TierBadge tier={review.authorTier} />
                 <div className="ml-auto">
                   <StarRating rating={review.rating} scale={scale} size="h-3.5 w-3.5" />

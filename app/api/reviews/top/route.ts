@@ -4,6 +4,7 @@ import { getBadge } from "../../../_lib/tier";
 
 export type TopReview = {
   id: string;
+  authorId: string;
   authorName: string;
   authorTier: string;
   rating: number;
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
 
   const reviews: TopReview[] = rows.map((r) => ({
     id: r.id,
+    authorId: r.userId,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
     authorTier: getBadge(r.user.totalLikes),
     rating: r.rating,

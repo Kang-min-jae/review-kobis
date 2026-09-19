@@ -102,6 +102,50 @@ export async function getBulkMovieRatingAverages(
   return result;
 }
 
+export type UserReview = {
+  id: string;
+  movieCd: string;
+  movieTitle: string;
+  category: string;
+  type: "SHORT" | "LONG";
+  rating: number;
+  content: string;
+  hasSpoiler: boolean;
+  createdAt: string;
+};
+
+export async function getReviewsByUser(userId: string): Promise<UserReview[]> {
+  const [rows, movies] = await Promise.all([
+    db.review.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
+    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
+  ]);
+  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  return rows.map((r) => ({
+    id: r.id,
+    movieCd: r.movieCd,
+    movieTitle: titleMap.get(r.movieCd) ?? r.movieCd,
+    category: r.category,
+    type: r.type as "SHORT" | "LONG",
+    rating: r.rating,
+    content: r.content,
+    hasSpoiler: r.hasSpoiler,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function getUserProfileData(userId: string) {
+  return db.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      image: true,
+      _count: { select: { followers: true, following: true, reviews: true } },
+    },
+  });
+}
+
 export type MyReview = { rating: number; content: string; createdAt: string } | null;
 
 // 지금 로그인한 사람이 이 영화의 이 항목·타입(한줄평/장문평)에 이미 남긴 리뷰(있으면).

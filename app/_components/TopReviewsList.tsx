@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import StarRating from "./StarRating";
 import type { TopReview } from "../_lib/use-top-reviews";
 
@@ -41,7 +42,9 @@ export default function TopReviewsList({
         <div key={r.id} className="rounded bg-neutral-800/60 px-2 py-1.5">
           <div className="flex items-center justify-between gap-1">
             <div className="flex min-w-0 items-center gap-1">
-              <span className="truncate text-[10px] font-semibold text-text">{r.authorName}</span>
+              <Link href={`/users/${r.authorId}`} className="truncate text-[10px] font-semibold text-text hover:underline">
+                {r.authorName}
+              </Link>
               <TierBadge tier={r.authorTier} />
             </div>
             <div className="flex shrink-0 items-center gap-1">
