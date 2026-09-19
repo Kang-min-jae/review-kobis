@@ -108,6 +108,7 @@ export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
 export async function getPopularSeriesRow(): Promise<RowMovie[]> {
   let topRated: { movieCd: string; _avg: { score: number | null } }[] = [];
   try {
+    // @ts-expect-error Prisma 7 groupBy type overload mismatch
     topRated = await db.categoryRating.groupBy({
       by: ["movieCd"],
       where: { category: "전체" },
@@ -173,6 +174,7 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
   // 1. DB에서 평점 수 많은 순으로 tmdb-tv-* movieCd 조회
   let topRated: { movieCd: string; _count: { movieCd: number } }[] = [];
   try {
+    // @ts-expect-error Prisma 7 groupBy type overload mismatch
     topRated = await db.categoryRating.groupBy({
       by: ["movieCd"],
       _count: { movieCd: true },
