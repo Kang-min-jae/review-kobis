@@ -45,6 +45,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const movedRef = useRef(false);
   const lastPointerTypeRef = useRef<string>("");
   const cardRef = useRef<HTMLDivElement>(null);
+  const posterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!revealed) return;
@@ -56,6 +57,21 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     document.addEventListener("pointerdown", onOutsideTouch);
     return () => document.removeEventListener("pointerdown", onOutsideTouch);
   }, [revealed]);
+
+  // passive 리스너로 등록해 브라우저의 스크롤 판단을 막지 않는다.
+  useEffect(() => {
+    const el = posterRef.current;
+    if (!el) return;
+    function onMove(e: PointerEvent) {
+      if (touchStartXRef.current !== null && touchStartYRef.current !== null) {
+        const dx = Math.abs(e.clientX - touchStartXRef.current);
+        const dy = Math.abs(e.clientY - touchStartYRef.current);
+        if (dx > 8 || dy > 8) movedRef.current = true;
+      }
+    }
+    el.addEventListener("pointermove", onMove, { passive: true });
+    return () => el.removeEventListener("pointermove", onMove);
+  }, []);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -136,7 +152,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       ref={cardRef}
     >
       <div
-        className={`relative aspect-2/3 touch-auto overflow-hidden rounded-lg ${
+        ref={posterRef}
+        className={`relative aspect-2/3 touch-pan-y overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
         onPointerDown={(e) => {
@@ -144,13 +161,6 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
           touchStartXRef.current = e.clientX;
           touchStartYRef.current = e.clientY;
           movedRef.current = false;
-        }}
-        onPointerMove={(e) => {
-          if (touchStartXRef.current !== null && touchStartYRef.current !== null) {
-            const dx = Math.abs(e.clientX - touchStartXRef.current);
-            const dy = Math.abs(e.clientY - touchStartYRef.current);
-            if (dx > 8 || dy > 8) movedRef.current = true;
-          }
         }}
         onClick={() => {
           if (lastPointerTypeRef.current === "touch" && !movedRef.current) setRevealed((v) => !v);
