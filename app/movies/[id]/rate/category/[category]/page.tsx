@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { auth } from "../../../../../../auth";
 import { resolveMovieRateInfo } from "../../../../../_lib/movie-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
@@ -15,6 +16,26 @@ import CategoryRatings from "../../../../../_components/CategoryRatings";
 import CategoryRateForm from "../../../../../_components/CategoryRateForm";
 import AwardsBanner from "../../../../../_components/AwardsBanner";
 import { getMovieAwardWins } from "../../../../../_lib/award-winners";
+
+export async function generateMetadata({
+  params,
+}: PageProps<"/movies/[id]/rate/category/[category]">): Promise<Metadata> {
+  const { id } = await params;
+  const info = await resolveMovieRateInfo(id);
+  if (!info) return {};
+  const title = info.movieTitle;
+  const description = `${title} 평점과 리뷰 — 연출, 연기, 각본, 음악, 편집 항목별 평가를 남겨보세요.`;
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      ...(info.posterUrl ? { images: [{ url: info.posterUrl }] } : {}),
+    },
+    twitter: { title, description },
+  };
+}
 
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import SiteHeader from "../../_components/SiteHeader";
 import UserProfileView from "../../_components/UserProfileView";
 import UserReadOnlyListView from "../../_components/UserReadOnlyListView";
@@ -7,6 +8,21 @@ import { getUserProfileData, getUserReviewStats, getReviewsByUser } from "../../
 import { getMyRatedMovies } from "../../_lib/my-rated-movies";
 import { checkIsFollowing, getFollowerCount } from "../../_lib/follow-actions";
 import { notFound } from "next/navigation";
+
+export async function generateMetadata({ params }: PageProps<"/users/[id]">): Promise<Metadata> {
+  const { id } = await params;
+  const profileUser = await getUserProfileData(id);
+  if (!profileUser) return {};
+  const name = profileUser.nickname ?? profileUser.name ?? "사용자";
+  const title = `${name}님의 영화 리스트`;
+  const description = `${name}님이 평점을 남긴 영화 목록과 리뷰를 확인하세요.`;
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+    twitter: { title, description },
+  };
+}
 
 export default async function UserProfilePage({ params }: PageProps<"/users/[id]">) {
   const { id } = await params;
