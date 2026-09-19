@@ -216,6 +216,50 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
             </div>
           )}
 
+          {/* 공식 수상작 황금 카드 — 검색창 위 */}
+          {!loadingVotes && officialWinner && (() => {
+            const winnerVote = votes.find((v) => {
+              const t = v.movieTitle.trim().toLowerCase();
+              const w = officialWinner.title.trim().toLowerCase();
+              const e = (officialWinner.titleEn ?? "").trim().toLowerCase();
+              return t === w || (e && t === e);
+            });
+            const winnerPct = winnerVote && totalVotes > 0
+              ? Math.round((winnerVote.count / totalVotes) * 100)
+              : null;
+            return (
+              <div className="mb-5 overflow-hidden rounded-xl border-2 border-yellow-400 bg-gradient-to-r from-yellow-950/60 via-neutral-900 to-yellow-950/40 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
+                <div className="flex items-center gap-2 border-b border-yellow-400/20 px-4 py-2">
+                  <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-[11px] font-bold text-black">
+                    👑 {officialWinner.ceremonyYear} 공식 수상작
+                  </span>
+                  <span className="text-[11px] font-semibold text-yellow-300">{officialWinner.categoryLabel}</span>
+                  {winnerPct !== null && (
+                    <span className="ml-auto shrink-0 text-[11px] text-neutral-400">
+                      유저 투표 {winnerPct}% ({winnerVote!.count}표)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 px-4 py-3">
+                  {officialWinner.posterUrl ? (
+                    <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded border border-yellow-400/40">
+                      <Image src={officialWinner.posterUrl} alt="" fill className="object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-16 w-11 shrink-0 rounded bg-neutral-700" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-extrabold text-white">{officialWinner.title}</p>
+                    {officialWinner.titleEn && officialWinner.titleEn !== officialWinner.title && (
+                      <p className="truncate text-[11px] text-neutral-400">{officialWinner.titleEn}</p>
+                    )}
+                    <p className="mt-1 text-[11px] text-yellow-400/90">✨ 해당 부문 최종 수상작으로 선정되었습니다</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* 검색 */}
           {loggedIn ? (
             <div className="relative">
@@ -294,49 +338,6 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
               )}
             </div>
 
-            {/* 공식 수상작 황금 카드 */}
-            {!loadingVotes && officialWinner && (() => {
-              const winnerVote = votes.find((v) => {
-                const t = v.movieTitle.trim().toLowerCase();
-                const w = officialWinner.title.trim().toLowerCase();
-                const e = (officialWinner.titleEn ?? "").trim().toLowerCase();
-                return t === w || (e && t === e);
-              });
-              const winnerPct = winnerVote && totalVotes > 0
-                ? Math.round((winnerVote.count / totalVotes) * 100)
-                : null;
-              return (
-                <div className="mb-5 overflow-hidden rounded-xl border-2 border-yellow-400 bg-gradient-to-r from-yellow-950/60 via-neutral-900 to-yellow-950/40 shadow-[0_0_20px_rgba(250,204,21,0.2)]">
-                  <div className="flex items-center gap-2 border-b border-yellow-400/20 px-4 py-2">
-                    <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-[11px] font-bold text-black">
-                      👑 {officialWinner.ceremonyYear} 공식 수상작
-                    </span>
-                    <span className="text-[11px] font-semibold text-yellow-300">{officialWinner.categoryLabel}</span>
-                    {winnerPct !== null && (
-                      <span className="ml-auto shrink-0 text-[11px] text-neutral-400">
-                        유저 투표 {winnerPct}% ({winnerVote!.count}표)
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    {officialWinner.posterUrl ? (
-                      <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded border border-yellow-400/40">
-                        <Image src={officialWinner.posterUrl} alt="" fill className="object-cover" />
-                      </div>
-                    ) : (
-                      <div className="h-16 w-11 shrink-0 rounded bg-neutral-700" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-base font-extrabold text-white">{officialWinner.title}</p>
-                      {officialWinner.titleEn && officialWinner.titleEn !== officialWinner.title && (
-                        <p className="truncate text-[11px] text-neutral-400">{officialWinner.titleEn}</p>
-                      )}
-                      <p className="mt-1 text-[11px] text-yellow-400/90">✨ 해당 부문 최종 수상작으로 선정되었습니다</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
 
             {loadingVotes && (
               <div className="space-y-3">
