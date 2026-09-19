@@ -1,19 +1,20 @@
 import SiteHeader from "../../_components/SiteHeader";
 import UserProfileView from "../../_components/UserProfileView";
-import UserReviewsList from "../../_components/UserReviewsList";
+import UserListView from "../../_components/UserListView";
 import BackBar from "../../_components/BackBar";
 import { auth } from "../../../auth";
-import { getUserProfileData, getReviewsByUser } from "../../_lib/review-data";
+import { getUserProfileData } from "../../_lib/review-data";
+import { getMyRatedMovies } from "../../_lib/my-rated-movies";
 import { checkIsFollowing, getFollowerCount } from "../../_lib/follow-actions";
 import { notFound } from "next/navigation";
 
 export default async function UserProfilePage({ params }: PageProps<"/users/[id]">) {
   const { id } = await params;
 
-  const [session, profileUser, reviews, followerCount] = await Promise.all([
+  const [session, profileUser, movies, followerCount] = await Promise.all([
     auth(),
     getUserProfileData(id),
-    getReviewsByUser(id),
+    getMyRatedMovies(id),
     getFollowerCount(id),
   ]);
 
@@ -22,6 +23,7 @@ export default async function UserProfilePage({ params }: PageProps<"/users/[id]
   const currentUserId = session?.user?.id ?? null;
   const isOwnProfile = currentUserId === id;
   const isFollowing = isOwnProfile ? false : await checkIsFollowing(id);
+  const displayName = profileUser.nickname ?? profileUser.name ?? "사용자";
 
   return (
     <main>
@@ -35,7 +37,7 @@ export default async function UserProfilePage({ params }: PageProps<"/users/[id]
         isFollowing={isFollowing}
         isOwnProfile={isOwnProfile}
       />
-      <UserReviewsList reviews={reviews} />
+      <UserListView movies={movies} userName={displayName} />
     </main>
   );
 }

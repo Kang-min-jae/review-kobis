@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
@@ -22,6 +22,15 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
   const [revealed, setRevealed] = useState(false);
   const [awardTooltip, setAwardTooltip] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
+  const [panelSide, setPanelSide] = useState<"right" | "left">("right");
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (revealed && cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect();
+      setPanelSide(window.innerWidth - rect.right < 240 ? "left" : "right");
+    }
+  }, [revealed]);
   const hasAward = festivalAwards && festivalAwards.length > 0;
   const rateHref = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
@@ -39,6 +48,7 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
 
   return (
     <div
+      ref={cardRef}
       className="relative w-32 shrink-0"
       onMouseEnter={() => setRevealed(true)}
       onMouseLeave={() => setRevealed(false)}
@@ -92,7 +102,7 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
         </div>
       )}
 
-      {revealed && <MyReviewsPanel movieId={movie.id} />}
+      {revealed && <MyReviewsPanel movieId={movie.id} side={panelSide} />}
     </div>
   );
 }
