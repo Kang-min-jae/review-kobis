@@ -10,6 +10,7 @@ const inputClass =
   "mt-1.5 w-full rounded-lg border border-neutral-700 bg-bg px-4 py-3 text-sm text-text placeholder:text-muted focus:border-brand focus:outline-none";
 
 const STORAGE_KEY = "login_email";
+const REMEMBER_KEY = "login_remember";
 
 export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
@@ -17,18 +18,46 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
     null
   );
   const [email, setEmail] = useState("");
+  const [remember, setRemember] = useState(false);
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setEmail(saved);
+      const savedRemember = localStorage.getItem(REMEMBER_KEY) === "1";
+      setRemember(savedRemember);
+      if (savedRemember) {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) setEmail(saved);
+      }
     } catch {}
   }, []);
 
   function handleEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value;
-    setEmail(val);
-    try { localStorage.setItem(STORAGE_KEY, val); } catch {}
+    setEmail(e.target.value);
+  }
+
+  function handleRememberChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const checked = e.target.checked;
+    setRemember(checked);
+    try {
+      if (checked) {
+        localStorage.setItem(REMEMBER_KEY, "1");
+        localStorage.setItem(STORAGE_KEY, email);
+      } else {
+        localStorage.removeItem(REMEMBER_KEY);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {}
+  }
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    try {
+      if (remember) {
+        localStorage.setItem(STORAGE_KEY, email);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(REMEMBER_KEY);
+      }
+    } catch {}
   }
 
   return (
@@ -36,7 +65,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
       <h1 className="text-lg font-bold text-text">로그인</h1>
       <p className="mt-1 text-xs text-muted">아이디로 로그인하거나 계정을 만드세요.</p>
 
-      <form action={formAction} className="mt-6 space-y-4">
+      <form action={formAction} onSubmit={handleSubmit} className="mt-6 space-y-4">
         <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <div>
           <label htmlFor="email" className="text-xs text-muted">
@@ -53,6 +82,15 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
             className={inputClass}
             autoComplete="username"
           />
+          <label className="mt-2 flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={handleRememberChange}
+              className="h-3.5 w-3.5 accent-brand"
+            />
+            <span className="text-xs text-muted">아이디 기억</span>
+          </label>
         </div>
 
         <div>
