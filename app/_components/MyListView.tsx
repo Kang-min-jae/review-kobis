@@ -11,7 +11,7 @@ import MovieDiaryCalendar from "./MovieDiaryCalendar";
 import CustomListsSection from "./CustomListsSection";
 import RatedMovieSearch from "./RatedMovieSearch";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
-import { getBadge, TIER_STYLES } from "../_lib/tier";
+import { getBadge, TIER_STYLES, type Tier } from "../_lib/tier";
 import {
   subscribe as subscribeMyList,
   getMyListSnapshot,
@@ -32,7 +32,7 @@ import {
   syncServerRatings,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
-type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null };
+type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null; totalLikes?: number };
 
 export default function MyListView({
   myRatedMovies,
@@ -292,6 +292,8 @@ export default function MyListView({
           <div className="mt-3 space-y-2">
             {followingList.map((user) => {
               const name = user.nickname ?? user.name ?? "사용자";
+              const tier = getBadge(user.totalLikes ?? 0);
+              const tierStyle = TIER_STYLES[tier as Tier];
               return (
                 <Link
                   key={user.id}
@@ -307,6 +309,9 @@ export default function MyListView({
                     </div>
                   )}
                   <span className="flex-1 truncate text-sm text-text">{name}</span>
+                  <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${tierStyle.border} ${tierStyle.text}`}>
+                    {tier}
+                  </span>
                 </Link>
               );
             })}

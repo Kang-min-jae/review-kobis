@@ -46,7 +46,7 @@ export async function checkIsFollowing(targetUserId: string): Promise<boolean> {
 export async function getFollowingList(userId: string) {
   const rows = await db.follow.findMany({
     where: { followerId: userId },
-    include: { following: { select: { id: true, name: true, image: true, nickname: true } } },
+    include: { following: { select: { id: true, name: true, image: true, nickname: true, totalLikes: true } } },
     orderBy: { createdAt: "desc" },
   });
   return rows.map((r) => r.following);
