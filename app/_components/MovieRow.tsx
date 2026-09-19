@@ -22,7 +22,7 @@ export default function MovieRow({
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
       <AffinityRegistrar movieIds={movies.map((m) => m.id)} />
-      <ScrollRow className="row-scrollbar mt-4 flex gap-3 overflow-x-auto pb-3 touch-pan-x scroll-smooth sm:gap-4">
+      <ScrollRow className="row-scrollbar mt-4 flex gap-3 overflow-x-auto pb-3 scroll-smooth sm:gap-4">
         {movies.map((movie, index) => (
           <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} priority={index < priorityCount} />
         ))}

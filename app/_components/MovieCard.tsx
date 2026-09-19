@@ -159,7 +159,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     >
       <div
         ref={posterRef}
-        className={`relative aspect-2/3 touch-manipulation overflow-hidden rounded-lg ${
+        className={`relative aspect-2/3 touch-auto overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
         onPointerDown={(e) => {
