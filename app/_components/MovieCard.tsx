@@ -44,6 +44,18 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const touchStartYRef = useRef<number | null>(null);
   const movedRef = useRef(false);
   const lastPointerTypeRef = useRef<string>("");
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!revealed) return;
+    function onOutsideTouch(e: PointerEvent) {
+      if (e.pointerType === "touch" && cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        setRevealed(false);
+      }
+    }
+    document.addEventListener("pointerdown", onOutsideTouch);
+    return () => document.removeEventListener("pointerdown", onOutsideTouch);
+  }, [revealed]);
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
@@ -121,15 +133,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       }`}
       onPointerEnter={(e) => { if (e.pointerType !== "touch") setRevealed(true); }}
       onPointerLeave={(e) => { if (e.pointerType !== "touch") setRevealed(false); }}
+      ref={cardRef}
     >
-      {/* 오버레이가 열렸을 때 외부 탭으로 닫기 — 전체화면 투명 레이어(z-9)가
-          카드(z-10)·패널(z-20) 아래에 깔려 외부 터치를 가로챈다. */}
-      {revealed && (
-        <div
-          className="fixed inset-0 z-[9] touch-auto"
-          onClick={() => setRevealed(false)}
-        />
-      )}
       <div
         className={`relative aspect-2/3 touch-auto overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
