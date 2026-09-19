@@ -121,4 +121,6 @@ export async function deleteReviewAction(input: {
   await db.review.deleteMany({ where: { id: input.reviewId, userId } });
 
   revalidatePath(categoryPath(input.movieId, input.category));
+  revalidatePath("/my-list");
+  revalidatePath("/", "layout");
 }

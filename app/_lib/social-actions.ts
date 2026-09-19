@@ -82,10 +82,14 @@ export async function toggleFollow(followingId: string) {
 
   if (existing) {
     await db.follow.delete({ where: { id: existing.id } });
+    revalidatePath("/my-list");
+    revalidatePath(`/users/${followingId}`);
     return { following: false };
   }
 
   await db.follow.create({ data: { followerId, followingId } });
+  revalidatePath("/my-list");
+  revalidatePath(`/users/${followingId}`);
   return { following: true };
 }
 
