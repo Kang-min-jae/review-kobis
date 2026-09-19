@@ -120,8 +120,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         className={`relative aspect-2/3 overflow-hidden rounded-lg ${
           movie.posterUrl && !posterFailed ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
         }`}
-        onMouseEnter={() => setRevealed(true)}
-        onMouseLeave={() => setRevealed(false)}
+        onPointerEnter={(e) => { if (e.pointerType !== "touch") setRevealed(true); }}
+        onPointerLeave={(e) => { if (e.pointerType !== "touch") setRevealed(false); }}
         onClick={() => setRevealed((v) => !v)}
       >
         {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} onError={() => setPosterFailed(true)} />}
@@ -139,8 +139,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
                 type="button"
                 aria-label={movie.festivalAwards?.map((a) => `${FESTIVAL_KO[a.festival] ?? a.festival} ${a.categoryLabel} (${a.year})`).join(", ") ?? "영화제 수상작"}
                 className="flex cursor-pointer flex-col items-end gap-0.5"
-                onMouseEnter={() => setAwardTooltip(true)}
-                onMouseLeave={() => setAwardTooltip(false)}
+                onPointerEnter={(e) => { if (e.pointerType !== "touch") setAwardTooltip(true); }}
+                onPointerLeave={(e) => { if (e.pointerType !== "touch") setAwardTooltip(false); }}
                 onClick={(e) => { e.stopPropagation(); setAwardTooltip((v) => !v); }}
               >
                 {groupedAwards.map((_, i) => (
@@ -207,8 +207,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
       {awardTooltip && groupedAwards.length > 0 && (
         <div
           className="absolute right-0 top-1 z-50 max-w-[220px] rounded-lg bg-black/90 p-2 text-[11px] text-white ring-1 ring-white/10"
-          onMouseEnter={() => setAwardTooltip(true)}
-          onMouseLeave={() => setAwardTooltip(false)}
+          onPointerEnter={(e) => { if (e.pointerType !== "touch") setAwardTooltip(true); }}
+          onPointerLeave={(e) => { if (e.pointerType !== "touch") setAwardTooltip(false); }}
         >
           {groupedAwards.map((g, i) => (
             <div key={i} className="py-0.5 leading-snug">
