@@ -10,8 +10,5 @@ export default defineConfig({
   },
   datasource: {
     url: process.env["DATABASE_URL"],
-    // prisma migrate deploy는 advisory lock을 위해 직접 연결이 필요하다.
-    // DATABASE_URL이 pgbouncer 풀링 URL인 경우 DIRECT_URL에 non-pooling URL을 설정해야 한다.
-    directUrl: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });
