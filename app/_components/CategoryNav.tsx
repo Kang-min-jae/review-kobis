@@ -36,10 +36,10 @@ export default function CategoryNav({
 }) {
   return (
     <div>
-      <nav className="flex flex-wrap items-center gap-5 border-b border-neutral-800 px-5 pt-1">
+      <nav className="flex items-center border-b border-neutral-800 pt-1">
         <Link
           href="/my-list"
-          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+          className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
             active === "my-list"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
@@ -51,7 +51,7 @@ export default function CategoryNav({
           <Link
             key={category}
             href={`/?category=${encodeURIComponent(category)}`}
-            className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+            className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
               active === category
                 ? "border-star font-bold text-text"
                 : "border-transparent font-medium text-text/80 hover:text-text"
@@ -62,7 +62,7 @@ export default function CategoryNav({
         ))}
         <Link
           href="/awards"
-          className={`whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors ${
+          className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
             active === "awards"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
