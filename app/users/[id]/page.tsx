@@ -56,7 +56,14 @@ export default async function UserProfilePage({ params }: PageProps<"/users/[id]
         isFollowing={isFollowing}
         isOwnProfile={isOwnProfile}
       />
-      <UserReadOnlyListView movies={movies} userName={displayName} reviewStats={reviewStats} userReviews={userReviews} />
+      <UserReadOnlyListView
+        movies={movies}
+        userName={displayName}
+        reviewStats={reviewStats}
+        userReviews={userReviews}
+        isAdmin={session?.user?.role === "ADMIN"}
+        profileUserId={id}
+      />
     </main>
   );
 }

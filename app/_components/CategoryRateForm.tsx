@@ -6,7 +6,7 @@ import Link from "next/link";
 import StarRating from "./StarRating";
 import SpoilerText from "./SpoilerText";
 import { countSentences } from "../_lib/text";
-import { submitReviewAction, deleteReviewAction } from "../_lib/review-actions";
+import { submitReviewAction, deleteReviewAction, adminDeleteReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
@@ -134,6 +134,7 @@ export default function CategoryRateForm({
   category,
   isLoggedIn,
   userId = null,
+  isAdmin = false,
   reviews,
   myReviews,
 }: {
@@ -145,6 +146,7 @@ export default function CategoryRateForm({
   category: RatingCategory;
   isLoggedIn: boolean;
   userId?: string | null;
+  isAdmin?: boolean;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
 }) {
@@ -181,6 +183,19 @@ export default function CategoryRateForm({
     setDeletingReviewId(reviewId);
     try {
       await deleteReviewAction({ reviewId, movieId, category });
+      removeReview(reviewId);
+      router.refresh();
+    } finally {
+      setDeletingReviewId(null);
+    }
+  }
+
+  async function handleAdminDelete(reviewId: string, content: string) {
+    if (!confirm(`관리자 권한으로 이 리뷰를 삭제하시겠습니까?\n\n"${content.slice(0, 60)}"`)) return;
+    if (deletingReviewId) return;
+    setDeletingReviewId(reviewId);
+    try {
+      await adminDeleteReviewAction({ reviewId });
       removeReview(reviewId);
       router.refresh();
     } finally {
@@ -385,6 +400,16 @@ export default function CategoryRateForm({
                     className="rounded px-2 py-1 text-xs text-muted transition-colors hover:text-red-400 disabled:opacity-50"
                   >
                     {deletingReviewId === review.id ? "삭제 중…" : "삭제"}
+                  </button>
+                )}
+                {isAdmin && review.authorId !== userId && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminDelete(review.id, review.content)}
+                    disabled={deletingReviewId === review.id}
+                    className="rounded px-2 py-1 text-xs font-medium text-red-500 transition-colors hover:text-red-400 disabled:opacity-50"
+                  >
+                    {deletingReviewId === review.id ? "삭제 중…" : "🚨 관리자 삭제"}
                   </button>
                 )}
               </div>

@@ -31,7 +31,7 @@ export default function BackBar() {
   }
 
   return (
-    <div className="flex items-center gap-3 text-sm">
+    <div className="fixed left-4 top-4 z-50 flex items-center gap-3 rounded-full bg-bg/80 px-3 py-1.5 text-sm shadow-sm backdrop-blur-sm">
       <button
         type="button"
         onClick={handleBack}

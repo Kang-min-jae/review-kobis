@@ -124,3 +124,110 @@ export async function deleteReviewAction(input: {
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
 }
+
+export async function adminDeleteReviewAction(input: { reviewId: string }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const review = await db.review.findUnique({
+    where: { id: input.reviewId },
+    select: { movieCd: true, category: true, userId: true },
+  });
+  if (!review) return;
+
+  await db.review.delete({ where: { id: input.reviewId } });
+
+  revalidatePath(categoryPath(`kobis-${review.movieCd}`, review.category));
+  revalidatePath(`/users/${review.userId}`);
+  revalidatePath("/my-list");
+  revalidatePath("/", "layout");
+}
+
+export async function getAdminStats() {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [totalUsers, newUsersToday, totalReviews, pendingInquiries] = await Promise.all([
+    db.user.count(),
+    db.user.count({ where: { createdAt: { gte: today } } }),
+    db.review.count(),
+    db.inquiry.count({ where: { status: "답변 대기" } }),
+  ]);
+
+  return { totalUsers, newUsersToday, totalReviews, pendingInquiries };
+}
+
+export async function getAllReviewsForAdmin(opts: { search?: string; skip?: number; take?: number }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const { search, skip = 0, take = 50 } = opts;
+  const [rows, movies] = await Promise.all([
+    db.review.findMany({
+      where: search
+        ? {
+            OR: [
+              { user: { nickname: { contains: search, mode: "insensitive" } } },
+              { user: { name: { contains: search, mode: "insensitive" } } },
+            ],
+          }
+        : undefined,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+      select: {
+        id: true,
+        movieCd: true,
+        category: true,
+        type: true,
+        rating: true,
+        content: true,
+        createdAt: true,
+        userId: true,
+        user: { select: { id: true, nickname: true, name: true } },
+      },
+    }),
+    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
+  ]);
+
+  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  return rows.map((r) => ({
+    ...r,
+    movieTitle: titleMap.get(r.movieCd) ?? r.movieCd,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function getAllUsersForAdmin(opts: { search?: string; skip?: number; take?: number }) {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
+
+  const { search, skip = 0, take = 50 } = opts;
+  return db.user.findMany({
+    where: search
+      ? {
+          OR: [
+            { nickname: { contains: search, mode: "insensitive" } },
+            { name: { contains: search, mode: "insensitive" } },
+            { email: { contains: search, mode: "insensitive" } },
+          ],
+        }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    skip,
+    take,
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      email: true,
+      role: true,
+      totalLikes: true,
+      createdAt: true,
+      _count: { select: { reviews: true, followers: true } },
+    },
+  });
+}

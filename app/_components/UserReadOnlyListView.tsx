@@ -11,6 +11,7 @@ import UserStyleReport from "./UserStyleReport";
 import UserReviewsPanel from "./UserReviewsPanel";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import type { UserReviewStats, UserReview } from "../_lib/review-data";
+import AdminReviewSection from "./AdminReviewSection";
 
 function movieCdFromId(id: string): string {
   return id.startsWith("kobis-") ? id.slice("kobis-".length) : id;
@@ -165,11 +166,15 @@ export default function UserReadOnlyListView({
   userName,
   reviewStats,
   userReviews,
+  isAdmin = false,
+  profileUserId,
 }: {
   movies: MyRatedMovie[];
   userName: string;
   reviewStats: UserReviewStats;
   userReviews: UserReview[];
+  isAdmin?: boolean;
+  profileUserId?: string;
 }) {
   const reviewMap = new Map<string, UserReview[]>();
   for (const review of userReviews) {
@@ -226,6 +231,12 @@ export default function UserReadOnlyListView({
           topMovies={[...movies].sort((a, b) => b.rating - a.rating).slice(0, 10)}
         />
       </div>
+
+      {isAdmin && profileUserId && userReviews.length > 0 && (
+        <div className="mt-6">
+          <AdminReviewSection reviews={userReviews} profileUserId={profileUserId} />
+        </div>
+      )}
     </div>
   );
 }
