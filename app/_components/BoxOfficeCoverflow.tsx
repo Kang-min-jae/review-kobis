@@ -73,13 +73,9 @@ export default function BoxOfficeCoverflow({
   const [dragging, setDragging] = useState(false);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
   const dragStartXRef = useRef<number | null>(null);
-  // 이번 포인터 제스처가 "드래그"로 판정됐는지 — pointerup에서 읽어서, 드래그 끝에
-  // 뒤집기/카드 이동이 오작동하지 않게 막는다.
+  const dragStartYRef = useRef<number | null>(null);
+  const directionRef = useRef<"h" | "v" | null>(null);
   const draggedRef = useRef(false);
-  // 어느 카드를 눌렀는지 pointerdown 시점에 기억해 둔다 — setPointerCapture를 컨테이너에
-  // 걸어두면(드래그 추적용) 브라우저가 만드는 click 이벤트의 대상이 카드가 아니라
-  // 컨테이너로 바뀌어버려서, 카드의 onClick이 아예 안 불릴 수 있다. 그래서 클릭 판정
-  // 자체를 pointerup에서 이 값을 보고 직접 처리한다.
   const pressedCardRef = useRef<{ index: number; offset: number } | null>(null);
 
   const length = movies.length;
@@ -112,31 +108,46 @@ export default function BoxOfficeCoverflow({
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    // 뒷면의 예매/평점 버튼(data-no-drag) 위에서 시작한 제스처는 이 캐러셀 로직이
-    // 아예 관여하지 않는다 — 링크의 기본 클릭 동작이 방해받지 않게 한다.
     if ((e.target as HTMLElement).closest("[data-no-drag]")) {
       pressedCardRef.current = null;
       return;
     }
     dragStartXRef.current = e.clientX;
+    dragStartYRef.current = e.clientY;
+    directionRef.current = null;
     draggedRef.current = false;
-    setDragging(true);
     const cardEl = (e.target as HTMLElement).closest<HTMLElement>("[data-card-index]");
     pressedCardRef.current = cardEl
       ? { index: Number(cardEl.dataset.cardIndex), offset: Number(cardEl.dataset.cardOffset) }
       : null;
-    e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (dragStartXRef.current === null) return;
-    const delta = e.clientX - dragStartXRef.current;
-    if (Math.abs(delta) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
-    setDragOffsetPx(delta);
+    if (dragStartXRef.current === null || dragStartYRef.current === null) return;
+    const deltaX = e.clientX - dragStartXRef.current;
+    const deltaY = e.clientY - dragStartYRef.current;
+    if (directionRef.current === null) {
+      if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
+      if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+        directionRef.current = "v";
+        dragStartXRef.current = null;
+        dragStartYRef.current = null;
+        pressedCardRef.current = null;
+        return;
+      }
+      directionRef.current = "h";
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (directionRef.current !== "h") return;
+    if (Math.abs(deltaX) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
+    setDragOffsetPx(deltaX);
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     if (dragStartXRef.current === null) return;
     const delta = e.clientX - dragStartXRef.current;
     dragStartXRef.current = null;
+    dragStartYRef.current = null;
+    directionRef.current = null;
     setDragging(false);
     setDragOffsetPx(0);
     if (Math.abs(delta) > DRAG_ADVANCE_THRESHOLD_PX) {
