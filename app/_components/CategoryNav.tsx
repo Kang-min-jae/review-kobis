@@ -36,10 +36,10 @@ export default function CategoryNav({
 }) {
   return (
     <div>
-      <nav className="flex items-center border-b border-neutral-800 pt-1">
+      <nav className="no-scrollbar flex items-center overflow-x-auto border-b border-neutral-800 pt-1">
         <Link
           href="/my-list"
-          className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
+          className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "my-list"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
@@ -51,7 +51,7 @@ export default function CategoryNav({
           <Link
             key={category}
             href={`/?category=${encodeURIComponent(category)}`}
-            className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
+            className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
               active === category
                 ? "border-star font-bold text-text"
                 : "border-transparent font-medium text-text/80 hover:text-text"
@@ -62,7 +62,7 @@ export default function CategoryNav({
         ))}
         <Link
           href="/awards"
-          className={`flex-1 whitespace-nowrap border-b-2 pb-2.5 text-center text-sm transition-colors ${
+          className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "awards"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
@@ -73,18 +73,16 @@ export default function CategoryNav({
       </nav>
 
       {active !== "my-list" && active !== "TV·시리즈물" && (
-        <nav className="px-5 py-4">
-          {/* 세그먼트 슬라이더 — 전체를 하나의 캡슐로 묶고, 선택된 것만 살짝 밝은
-              배경 + 컬러 텍스트로 보여준다(개별 테두리/아이콘 없이). */}
-          <div className="inline-flex flex-wrap gap-1 rounded-full bg-surface p-1">
+        <nav className="py-3">
+          <div className="no-scrollbar flex gap-1.5 overflow-x-auto px-5 pb-1">
             {genreLabels.map((genre) => {
               const isActive = activeGenre === genre;
               return (
                 <Link
                   key={genre}
                   href={`/?category=${encodeURIComponent(active)}&genre=${encodeURIComponent(genre)}`}
-                  className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                    isActive ? "bg-star text-black" : "text-muted hover:text-text"
+                  className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    isActive ? "bg-star text-black" : "bg-surface text-muted hover:text-text"
                   }`}
                 >
                   {genre}

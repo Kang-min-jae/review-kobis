@@ -7,7 +7,7 @@ import StarRating from "./StarRating";
 import { subscribe, getReviewsSnapshot, getSeedReviewsSnapshot, getAverageRating, getSeedAverageRating } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
-const SPACING_PX = 190;
+const SPACING_PX = 160;
 const MAX_VISIBLE_OFFSET = 3;
 const DRAG_ADVANCE_THRESHOLD_PX = 60;
 const DRAG_MOVE_THRESHOLD_PX = 6;
@@ -205,7 +205,7 @@ export default function CoverflowCarousel({
         type="button"
         aria-label="이전"
         onClick={() => go(-1)}
-        className="absolute left-0 top-[190px] z-50 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-lg text-text transition-colors hover:bg-black/80"
+        className="absolute left-0 top-[155px] z-50 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-lg text-text transition-colors hover:bg-black/80 sm:top-[190px]"
       >
         ‹
       </button>
@@ -213,19 +213,19 @@ export default function CoverflowCarousel({
         type="button"
         aria-label="다음"
         onClick={() => go(1)}
-        className="absolute right-0 top-[190px] z-50 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-lg text-text transition-colors hover:bg-black/80"
+        className="absolute right-0 top-[155px] z-50 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-lg text-text transition-colors hover:bg-black/80 sm:top-[190px]"
       >
         ›
       </button>
 
       <div
-        className="flex h-[380px] touch-pan-y select-none items-center justify-center overflow-hidden [perspective:1400px]"
+        className="flex h-[320px] touch-pan-y select-none items-center justify-center overflow-hidden [perspective:1400px] sm:h-[380px]"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div className="relative h-[350px] w-[230px] [transform-style:preserve-3d]">
+        <div className="relative h-[295px] w-[195px] [transform-style:preserve-3d] sm:h-[350px] sm:w-[230px]">
           {movies.map((movie, i) => {
             const offset = circularOffset(i, active, length);
             const { primary } = parseBadge(movie.badge);
