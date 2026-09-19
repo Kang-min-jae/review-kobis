@@ -7,9 +7,11 @@ import {
   type GenreLabel,
 } from "./_components/CategoryNav";
 import MovieRow from "./_components/MovieRow";
+import GenreMovieRow from "./_components/GenreMovieRow";
 import BoxOfficeCoverflow from "./_components/BoxOfficeCoverflow";
 import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
 import RecommendedSection from "./_components/RecommendedSection";
+import RecommendedSeriesSection from "./_components/RecommendedSeriesSection";
 import AwardWinnersSection, { type AwardTab } from "./_components/AwardWinnersSection";
 import {
   getNowShowingRow,
@@ -31,8 +33,10 @@ import {
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
 } from "./_lib/award-winners";
-import { getCuratedSeriesRow, getPopularSeriesRow } from "./_lib/series-rows";
+import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "./_lib/series-rows";
 import SeriesKeywordSearch from "./_components/SeriesKeywordSearch";
+import CoverflowCarousel from "./_components/CoverflowCarousel";
+import RowSkeleton from "./_components/RowSkeleton";
 
 function resolveCategory(value: string | undefined): TabCategory {
   return (tabCategories as readonly string[]).includes(value ?? "")
@@ -44,29 +48,19 @@ function resolveGenre(value: string | undefined): GenreLabel {
   return (genreLabels as readonly string[]).includes(value ?? "") ? (value as GenreLabel) : "전체";
 }
 
-// 각 행이 자기 데이터를 다 가져올 때까지 화면 전체가 하얗게 멈춰 있지 않도록, 행마다
-// 이 스켈레톤을 보여주다가 준비되는 대로 하나씩 바로 교체되게 한다(Suspense 스트리밍).
-function RowSkeleton() {
-  return (
-    <section className="px-5 py-6">
-      <div className="h-5 w-32 animate-pulse rounded bg-neutral-800" />
-      <div className="row-scrollbar mt-4 flex gap-4 overflow-x-auto pb-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="aspect-2/3 w-32 shrink-0 animate-pulse rounded-lg bg-neutral-800" />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 async function NowShowingRowData() {
   const movies = await getNowShowingRow();
-  return <MovieRow title="현재 상영중인 영화" subtitle="이번 주 새로 개봉한 영화" movies={movies} />;
+  return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} priorityCount={3} />;
 }
 
 async function RereleaseRowData() {
   const movies = await getRereleaseRow();
-  return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} />;
+  return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} priorityCount={3} />;
+}
+
+async function WeeklyBoxOfficeRowData2() {
+  const movies = await getWeeklyBoxOfficeRow();
+  return <MovieRow title="이번주 박스오피스 TOP 10" subtitle="국내 실제 관객수 기준" movies={movies} priorityCount={3} />;
 }
 
 // 홈 화면 기본 탭이 예전엔 이 아래 8개 행 전부를 Promise.all로 한 번에 불러온 뒤에야
@@ -79,6 +73,9 @@ function NowShowingSection() {
     <>
       <Suspense fallback={<RowSkeleton />}>
         <NowShowingRowData />
+      </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <WeeklyBoxOfficeRowData2 />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RereleaseRowData />
@@ -96,7 +93,7 @@ async function WeeklyBoxOfficeRowData() {
 
 async function RecentMoviesRowData() {
   const movies = await getRecentMoviesRow();
-  return <MovieRow title="최근 영화" subtitle="올해 국내 개봉한 최신 영화" movies={movies} />;
+  return <MovieRow title="최근 영화" subtitle="최근 3달 이내 국내 개봉한 영화" movies={movies} priorityCount={3} />;
 }
 
 async function MonthlyBestRowData() {
@@ -107,9 +104,9 @@ async function MonthlyBestRowData() {
 async function YearlyBestRowData() {
   const movies = await getYearlyBestRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="올해의 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="올해 개봉작 · 평점 높은 순 10편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );
@@ -118,9 +115,9 @@ async function YearlyBestRowData() {
 async function Best3YearsRowData() {
   const movies = await getBestOf3YearsRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="3년 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="최근 3년 개봉작 · 평점 높은 순 15편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );
@@ -129,9 +126,9 @@ async function Best3YearsRowData() {
 async function Best5YearsRowData() {
   const movies = await getBestOf5YearsRow();
   return (
-    <RatingSortedMovieRow
+    <MovieRow
       title="5년 Best"
-      subtitle="평점 높은 순 (동점이면 참여 평점 수가 많은 순)"
+      subtitle="최근 5년 개봉작 · 평점 높은 순 20편 (동점이면 참여 평점 수가 많은 순)"
       movies={movies}
     />
   );
@@ -159,11 +156,6 @@ async function InternationalBestRowData() {
   );
 }
 
-async function CuratedSeriesRowData() {
-  const movies = await getCuratedSeriesRow();
-  if (movies.length === 0) return null;
-  return <MovieRow title="추천 시리즈" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
-}
 
 async function UserPopularMoviesRowData({ genre }: { genre?: string }) {
   const movies = await getUserPopularMoviesRow(genre, 10);
@@ -219,12 +211,14 @@ async function AwardWinnersData() {
 function MovieCategorySection() {
   return (
     <>
-      <RecommendedSection />
-      <Suspense fallback={null}>
-        <AwardWinnersData />
-      </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <WeeklyBoxOfficeRowData />
+      </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <RecommendedSection />
+      </Suspense>
+      <Suspense fallback={<RowSkeleton />}>
+        <AwardWinnersData />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RecentMoviesRowData />
@@ -248,7 +242,7 @@ function MovieCategorySection() {
         <InternationalBestRowData />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <CuratedSeriesRowData />
+        <RecommendedSeriesSection />
       </Suspense>
       <Suspense fallback={null}>
         <UserPopularMoviesRowData />
@@ -260,13 +254,19 @@ function MovieCategorySection() {
 async function CuratedSeriesSection() {
   const movies = await getCuratedSeriesRow();
   if (movies.length === 0) return null;
-  return <MovieRow title="추천 시리즈물" subtitle="편집자가 고른 명작 드라마 · 애니메이션" movies={movies} />;
+  return <MovieRow title="추천 시리즈물" subtitle="사용자 평점순" movies={movies} />;
 }
 
 async function PopularSeriesSection() {
   const movies = await getPopularSeriesRow();
   if (movies.length === 0) return null;
-  return <MovieRow title="인기 시리즈물" subtitle="TMDB 현재 인기 시리즈 — 넷플릭스 · 디즈니+ · 드라마 전체" movies={movies} />;
+  return <MovieRow title="Best 시리즈물" subtitle="사용자 평점 높은 순" movies={movies} />;
+}
+
+async function Top10SeriesData() {
+  const movies = await getTop10PopularSeriesRow();
+  if (movies.length === 0) return null;
+  return <CoverflowCarousel movies={movies} hint="카드를 드래그하거나 화살표로 넘겨보세요" />;
 }
 
 function TvSeriesSection() {
@@ -275,21 +275,34 @@ function TvSeriesSection() {
       <Suspense fallback={<RowSkeleton />}>
         <CuratedSeriesSection />
       </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <PopularSeriesSection />
-      </Suspense>
       <section className="px-5 py-6">
         <h2 className="text-lg font-bold text-text">키워드로 찾기</h2>
         <p className="mt-1 text-sm text-muted">장르, 배우 이름, 시리즈 제목으로 바로 검색하세요</p>
         <SeriesKeywordSearch />
       </section>
+      <section className="px-5 pb-2 pt-4">
+        <h2 className="text-lg font-bold text-text">인기 작품 10선</h2>
+        <p className="mt-1 text-sm text-muted">사용자 평점 등록 많은 순</p>
+        <Suspense fallback={
+          <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="aspect-2/3 w-28 shrink-0 animate-pulse rounded-lg bg-neutral-800" />
+            ))}
+          </div>
+        }>
+          <Top10SeriesData />
+        </Suspense>
+      </section>
+      <Suspense fallback={<RowSkeleton />}>
+        <PopularSeriesSection />
+      </Suspense>
     </>
   );
 }
 
 async function GenreRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await getGenreRow(genre);
-  return <MovieRow title={`${genre} 영화`} movies={movies} />;
+  const movies = await getGenreRow(genre, 0, 20);
+  return <GenreMovieRow genre={genre} initialMovies={movies} />;
 }
 
 function GenreSection({ genre }: { genre: GenreLabel }) {
@@ -323,9 +336,6 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
       {category === "TV·시리즈물" && <TvSeriesSection />}
 
-      {category === "단편·독립" && (
-        <p className="px-5 py-16 text-center text-sm text-muted">준비 중인 카테고리예요.</p>
-      )}
     </main>
   );
 }

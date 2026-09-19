@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import TermsAgreement from "./TermsAgreement";
 import ProviderButton from "./ProviderButton";
@@ -36,12 +36,61 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
+type FieldStatus = "idle" | "checking" | "available" | "taken" | "too_short" | "too_long" | "invalid";
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{4,20}$/;
+
 export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(signUpAction, null);
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
+  const [nickname, setNickname] = useState("");
+  const [nicknameStatus, setNicknameStatus] = useState<FieldStatus>("idle");
+  const [username, setUsername] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState<FieldStatus>("idle");
+  const nicknameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current);
+    const trimmed = nickname.trim();
+    if (trimmed.length === 0) { setNicknameStatus("idle"); return; }
+    if (trimmed.length < 2) { setNicknameStatus("too_short"); return; }
+    if (trimmed.length > 20) { setNicknameStatus("too_long"); return; }
+    setNicknameStatus("checking");
+    nicknameDebounce.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/check-nickname?nickname=${encodeURIComponent(trimmed)}`);
+        const data = await res.json() as { available: boolean };
+        setNicknameStatus(data.available ? "available" : "taken");
+      } catch {
+        setNicknameStatus("idle");
+      }
+    }, 400);
+    return () => { if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current); };
+  }, [nickname]);
+
+  useEffect(() => {
+    if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
+    const trimmed = username.trim();
+    if (trimmed.length === 0) { setUsernameStatus("idle"); return; }
+    if (trimmed.length < 4) { setUsernameStatus("too_short"); return; }
+    if (trimmed.length > 20) { setUsernameStatus("too_long"); return; }
+    if (!USERNAME_RE.test(trimmed)) { setUsernameStatus("invalid"); return; }
+    setUsernameStatus("checking");
+    usernameDebounce.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/check-username?username=${encodeURIComponent(trimmed)}`);
+        const data = await res.json() as { available: boolean };
+        setUsernameStatus(data.available ? "available" : "taken");
+      } catch {
+        setUsernameStatus("idle");
+      }
+    }, 400);
+    return () => { if (usernameDebounce.current) clearTimeout(usernameDebounce.current); };
+  }, [username]);
 
   const requiredAgreed = TERMS_ITEMS.filter((item) => item.required).every((item) => agreed[item.key]);
   const passwordMismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
@@ -49,7 +98,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   return (
     <div className="w-full max-w-sm rounded-2xl border border-neutral-700 bg-surface p-6">
       <h1 className="text-lg font-bold text-text">계정 만들기</h1>
-      <p className="mt-1 text-xs text-muted">이메일과 비밀번호로 새 계정을 만드세요.</p>
+      <p className="mt-1 text-xs text-muted">아이디와 비밀번호로 새 계정을 만드세요.</p>
 
       <form
         action={formAction}
@@ -63,14 +112,68 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
           <label htmlFor="nickname" className="text-xs text-muted">
             닉네임
           </label>
-          <input id="nickname" name="nickname" type="text" maxLength={20} placeholder="다른 사람에게 보여질 이름" className={inputClass} />
+          <input
+            id="nickname"
+            name="nickname"
+            type="text"
+            required
+            maxLength={20}
+            placeholder="다른 사람에게 보여질 이름"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            className={inputClass}
+          />
+          {nicknameStatus === "checking" && (
+            <p className="mt-1 text-xs text-muted">확인 중...</p>
+          )}
+          {nicknameStatus === "available" && (
+            <p className="mt-1 text-xs text-green-400">사용 가능한 닉네임이에요.</p>
+          )}
+          {nicknameStatus === "taken" && (
+            <p className="mt-1 text-xs text-brand">이미 사용 중인 닉네임이에요.</p>
+          )}
+          {nicknameStatus === "too_short" && (
+            <p className="mt-1 text-xs text-muted">닉네임은 2자 이상이어야 해요.</p>
+          )}
+          {nicknameStatus === "too_long" && (
+            <p className="mt-1 text-xs text-brand">닉네임은 20자 이하여야 해요.</p>
+          )}
         </div>
 
         <div>
-          <label htmlFor="email" className="text-xs text-muted">
-            이메일
+          <label htmlFor="username" className="text-xs text-muted">
+            아이디
           </label>
-          <input id="email" name="email" type="email" required placeholder="name@example.com" className={inputClass} />
+          <input
+            id="username"
+            name="username"
+            type="text"
+            required
+            maxLength={20}
+            placeholder="영문, 숫자, _  4~20자"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className={inputClass}
+            autoComplete="username"
+          />
+          {usernameStatus === "checking" && (
+            <p className="mt-1 text-xs text-muted">확인 중...</p>
+          )}
+          {usernameStatus === "available" && (
+            <p className="mt-1 text-xs text-green-400">사용 가능한 아이디예요.</p>
+          )}
+          {usernameStatus === "taken" && (
+            <p className="mt-1 text-xs text-brand">이미 사용 중인 아이디예요.</p>
+          )}
+          {usernameStatus === "too_short" && (
+            <p className="mt-1 text-xs text-muted">아이디는 4자 이상이어야 해요.</p>
+          )}
+          {usernameStatus === "too_long" && (
+            <p className="mt-1 text-xs text-brand">아이디는 20자 이하여야 해요.</p>
+          )}
+          {usernameStatus === "invalid" && (
+            <p className="mt-1 text-xs text-muted">영문, 숫자, 밑줄(_)만 사용 가능해요.</p>
+          )}
         </div>
 
         <div>

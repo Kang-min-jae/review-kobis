@@ -23,20 +23,20 @@ import {
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
 import {
+  subscribe as subscribeDiaryLog,
+  getDiaryLogSnapshot,
+  getServerDiaryLogSnapshot,
+} from "../_lib/diary-log-store";
+import {
   subscribe as subscribeVotes,
   getVotesSnapshot,
   getServerVotesSnapshot,
   getReviewVote,
 } from "../_lib/review-votes-store";
-import {
-  subscribe as subscribeMyList,
-  getMyListSnapshot,
-  getServerMyListSnapshot,
-} from "../_lib/my-list-store";
-import { getBadge } from "../_lib/tier";
+
+import { getBadge, TIER_STYLES } from "../_lib/tier";
 import {
   DiaryIcon,
-  HeartIcon,
   CollectionIcon,
   PersonIcon,
   GearIcon,
@@ -45,11 +45,7 @@ import {
   HelpIcon,
   LogoutIcon,
 } from "./MenuIcons";
-
-function average(nums: number[]): number | null {
-  if (nums.length === 0) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
+import NotificationPanel from "./NotificationPanel";
 
 // 실제 기능이 아직 없는 항목(컬렉션/팔로잉 목록/계정 설정/알림/고객센터)은 엉뚱한
 // 페이지로 보내는 링크 대신, 메뉴만 닫히는 버튼으로 둔다 — 없는 기능을 있는 것처럼
@@ -75,9 +71,24 @@ function PlaceholderItem({
   );
 }
 
-export default function SideMenu({ session }: { session: Session | null }) {
+export default function SideMenu({
+  session,
+  nickname,
+  monthlyRatingCount,
+  followerCount = 0,
+}: {
+  session: Session | null;
+  nickname?: string | null;
+  monthlyRatingCount?: number;
+  followerCount?: number;
+}) {
   const [open, setOpen] = useState(false);
+  // 서버 prop(monthlyRatingCount)을 초기값으로 쓰되, 메뉴 열 때마다 실시간 fetch로 갱신한다.
+  const [liveMonthlyCount, setLiveMonthlyCount] = useState<number | undefined>(monthlyRatingCount);
+  // 서버 prop이 바뀌면(layout 재렌더) 로컬 상태도 동기화
+  useEffect(() => { setLiveMonthlyCount(monthlyRatingCount); }, [monthlyRatingCount]);
   const close = () => setOpen(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   // 게스트 이름은 브라우저에서만 알 수 있어서(localStorage), reviews-store의
   // 다른 스냅샷들과 같은 방식(useSyncExternalStore)으로 읽는다 — 서버 렌더에선
@@ -112,33 +123,54 @@ export default function SideMenu({ session }: { session: Session | null }) {
 
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const votesState = useSyncExternalStore(subscribeVotes, getVotesSnapshot, getServerVotesSnapshot);
-  const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
+  const logEntries = useSyncExternalStore(subscribeDiaryLog, getDiaryLogSnapshot, getServerDiaryLogSnapshot);
 
-  const displayName = session?.user?.name ?? session?.user?.email ?? guestName;
+  const rawFallback = session?.user?.name ?? session?.user?.email ?? null;
+  const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
+  const displayName = nickname ?? fallback ?? guestName;
   const avatarUrl = session?.user?.image ?? null;
 
   const totalLikes = myReviews.reduce((sum, r) => sum + getReviewVote(votesState, r.id).likes, 0);
   const tier = getBadge(totalLikes);
 
+  // 메뉴가 열릴 때마다 최신 월간 관람 수를 서버에서 가져온다.
+  // 서버 렌더 시 전달된 초기값을 넘겨주고, 실제 fetch 결과로 교체한다.
+  useEffect(() => {
+    if (!open || !session?.user?.id) return;
+    fetch("/api/user/monthly-count")
+      .then((r) => r.json())
+      .then(({ count }: { count: number }) => setLiveMonthlyCount(count))
+      .catch(() => {});
+  }, [open, session?.user?.id]);
+
   const now = new Date();
-  const thisMonthCount = myReviews.filter((r) => {
+  const thisMonthLocalCount = myReviews.filter((r) => {
     const d = new Date(r.createdAt);
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   }).length;
+  // 다이어리 "+ 영화 추가" 로그는 localStorage에만 저장되므로 별도로 합산한다.
+  // 평점(reviews/serverRatedMovies)과 중복되지 않도록, 로그 항목 중 같은 날 같은 영화가
+  // reviews에 없는 것만 추가로 센다.
+  const thisMonthLogCount = logEntries.filter((e) => {
+    const [y, m] = e.watchedDate.split("-").map(Number);
+    if (y !== now.getFullYear() || m !== now.getMonth() + 1) return false;
+    // 같은 영화가 같은 달에 이미 review로 있으면 중복이므로 제외
+    return !myReviews.some((r) => {
+      const d = new Date(r.createdAt);
+      return (
+        r.movieId === e.movieId &&
+        d.getFullYear() === y &&
+        d.getMonth() + 1 === m
+      );
+    });
+  }).length;
+  // 로그인 사용자는 실시간 fetch한 DB 평점 수 + 로그 수, 비로그인은 localStorage 수 + 로그 수
+  const thisMonthCount = (liveMonthlyCount ?? thisMonthLocalCount) + thisMonthLogCount;
 
-  // 같은 영화에 여러 리뷰를 남겼으면 그 중 가장 높은 점수(0~10 정규화)로 대표해서
-  // 평균을 낸다 — my-list-store의 getMyMovieRatingsSnapshot과 같은 계산 방식.
-  const bestByMovie = new Map<string, number>();
-  for (const r of myReviews) {
-    const scale = r.type === "short" ? 10 : 100;
-    const normalized = (r.rating / scale) * 10;
-    const existing = bestByMovie.get(r.movieId);
-    if (existing === undefined || normalized > existing) bestByMovie.set(r.movieId, normalized);
-  }
-  const avgRating = average(Array.from(bestByMovie.values()));
 
   return (
     <>
+      <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
       <button
         type="button"
         aria-label="메뉴 열기"
@@ -166,12 +198,12 @@ export default function SideMenu({ session }: { session: Session | null }) {
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 text-sm font-bold text-text">
                   <span className="truncate">{displayName}님</span>
-                  <span className="shrink-0 rounded-full bg-brand/20 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TIER_STYLES[tier].border} ${TIER_STYLES[tier].text} ${TIER_STYLES[tier].bg}`}>
                     {tier}
                   </span>
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted">
-                  이번 달 {thisMonthCount}편 관람 · 평균 별점 {avgRating !== null ? avgRating.toFixed(1) : "-"}
+                  이번 달 {thisMonthCount}편 관람 · 팔로워 {followerCount}
                 </p>
               </div>
             </div>
@@ -179,7 +211,7 @@ export default function SideMenu({ session }: { session: Session | null }) {
             <p className="mt-6 px-2 text-xs font-semibold text-muted">내 활동</p>
             <nav className="mt-2 space-y-1">
               <Link
-                href="/my-list"
+                href="/diary"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
@@ -187,28 +219,41 @@ export default function SideMenu({ session }: { session: Session | null }) {
                 다이어리
               </Link>
               <Link
-                href="/my-list"
+                href="/collection"
                 onClick={close}
-                className="flex items-center justify-between rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
               >
-                <span className="flex items-center gap-3">
-                  <HeartIcon />
-                  찜한 영화
-                </span>
-                {myListIds.length > 0 && (
-                  <span className="rounded-full bg-star px-2 py-0.5 text-[10px] font-bold text-black">
-                    {myListIds.length}
-                  </span>
-                )}
+                <CollectionIcon />
+                컬렉션
               </Link>
-              <PlaceholderItem icon={<CollectionIcon />} label="컬렉션" onClose={close} />
-              <PlaceholderItem icon={<PersonIcon />} label="팔로잉 목록" onClose={close} />
+              <Link
+                href="/following"
+                onClick={close}
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <PersonIcon />
+                팔로잉 목록
+              </Link>
             </nav>
 
             <p className="mt-6 px-2 text-xs font-semibold text-muted">설정</p>
             <nav className="mt-2 space-y-1">
-              <PlaceholderItem icon={<GearIcon />} label="계정 설정" onClose={close} />
-              <PlaceholderItem icon={<BellIcon />} label="알림" onClose={close} />
+              <Link
+                href="/mypage"
+                onClick={close}
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <GearIcon />
+                계정 설정
+              </Link>
+              <button
+                type="button"
+                onClick={() => { close(); setNotifOpen(true); }}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-text transition-colors hover:bg-black/30"
+              >
+                <BellIcon />
+                알림
+              </button>
               <div
                 className={`flex items-center justify-between rounded-lg px-2 py-2.5 text-sm text-text ${
                   canToggleDark ? "" : "opacity-50"
@@ -263,7 +308,24 @@ export default function SideMenu({ session }: { session: Session | null }) {
                 })}
               </div>
 
-              <PlaceholderItem icon={<HelpIcon />} label="고객센터" onClose={close} />
+              {session?.user?.role === "ADMIN" && (
+                <Link
+                  href="/admin"
+                  onClick={close}
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm font-semibold text-red-400 transition-colors hover:bg-black/30"
+                >
+                  <span className="text-base leading-none">🛠</span>
+                  관리자 대시보드
+                </Link>
+              )}
+              <Link
+                href="/help"
+                onClick={close}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-muted transition-colors hover:bg-black/30 hover:text-text"
+              >
+                <HelpIcon />
+                고객센터
+              </Link>
               {session?.user && (
                 <button
                   type="button"

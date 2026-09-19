@@ -51,24 +51,36 @@ function releaseSlot(): void {
   }
 }
 
-async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+async function tmdbFetch<T>(
+  path: string,
+  params: Record<string, string> = {},
+  lang = "ko-KR",
+  noCache = false,
+): Promise<T | null> {
   const key = apiKey();
   if (!key) return null;
 
   const url = new URL(`${TMDB_API_BASE}${path}`);
   url.searchParams.set("api_key", key);
-  url.searchParams.set("language", "ko-KR");
+  url.searchParams.set("language", lang);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   await acquireSlot();
   try {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
+        // noCache=true 일 때는 Next.js 데이터 캐시를 건너뛴다 — 서버 컴포넌트에서
+        // TV 시리즈 엔드포인트를 호출할 때 실패 응답이 24h 동안 캐시되는 문제를 방지.
         const res = await fetch(url, {
-          next: { revalidate: 60 * 60 * 24 },
+          ...(noCache ? { cache: "no-store" } : { next: { revalidate: 60 * 60 * 24 } }),
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         if (!res.ok) {
+          if (res.status === 429 && attempt < MAX_ATTEMPTS) {
+            const retryAfterSec = parseInt(res.headers.get("Retry-After") ?? "1", 10);
+            await new Promise((resolve) => setTimeout(resolve, retryAfterSec * 1000));
+            continue;
+          }
           console.warn(`[tmdb] ${path} 요청 실패: HTTP ${res.status}`);
           return null;
         }
@@ -200,6 +212,96 @@ export async function searchTmdbMovie(
   };
 }
 
+// TMDB ID를 이미 알고 있을 때 텍스트 검색 없이 바로 포스터만 가져온다
+// (Wikidata P4947 프로퍼티로 얻은 TMDB ID 활용).
+export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | null> {
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`);
+  return toImageUrl(details?.poster_path);
+}
+
+// TMDB ID로 영화 전체 상세 정보를 가져온다 — 수상작처럼 이미 tmdbId를 알고 있을 때
+// 텍스트 검색 없이 바로 개요·런타임·장르·개봉일을 채우는 데 쓴다.
+// lang 파라미터: 제목 검증용으로 "en-US"를 쓰면 영문 title + original_title을 돌려준다.
+export async function getTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang);
+  if (!details) return null;
+  return {
+    tmdbId: String(details.id),
+    title: details.title ?? "",
+    originalTitle: details.original_title?.trim() || null,
+    posterUrl: toImageUrl(details.poster_path),
+    overview: details.overview?.trim() || null,
+    releaseDate: details.release_date?.trim() || null,
+    runtimeMinutes: details.runtime ?? null,
+    genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
+  };
+}
+
+// 수상작 포스터 전용 느슨한 검색 — 한/영 제목을 동시에 검색하고 제목 유사도를 검증해
+// 엉뚱한 포스터가 매칭되는 것을 방지한다. titleAlt(보조 제목)가 있으면 병렬 검색.
+export async function searchTmdbMoviePosterLoose(
+  title: string,
+  releaseYear: number,
+  titleAlt?: string | null,
+): Promise<string | null> {
+  const normTitle = normalizeTitle(title);
+  const normAlt = titleAlt ? normalizeTitle(titleAlt) : null;
+
+  // TMDB 결과 제목과 검색 제목 둘 다 3자 이상일 때만 부분문자열 매칭을 허용.
+  // 짧은 제목을 긴 제목의 부분으로 잘못 매칭하는 오탐을 방지한다.
+  function isTitleMatch(r: RawTmdbMovieSearchResult, strict = false): boolean {
+    if (!r.poster_path) return false;
+    const t1 = r.title ? normalizeTitle(r.title) : "";
+    const t2 = r.original_title ? normalizeTitle(r.original_title) : "";
+    const matches = (norm: string) => {
+      if (norm.length < 3) return false;
+      if (strict) {
+        // 연도 제약 없는 마지막 시도 — 제목이 정확히 동일하거나 포함 관계일 때만 허용.
+        // 짧은 결과 제목이 긴 검색 쿼리에 포함되는 경우는 기각(오탐 방지).
+        return (t1.length >= 3 && (t1 === norm || t1.includes(norm) || norm.includes(t1) && norm.length <= t1.length + 4)) ||
+               (t2.length >= 3 && (t2 === norm || t2.includes(norm) || norm.includes(t2) && norm.length <= t2.length + 4));
+      }
+      return (t1.length >= 2 && (t1.includes(norm) || norm.includes(t1))) ||
+             (t2.length >= 2 && (t2.includes(norm) || norm.includes(t2)));
+    };
+    return matches(normTitle) || (!!normAlt && matches(normAlt));
+  }
+
+  // 연도 범위 탐색 — 한/영 제목 병렬 검색 후 제목 유사도로 검증
+  for (const year of [releaseYear, releaseYear - 1, releaseYear + 1]) {
+    const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
+      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
+        "/search/movie", { query: title, primary_release_year: String(year) }, "en-US"
+      ),
+    ];
+    if (titleAlt) {
+      queries.push(
+        tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
+          "/search/movie", { query: titleAlt, primary_release_year: String(year) }, "ko-KR"
+        )
+      );
+    }
+    const datasets = await Promise.all(queries);
+    const all = datasets.flatMap((d) => d?.results ?? []);
+    const hit = all.find((r) => isTitleMatch(r, false));
+    if (hit?.poster_path) return toImageUrl(hit.poster_path);
+  }
+
+  // 연도 제약 없는 마지막 시도 — 더 엄격한 제목 매칭 적용
+  const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
+    tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title }, "en-US"),
+  ];
+  if (titleAlt) {
+    queries.push(
+      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleAlt }, "ko-KR")
+    );
+  }
+  const datasets = await Promise.all(queries);
+  const all = datasets.flatMap((d) => d?.results ?? []);
+  const fallback = all.find((r) => isTitleMatch(r, true));
+  return fallback?.poster_path ? toImageUrl(fallback.poster_path) : null;
+}
+
 // ── TV 시리즈 ──────────────────────────────────────────────────────────────
 
 type RawTmdbTvSearchResult = {
@@ -234,7 +336,7 @@ export type TmdbSeriesDetails = {
 };
 
 export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
-  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`);
+  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true);
   if (!details) return null;
   return {
     tmdbId: String(details.id),
@@ -248,38 +350,104 @@ export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDe
   };
 }
 
+function rawToSeriesDetails(r: RawTmdbTvSearchResult): TmdbSeriesDetails {
+  return {
+    tmdbId: String(r.id),
+    name: r.name ?? r.original_name ?? "",
+    originalName: r.original_name?.trim() || null,
+    posterUrl: toImageUrl(r.poster_path),
+    overview: r.overview?.trim() || null,
+    firstAirDate: r.first_air_date?.trim() || null,
+    seasonCount: null,
+    genre: null,
+  };
+}
+
+// 한국어·영어 두 로케일로 동시에 검색해 결과를 합친다.
+// TMDB search는 질의어가 어떤 언어든 검색하지만 language 파라미터가 반환 제목에 영향을 주므로,
+// 두 로케일을 병렬 요청해 tmdbId 기준으로 중복 제거하면 한글/영문 제목 모두 잡힌다.
 export async function searchTmdbSeries(query: string): Promise<TmdbSeriesDetails[]> {
-  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query });
-  return (data?.results ?? [])
-    .filter((r) => r.name || r.original_name)
-    .slice(0, 5)
-    .map((r) => ({
+  const [koData, enData] = await Promise.all([
+    tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query }, "ko-KR"),
+    tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/search/tv", { query }, "en-US"),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: TmdbSeriesDetails[] = [];
+  for (const r of [...(koData?.results ?? []), ...(enData?.results ?? [])]) {
+    if (!(r.name || r.original_name)) continue;
+    const id = String(r.id);
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(rawToSeriesDetails(r));
+    }
+  }
+  return merged.slice(0, 20);
+}
+
+// 공백·특수문자를 제거한 소문자 문자열 — 느슨한 제목 매칭에 사용
+export function normalizeTitleStr(s: string): string {
+  return s.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+}
+
+// ── 통합 검색 (/search/multi) ─────────────────────────────────────────────────
+
+type RawTmdbMultiResult = {
+  id: number;
+  media_type: "movie" | "tv" | "person";
+  title?: string;
+  name?: string;
+  original_name?: string;
+  original_title?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+};
+
+export type TmdbMultiHit = {
+  tmdbId: string;
+  mediaType: "movie" | "tv";
+  title: string;
+  year: string | null;
+  posterUrl: string | null;
+};
+
+// 한국어·영어 두 로케일 병렬 요청 후 tmdbId+mediaType 기준 중복 제거.
+// person 결과는 제외하고 movie·tv만 반환한다.
+export async function searchTmdbMulti(query: string): Promise<TmdbMultiHit[]> {
+  const [koData, enData] = await Promise.all([
+    tmdbFetch<{ results?: RawTmdbMultiResult[] }>("/search/multi", { query, include_adult: "false" }, "ko-KR"),
+    tmdbFetch<{ results?: RawTmdbMultiResult[] }>("/search/multi", { query, include_adult: "false" }, "en-US"),
+  ]);
+
+  const seen = new Set<string>();
+  const merged: TmdbMultiHit[] = [];
+
+  for (const r of [...(koData?.results ?? []), ...(enData?.results ?? [])]) {
+    if (r.media_type === "person") continue;
+    const key = `${r.media_type}-${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const isMovie = r.media_type === "movie";
+    merged.push({
       tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
+      mediaType: r.media_type as "movie" | "tv",
+      title: isMovie ? (r.title ?? r.original_title ?? "") : (r.name ?? r.original_name ?? ""),
+      year: isMovie ? (r.release_date?.slice(0, 4) ?? null) : (r.first_air_date?.slice(0, 4) ?? null),
       posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+    });
+  }
+
+  return merged.slice(0, 20);
 }
 
 export async function getTmdbPopularSeries(): Promise<TmdbSeriesDetails[]> {
-  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular");
+  const data = await tmdbFetch<{ results?: RawTmdbTvSearchResult[] }>("/tv/popular", {}, "ko-KR", true);
   return (data?.results ?? [])
     .filter((r) => r.name || r.original_name)
     .slice(0, 20)
-    .map((r) => ({
-      tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
-      posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+    .map(rawToSeriesDetails);
 }
 
 // TMDB TV 장르 ID 매핑
@@ -309,16 +477,7 @@ export async function discoverTmdbSeriesByGenre(genre: string): Promise<TmdbSeri
   return (data?.results ?? [])
     .filter((r) => r.name || r.original_name)
     .slice(0, 20)
-    .map((r) => ({
-      tmdbId: String(r.id),
-      name: r.name ?? r.original_name ?? "",
-      originalName: r.original_name?.trim() || null,
-      posterUrl: toImageUrl(r.poster_path),
-      overview: r.overview?.trim() || null,
-      firstAirDate: r.first_air_date?.trim() || null,
-      seasonCount: null,
-      genre: null,
-    }));
+    .map(rawToSeriesDetails);
 }
 
 type RawTmdbTvCredit = {

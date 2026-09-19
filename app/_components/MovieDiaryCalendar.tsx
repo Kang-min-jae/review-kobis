@@ -10,6 +10,7 @@ import {
   subscribe as subscribeDiaryLog,
   getDiaryLogSnapshot,
   getServerDiaryLogSnapshot,
+  initForUser as initDiaryLogForUser,
 } from "../_lib/diary-log-store";
 
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -128,10 +129,15 @@ function AddButton({ onAdd, centered }: { onAdd: () => void; centered: boolean }
 export default function MovieDiaryCalendar({
   reviews,
   serverRatedMovies = [],
+  userId = null,
+  readOnly = false,
 }: {
   reviews: Review[];
   serverRatedMovies?: MyRatedMovie[];
+  userId?: string | null;
+  readOnly?: boolean;
 }) {
+  initDiaryLogForUser(userId);
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth()); // 0-indexed
@@ -226,16 +232,16 @@ export default function MovieDiaryCalendar({
 
           const cell = (
             <div
-              role={hasMovies ? "button" : undefined}
-              tabIndex={hasMovies ? 0 : undefined}
-              onClick={() => hasMovies && setDetailDate(key)}
+              role={hasMovies && !readOnly ? "button" : undefined}
+              tabIndex={hasMovies && !readOnly ? 0 : undefined}
+              onClick={() => hasMovies && !readOnly && setDetailDate(key)}
               onKeyDown={(e) => {
-                if (hasMovies && (e.key === "Enter" || e.key === " ")) {
+                if (hasMovies && !readOnly && (e.key === "Enter" || e.key === " ")) {
                   e.preventDefault();
                   setDetailDate(key);
                 }
               }}
-              className={`group relative aspect-2/3 overflow-hidden rounded-md ${hasMovies ? "cursor-pointer" : ""} ${
+              className={`group relative aspect-2/3 overflow-hidden rounded-md ${hasMovies && !readOnly ? "cursor-pointer" : ""} ${
                 primary ? "bg-black" : "bg-black/30"
               } ${isToday(day) ? "ring-2 ring-star" : ""}`}
             >
@@ -286,7 +292,7 @@ export default function MovieDiaryCalendar({
                   )}
                 </div>
               )}
-              <AddButton centered={!primary} onAdd={() => setAddModalDate(key)} />
+              {!readOnly && <AddButton centered={!primary} onAdd={() => setAddModalDate(key)} />}
             </div>
           );
 
@@ -296,12 +302,13 @@ export default function MovieDiaryCalendar({
 
       <p className="mt-3 flex items-center gap-1.5 text-[10px] text-muted">
         <span className="inline-block h-2.5 w-2.5 rounded-sm bg-gradient-to-br from-neutral-700 to-neutral-500" />
-        포스터가 채워진 칸 = 평점을 남긴 날 · 칸을 클릭하면 그 날 본 영화를 확인·삭제할 수 있고, 커서를
-        올리면 + 버튼으로 영화를 추가할 수 있어요
+        {readOnly
+          ? "포스터가 채워진 칸 = 평점을 남긴 날"
+          : "포스터가 채워진 칸 = 평점을 남긴 날 · 칸을 클릭하면 그 날 본 영화를 확인·삭제할 수 있고, 커서를 올리면 + 버튼으로 영화를 추가할 수 있어요"}
       </p>
 
-      {addModalDate && <DiaryAddMovieModal date={addModalDate} onClose={() => setAddModalDate(null)} />}
-      {detailDate && (
+      {!readOnly && addModalDate && <DiaryAddMovieModal date={addModalDate} onClose={() => setAddModalDate(null)} />}
+      {!readOnly && detailDate && (
         <DiaryDayDetailModal
           date={detailDate}
           serverRatedMovies={serverRatedMovies}

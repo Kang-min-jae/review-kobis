@@ -1,20 +1,74 @@
 import { db } from "./db";
 import { getMovieMeta } from "./movie-rate-info";
+import type { FestivalAward } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 export type MyRatedMovie = {
-  id: string; // "kobis-<movieCd>"
+  id: string;
   title: string;
   posterUrl: string | null;
   gradient: string;
   rating: number; // 0~10
-  ratedAt: string; // ISO — 처음 평점을 남긴 시각(무비 다이어리 날짜로 씀)
+  ratedAt: string; // ISO
+  awardBadge?: true;
+  festivalAwards?: FestivalAward[];
 };
 
-// 실제 로그인 계정으로 남긴 "전체" 평점(CategoryRateForm) — 남기는 순간 자동으로
-// 무비 다이어리(그 날짜 칸)와 나만의 영화 리스트의 "내가 평점 남긴 영화" 칸에 반영된다.
-// 게스트 모드 리뷰(reviews-store.ts, localStorage)와는 별개의 데이터라 여기서 따로 조회한다.
+function movieIdFromCd(movieCd: string): string {
+  if (movieCd.startsWith("tmdb-tv-") || movieCd.startsWith("wikidata-")) return movieCd;
+  return `kobis-${movieCd}`;
+}
+
+async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
+  try {
+    const awardRows = await db.cachedAwardWinners.findMany({ select: { id: true, winners: true } });
+    const byTmdbId = new Map<string, FestivalAward[]>();
+    for (const row of awardRows) {
+      const winners = row.winners as { tmdbId?: string | null; categoryLabel?: string; ceremonyYear?: number }[];
+      if (!Array.isArray(winners)) continue;
+      const festival = row.id.replace(/-v\d+$/, "");
+      for (const w of winners) {
+        if (!w.tmdbId) continue;
+        const list = byTmdbId.get(w.tmdbId) ?? [];
+        const award = { festival, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 };
+        const isDup = list.some((a) => a.festival === award.festival && a.year === award.year && a.categoryLabel === award.categoryLabel);
+        if (!isDup) list.push(award);
+        byTmdbId.set(w.tmdbId, list);
+      }
+    }
+    if (byTmdbId.size === 0) return new Map();
+    const result = new Map<string, FestivalAward[]>();
+
+    // tmdb-{id} 형식 movie codes: TMDB ID가 코드 자체에 내장되어 있으므로 DB 조인 불필요
+    for (const cd of movieCds) {
+      if (cd.startsWith("tmdb-") && !cd.startsWith("tmdb-tv-")) {
+        const tmdbId = cd.slice("tmdb-".length);
+        const awards = byTmdbId.get(tmdbId);
+        if (awards) result.set(cd, awards);
+      }
+    }
+
+    // KOBIS/wikidata 코드: cachedMovie를 통해 tmdbId 조인
+    const nonTmdbCds = movieCds.filter((cd) => !cd.startsWith("tmdb-") || cd.startsWith("tmdb-tv-"));
+    if (nonTmdbCds.length > 0) {
+      const hits = await db.cachedMovie.findMany({
+        where: { movieCd: { in: nonTmdbCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
+        select: { movieCd: true, tmdbId: true },
+      });
+      for (const h of hits) {
+        if (!h.tmdbId) continue;
+        const awards = byTmdbId.get(h.tmdbId);
+        if (awards) result.set(h.movieCd, awards);
+      }
+    }
+
+    return result;
+  } catch {
+    return new Map();
+  }
+}
+
 export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> {
   const ratings = await db.categoryRating.findMany({
     where: { userId, category: "전체" },
@@ -22,13 +76,57 @@ export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> 
   });
   if (ratings.length === 0) return [];
 
-  const metas = await Promise.all(ratings.map((r) => getMovieMeta(r.movieCd)));
-  return ratings.map((r, i) => ({
-    id: `kobis-${r.movieCd}`,
-    title: metas[i]?.movieTitle ?? r.movieCd,
-    posterUrl: metas[i]?.posterUrl ?? null,
-    gradient: FALLBACK_GRADIENT,
-    rating: r.score,
-    ratedAt: r.createdAt.toISOString(),
-  }));
+  const allMovieCds = ratings.map((r) => r.movieCd);
+
+  // KOBIS 코드(숫자)만 movie-rate-info로 메타 조회; 시리즈/wikidata는 DB 캐시 직접 조회
+  const kobisRatings = ratings.filter((r) => /^\d+$/.test(r.movieCd));
+  const metas = await Promise.all(kobisRatings.map((r) => getMovieMeta(r.movieCd)));
+  const kobishMetaMap = new Map(kobisRatings.map((r, i) => [r.movieCd, metas[i]]));
+
+  const seriesIds = ratings
+    .filter((r) => r.movieCd.startsWith("tmdb-tv-"))
+    .map((r) => r.movieCd.slice("tmdb-tv-".length));
+  const seriesCache = seriesIds.length > 0
+    ? await db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } } }).catch(() => [])
+    : [];
+  const seriesMap = new Map(seriesCache.map((s) => [`tmdb-tv-${s.tmdbId}`, s]));
+
+  const wikidataIds = ratings
+    .filter((r) => r.movieCd.startsWith("wikidata-"))
+    .map((r) => r.movieCd);
+  const wikidataCache = wikidataIds.length > 0
+    ? await db.cachedMovie.findMany({ where: { movieCd: { in: wikidataIds } } }).catch(() => [])
+    : [];
+  const wikidataMap = new Map(wikidataCache.map((m) => [m.movieCd, m]));
+
+  const awardCdMap = await getAwardMap(allMovieCds);
+
+  return ratings.map((r) => {
+    let title = r.movieCd;
+    let posterUrl: string | null = null;
+
+    if (r.movieCd.startsWith("tmdb-tv-")) {
+      const s = seriesMap.get(r.movieCd);
+      title = s?.name ?? r.movieCd;
+      posterUrl = s?.posterUrl ?? null;
+    } else if (r.movieCd.startsWith("wikidata-")) {
+      const m = wikidataMap.get(r.movieCd);
+      title = m?.title ?? r.movieCd;
+      posterUrl = m?.posterUrl ?? null;
+    } else {
+      const meta = kobishMetaMap.get(r.movieCd);
+      title = meta?.movieTitle ?? r.movieCd;
+      posterUrl = meta?.posterUrl ?? null;
+    }
+
+    return {
+      id: movieIdFromCd(r.movieCd),
+      title,
+      posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      rating: r.score,
+      ratedAt: r.createdAt.toISOString(),
+      ...(awardCdMap.has(r.movieCd) ? { awardBadge: true as const, festivalAwards: awardCdMap.get(r.movieCd)! } : {}),
+    };
+  });
 }

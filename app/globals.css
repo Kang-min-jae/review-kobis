@@ -30,9 +30,8 @@
 
 body {
   background-color: var(--color-bg);
-  /* SideMenu의 배경 테마 기본값("글래스 메시", background-theme.ts)과 같은 값 —
-     JS가 실행되기 전 첫 페인트가 기본 테마와 어긋나 깜빡이지 않게 맞춰둔다. */
-  background-image: linear-gradient(to bottom right, #0b0c10, #3a4f68 50%, #0b0c10);
+  /* 기본값은 순수 검정(다크모드) — JS 실행 전 첫 페인트와 일치시켜 깜빡임 방지. */
+  background-image: none;
   background-attachment: fixed;
   background-size: cover;
   color: var(--color-text);

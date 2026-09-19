@@ -653,6 +653,32 @@ export async function getWeeklyBoxOffice(
   }
 }
 
+// 특정 날(오늘로부터 daysAgo일 전) 일별 박스오피스 목록 — 현재 상영중인 영화 파악에 사용.
+export async function getDailyBoxOfficeList(daysAgo: number): Promise<KoficWeeklyEntry[]> {
+  const key = apiKey();
+  if (!key) return [];
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  try {
+    const items = await fetchDailyBoxOffice(toDateStamp(date), key);
+    return items
+      .filter((item): item is DailyBoxOfficeItem & { movieCd: string; movieNm: string } =>
+        Boolean(item.movieCd && item.movieNm)
+      )
+      .map((item, idx) => ({
+        rank: idx + 1,
+        movieCd: item.movieCd,
+        movieNm: item.movieNm,
+        openYear: extractYear(item.openDt),
+        openDate: item.openDt ?? null,
+        audiAcc: Number(item.audiAcc ?? 0),
+        salesAcc: Number(item.salesAcc ?? 0),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 // 최근 며칠간의 일별 박스오피스에서 제목이 일치하는 영화를 찾는다.
 export async function getKoficBoxOfficeByTitle(title: string): Promise<KoficBoxOffice | null> {
   const key = apiKey();

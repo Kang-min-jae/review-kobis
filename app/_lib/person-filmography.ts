@@ -12,6 +12,13 @@ import { isRecentlyOpened, genreFields, summaryToRowMovie, type RowMovie } from 
 import { getMovieMeta, getMovieMetas } from "./movie-rate-info";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
+
+// TMDB가 "/..." 형태의 상대경로를 돌려주는 경우를 대비해 전체 URL로 보정한다.
+function toFullTmdbImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  return url.startsWith("/") ? `${TMDB_IMAGE_BASE}${url}` : url;
+}
 
 // 영화 상세정보와 동일하게 3일 — 필모그래피는 신작이 나올 때만 바뀌는 정보라 자주
 // 갱신할 필요가 없다.
@@ -66,6 +73,31 @@ async function filmographyFromKmdb(
   );
   const rows = movies.map((movie, i) => {
     const movieCd = movieCds[i];
+    // KOBIS 코드가 없는 작품은 kmdb-{docId}로 저장하고, 나중에 평점 페이지에서
+    // 제목으로 TMDB를 조회할 수 있도록 CachedMovie에 기본 정보를 남겨둔다.
+    if (!movieCd) {
+      db.cachedMovie.upsert({
+        where: { movieCd: `kmdb-${movie.docId}` },
+        create: {
+          movieCd: `kmdb-${movie.docId}`,
+          title: movie.title,
+          titleEn: movie.titleEng,
+          overview: movie.overview,
+          posterUrl: movie.posterUrl,
+          releaseDate: movie.releaseDate,
+          rereleaseDate: null,
+          runtimeMinutes: movie.runtimeMinutes,
+          genreAlt: movie.genre,
+          tmdbId: null,
+          source: "kmdb",
+          directorName: movie.director?.name ?? null,
+          directorKmdbId: movie.director?.kmdbId ?? null,
+          directorTmdbId: null,
+          cast: [] as object[],
+        },
+        update: {},
+      }).catch(() => null);
+    }
     return {
       id: movieCd ? `kobis-${movieCd}` : `kmdb-${movie.docId}`,
       title: movie.title,
@@ -90,7 +122,10 @@ async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
 }
 
 function normalizeTitleForOverlap(title: string): string {
-  return title.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+  return title
+    .replace(/\s*\([^)]*\)/g, "") // strip parentheticals like "(디렉터스 컷)"
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toLowerCase();
 }
 
 // KMDb의 전문검색(rawSearch)은 관련도 기반이라, credit이 있는데도 검색 결과 100건
@@ -157,9 +192,8 @@ async function filmographyFromTmdb(
   const credits = await getTmdbPersonMovieCredits(tmdbId, role);
   if (credits.length === 0) return { rows: [], tmdbId };
 
-  // KOBIS movieCd를 찾아 KOFIC/KMDb 포스터를 가져온다 — TMDB 포스터 URL은 절대
-  // 사용하지 않는다. originalTitle(영문 원제)을 titleEn 힌트로 넘겨 외화에서
-  // KOBIS 매칭 성공률을 높인다.
+  // KOBIS movieCd를 찾아 KMDb 포스터를 우선 쓰고, KMDb에 없으면 TMDB 포스터로 보완.
+  // originalTitle(영문 원제)을 titleEn 힌트로 넘겨 외화에서 KOBIS 매칭 성공률을 높인다.
   const movieCds = await Promise.all(
     credits.map((c) => findMovieCdByTitleAndPerson(c.title, name, c.originalTitle, role, c.releaseDate?.slice(0, 4)))
   );
@@ -172,10 +206,14 @@ async function filmographyFromTmdb(
     return {
       id: movieCd ? `kobis-${movieCd}` : `tmdb-${c.tmdbId}`,
       title: meta?.movieTitle ?? c.title,
-      posterUrl: meta?.posterUrl ?? null,
+      // KMDb 포스터가 없으면(null) TMDB 포스터로 보완 — 외화는 KMDb에 포스터가
+      // 없는 경우가 많아서, 이 폴백이 없으면 포스터가 아예 안 나온다.
+      // TMDB poster_path가 상대경로("/...")로 들어오는 경우를 대비해 전체 URL로 보정한다.
+      posterUrl: meta?.posterUrl ?? toFullTmdbImageUrl(c.posterUrl),
       gradient: FALLBACK_GRADIENT,
       isNowShowing: movieCd ? isRecentlyOpened(c.releaseDate) : false,
       releaseDate: meta?.releaseDate ?? c.releaseDate,
+      ...genreFields(meta?.genreAlt ?? null),
     };
   });
   return { rows, tmdbId };
@@ -312,27 +350,51 @@ async function fetchAndCacheFilmography(
     filmographyFromTmdb(name, role, tmdbIdHint, nameEn),
   ]);
 
-  // KMDb는 포스터가 있어 우선하고, KOBIS 감독 검색·KOFIC 영화인 목록·CachedMovie
-  // 역방향 조회(kmdbId/tmdbId 둘 다)·TMDB 전체 필모그래피에만 있는 작품(이름
-  // 검색에서 누락된 것)을 채워 넣는다.
-  const byId = new Map<string, RowMovie>();
-  for (const row of kmdbRows) byId.set(row.id, row);
-  for (const row of kobisDirectorRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of koficRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of reverseRows) if (!byId.has(row.id)) byId.set(row.id, row);
-  for (const row of tmdbReverseRows) if (!byId.has(row.id)) byId.set(row.id, row);
-
-  // TMDB 필모그래피는 KOBIS movieCd를 못 찾은 작품이면 id가 tmdb-<id>가 되는데,
-  // 같은 영화가 KMDb 쪽에서도 movieCd 없이(kmdb-<docid>) 이미 들어와 있을 수 있다 —
-  // id 체계가 서로 달라 id만으로는 이 중복을 못 걸러내므로, 제목으로 한 번 더
-  // 대조해서 이미 있는 작품은 건너뛴다.
-  const existingTitles = new Set(Array.from(byId.values()).map((r) => normalizeTitleForOverlap(r.title)));
-  for (const row of tmdbResult.rows) {
-    const normalized = normalizeTitleForOverlap(row.title);
-    if (byId.has(row.id) || existingTitles.has(normalized)) continue;
-    byId.set(row.id, row);
-    existingTitles.add(normalized);
+  // 모든 소스를 통합할 때 제목 기준 중복을 제거한다. 같은 영화가 소스마다 다른
+  // id 체계(kobis-*/tmdb-*/kmdb-*)와 다른 표기("미스터 & 미세스 스미스" vs
+  // "미스터 미세스 스미스")로 들어오는 경우가 있어서, id 비교만으로는 중복을
+  // 걸러낼 수 없다. 우선순위 kobis- > tmdb- > kmdb- 순으로 더 ratable한 항목을
+  // 유지하고, 동일 우선순위면 기존 항목을 유지하면서 포스터만 보완한다.
+  function rowPriority(id: string): number {
+    if (id.startsWith("kobis-")) return 2;
+    if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) return 1;
+    return 0; // kmdb-*
   }
+
+  const byId = new Map<string, RowMovie>();
+  const titleToId = new Map<string, string>(); // normalized title → id in byId
+
+  function mergeRow(row: RowMovie) {
+    const norm = normalizeTitleForOverlap(row.title);
+    if (byId.has(row.id)) {
+      const ex = byId.get(row.id)!;
+      if (!ex.posterUrl && row.posterUrl) byId.set(row.id, { ...ex, posterUrl: row.posterUrl });
+      return;
+    }
+    const existingId = titleToId.get(norm);
+    if (existingId !== undefined) {
+      const existing = byId.get(existingId)!;
+      if (rowPriority(row.id) > rowPriority(existingId)) {
+        // 더 ratable한 항목으로 교체하되 포스터는 있는 쪽 우선
+        byId.delete(existingId);
+        byId.set(row.id, { ...row, posterUrl: row.posterUrl ?? existing.posterUrl });
+        titleToId.set(norm, row.id);
+      } else if (!existing.posterUrl && row.posterUrl) {
+        byId.set(existingId, { ...existing, posterUrl: row.posterUrl });
+      }
+      return;
+    }
+    byId.set(row.id, row);
+    titleToId.set(norm, row.id);
+  }
+
+  for (const row of kmdbRows) mergeRow(row);
+  for (const row of kobisDirectorRows) mergeRow(row);
+  for (const row of koficRows) mergeRow(row);
+  for (const row of reverseRows) mergeRow(row);
+  for (const row of tmdbReverseRows) mergeRow(row);
+  for (const row of tmdbResult.rows) mergeRow(row);
+
   let movies = Array.from(byId.values());
 
   // 자동 매칭이 못 잡아내는 예외(주로 KMDb 원본 데이터 자체의 오류)를 사람이 직접
@@ -394,9 +456,10 @@ export async function getPersonTmdbId(personId: string | null): Promise<string |
 export async function getPersonFilmography(
   name: string,
   personId: string | null,
-  role: "감독" | "배우" | null
+  role: "감독" | "배우" | null,
+  tmdbIdHint: string | null = null
 ): Promise<RowMovie[]> {
-  if (!personId) return fetchAndCacheFilmography(name, personId, role);
+  if (!personId) return fetchAndCacheFilmography(name, personId, role, tmdbIdHint);
 
   const cached = await db.cachedPerson.findUnique({ where: { kmdbId: personId } });
   // tmdbId가 아직 없는 캐시는 nameEn이 새로 생겨 TMDB 재시도가 가능할 수 있으므로

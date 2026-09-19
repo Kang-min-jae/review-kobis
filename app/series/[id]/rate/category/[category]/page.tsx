@@ -81,10 +81,12 @@ export default async function SeriesCategoryRatePage({
           <CategoryRateForm
             movieId={info.seriesId}
             movieCd={info.movieCd}
+            movieTitle={info.title}
+            moviePosterUrl={info.posterUrl}
+            movieGradient={info.gradient}
             category={category}
             isLoggedIn={Boolean(userId)}
-            categoryAverage={categoryAverage}
-            myScore={myScore}
+            userId={userId}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
             myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
           />

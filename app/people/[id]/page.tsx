@@ -14,7 +14,7 @@ function candidateHref(name: string, role: "감독" | "배우", kmdbId: string):
 
 export default async function PersonPage({ params, searchParams }: PageProps<"/people/[id]">) {
   const { id } = await params;
-  const { pid, role: roleParam } = await searchParams;
+  const { pid, role: roleParam, tmdbId: tmdbIdParam } = await searchParams;
   const name = decodeURIComponent(id);
   const role = roleParam === "감독" || roleParam === "배우" ? roleParam : null;
 
@@ -29,8 +29,12 @@ export default async function PersonPage({ params, searchParams }: PageProps<"/p
     if (mapping?.kmdbId) personId = mapping.kmdbId;
   }
 
+  // 검색 결과에서 바로 클릭해 온 경우 TMDB person ID 힌트가 URL에 실릴 수 있다 —
+  // KMDb ID가 없는 외국 인물도 TMDB ID로 바로 필모그래피를 조회할 수 있게 한다.
+  const tmdbIdHint = typeof tmdbIdParam === "string" ? tmdbIdParam : null;
+
   const [movies, candidates] = await Promise.all([
-    getPersonFilmography(name, personId, role),
+    getPersonFilmography(name, personId, role, tmdbIdHint),
     role ? findNamesakeCandidates(name, role) : Promise.resolve([]),
   ]);
 

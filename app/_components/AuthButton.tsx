@@ -6,13 +6,16 @@ import Link from "next/link";
 import type { Session } from "next-auth";
 import { signOutAction } from "../_lib/auth-actions";
 
-export default function AuthButton({ session }: { session: Session | null }) {
+export default function AuthButton({ session, nickname }: { session: Session | null; nickname?: string | null }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   if (session?.user) {
-    const displayName = session.user.name ?? session.user.email ?? "사용자";
+    // nickname(DB) 우선 → OAuth name → email에서 @ 앞부분만 → 기본값
+    const rawFallback = session.user.name ?? session.user.email ?? null;
+    const fallback = rawFallback?.includes("@") ? rawFallback.split("@")[0] : rawFallback;
+    const displayName = nickname ?? fallback ?? "사용자";
 
     return (
       <div className="relative shrink-0">
@@ -33,11 +36,11 @@ export default function AuthButton({ session }: { session: Session | null }) {
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <div className="absolute right-0 z-20 mt-2 w-40 rounded-lg border border-neutral-700 bg-surface p-2 shadow-lg">
               <Link
-                href={`/users/${session.user.id}`}
+                href="/mypage"
                 onClick={() => setOpen(false)}
                 className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-black/30"
               >
-                내 프로필
+                계정설정
               </Link>
               <button
                 type="button"
