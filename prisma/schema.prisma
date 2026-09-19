@@ -137,8 +137,9 @@ model CachedAwardWinners {
 model User {
   id            String    @id @default(cuid())
   name          String? // OAuth 제공자가 준 원래 이름
-  nickname      String?   @unique // 사이트에서 실제로 보여주는 이름 — 처음엔 name으로 채우고 나중에 바꿀 수 있게. 중복 불가(NULL은 여러 개 허용).
-  email         String?   @unique // 카카오는 이메일 동의를 안 받은 앱이면 안 줄 수도 있어 nullable
+  nickname      String?   @unique // 다른 사람에게 보여지는 표시 이름. 중복 불가(NULL은 여러 개 허용).
+  username      String?   @unique // 크레덴셜 로그인용 아이디 — 소셜 가입 유저는 null
+  email         String?   @unique // 비밀번호 찾기·소셜 로그인용. 카카오는 동의 안 받으면 null
   emailVerified DateTime?
   image         String?
   password      String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null

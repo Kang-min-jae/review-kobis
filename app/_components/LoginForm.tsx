@@ -40,17 +40,18 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         <input type="hidden" name="callbackUrl" value={callbackUrl} />
         <div>
           <label htmlFor="email" className="text-xs text-muted">
-            아이디 또는 이메일
+            아이디
           </label>
           <input
             id="email"
             name="email"
-            type="email"
+            type="text"
             required
-            placeholder="name@example.com"
+            placeholder="아이디 또는 이메일"
             value={email}
             onChange={handleEmailChange}
             className={inputClass}
+            autoComplete="username"
           />
         </div>
 

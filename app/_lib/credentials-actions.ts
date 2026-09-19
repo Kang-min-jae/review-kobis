@@ -32,33 +32,29 @@ function isValidEmail(email: string): boolean {
 
 // 회원가입 후 곧바로 로그인시킨다(가입만 하고 다시 로그인 화면으로 보내는 건
 // 불필요한 한 단계다).
+const USERNAME_RE = /^[a-zA-Z0-9_]{4,20}$/;
+
 export async function signUpAction(
   _prevState: ActionResult | null,
   formData: FormData
 ): Promise<ActionResult> {
-  const emailRaw = String(formData.get("email") ?? "").trim().toLowerCase();
-  const email = emailRaw || null; // 이메일은 선택 — 미입력 시 null
+  const usernameInput = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const nicknameInput = String(formData.get("nickname") ?? "").trim();
   const callbackUrl = String(formData.get("callbackUrl") ?? "/");
 
-  if (email && !isValidEmail(email)) return { error: "올바른 이메일 형식이 아니에요." };
+  if (!usernameInput) return { error: "아이디를 입력해 주세요." };
+  if (usernameInput.length < 4) return { error: "아이디는 4자 이상이어야 해요." };
+  if (usernameInput.length > 20) return { error: "아이디는 20자 이하여야 해요." };
+  if (!USERNAME_RE.test(usernameInput)) return { error: "아이디는 영문, 숫자, 밑줄(_)만 사용 가능해요." };
+
   if (password.length < MIN_PASSWORD_LENGTH) {
     return { error: `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상이어야 해요.` };
   }
 
-  if (email) {
-    const existing = await db.user.findUnique({ where: { email } });
-    if (existing) {
-      return {
-        error: existing.password
-          ? "이미 가입된 이메일이에요. 로그인해 주세요."
-          : "이미 소셜 로그인으로 가입된 이메일이에요. Google/Kakao/Naver로 로그인해 주세요.",
-      };
-    }
-  }
+  const usernameTaken = await db.user.findUnique({ where: { username: usernameInput } });
+  if (usernameTaken) return { error: "이미 사용 중인 아이디예요." };
 
-  // 닉네임 필수 — 이메일 없이 가입할 때는 닉네임이 유일한 식별자가 된다.
   if (!nicknameInput) return { error: "닉네임을 입력해 주세요." };
   if (nicknameInput.length < 2) return { error: "닉네임은 2자 이상이어야 해요." };
 
@@ -67,23 +63,19 @@ export async function signUpAction(
 
   const passwordHash = await hash(password, 10);
   try {
-    await db.user.create({ data: { email, password: passwordHash, nickname: nicknameInput } });
+    await db.user.create({ data: { username: usernameInput, password: passwordHash, nickname: nicknameInput } });
   } catch (error) {
-    // 위에서 확인한 뒤 실제로 만들기 전 사이에 다른 요청이 같은 닉네임/이메일을 먼저
-    // 가져갔을 수 있다(동시 가입) — DB의 유니크 제약이 최종 방어선이다.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return { error: "이미 사용 중인 닉네임 또는 이메일이에요. 다시 시도해 주세요." };
+      return { error: "이미 사용 중인 아이디 또는 닉네임이에요. 다시 시도해 주세요." };
     }
     throw error;
   }
 
-  // 자동 로그인: 이메일 있으면 이메일로, 없으면 닉네임으로 로그인
-  const loginIdentifier = email ?? nicknameInput;
   try {
-    await signIn("credentials", { email: loginIdentifier, password, redirectTo: callbackUrl });
+    await signIn("credentials", { email: usernameInput, password, redirectTo: callbackUrl });
   } catch (error) {
     if (error instanceof AuthError) return { error: "가입은 됐지만 자동 로그인에 실패했어요. 다시 로그인해 주세요." };
-    throw error; // NEXT_REDIRECT는 그대로 다시 던져야 실제 리다이렉트가 된다.
+    throw error;
   }
   return { ok: true };
 }
