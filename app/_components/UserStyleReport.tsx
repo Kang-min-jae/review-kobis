@@ -1,48 +1,78 @@
+import Link from "next/link";
+import PosterImage from "./PosterImage";
 import type { UserReviewStats } from "../_lib/review-data";
+import type { MyRatedMovie } from "../_lib/my-rated-movies";
 
 export default function UserStyleReport({
   stats,
   userName,
+  topMovies = [],
 }: {
   stats: UserReviewStats;
   userName: string;
+  topMovies?: MyRatedMovie[];
 }) {
-  if (stats.reviewCount === 0) return null;
+  if (stats.reviewCount === 0 && topMovies.length === 0) return null;
 
   return (
     <div className="rounded-lg border border-neutral-700 bg-surface p-4">
       <h2 className="text-sm font-bold text-text">{userName}님의 평론 스타일 분석 리포트</h2>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg bg-black/30 p-3 text-center">
-          <p className="text-lg font-bold text-brand">{stats.movieCount}</p>
-          <p className="mt-0.5 text-[11px] text-muted">평가한 영화</p>
+      {stats.reviewCount > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-lg bg-black/30 p-3 text-center">
+            <p className="text-lg font-bold text-brand">{stats.movieCount}</p>
+            <p className="mt-0.5 text-[11px] text-muted">평가한 영화</p>
+          </div>
+          <div className="rounded-lg bg-black/30 p-3 text-center">
+            <p className="text-lg font-bold text-brand">{stats.reviewCount}</p>
+            <p className="mt-0.5 text-[11px] text-muted">남긴 리뷰</p>
+          </div>
+          <div className="rounded-lg bg-black/30 p-3 text-center">
+            <p className="text-lg font-bold text-star">
+              {stats.shortAvg !== null ? stats.shortAvg.toFixed(1) : "—"}
+              <span className="mx-1 text-muted">/</span>
+              {stats.longAvg !== null ? stats.longAvg.toFixed(1) : "—"}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted">한줄평(10) / 장문평(100) 평균</p>
+          </div>
+          <div className="rounded-lg bg-black/30 p-3 text-center">
+            <p className="text-lg font-bold text-text">
+              {stats.shortCount} / {stats.longCount}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted">한줄평 / 장문평</p>
+          </div>
         </div>
-        <div className="rounded-lg bg-black/30 p-3 text-center">
-          <p className="text-lg font-bold text-brand">{stats.reviewCount}</p>
-          <p className="mt-0.5 text-[11px] text-muted">남긴 리뷰</p>
-        </div>
-        <div className="rounded-lg bg-black/30 p-3 text-center">
-          <p className="text-lg font-bold text-star">
-            {stats.shortAvg !== null ? stats.shortAvg.toFixed(1) : "—"}
-            <span className="mx-1 text-muted">/</span>
-            {stats.longAvg !== null ? stats.longAvg.toFixed(1) : "—"}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted">한줄평(10) / 장문평(100) 평균</p>
-        </div>
-        <div className="rounded-lg bg-black/30 p-3 text-center">
-          <p className="text-lg font-bold text-text">
-            {stats.shortCount} / {stats.longCount}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted">한줄평 / 장문평</p>
-        </div>
-      </div>
+      )}
 
-      {stats.topLikedContent && stats.topLikedCount > 0 && (
-        <div className="mt-4 border-t border-neutral-700 pt-3">
-          <p className="text-[11px] text-muted">가장 많은 좋아요를 받은 평론</p>
-          <p className="mt-1 line-clamp-2 text-sm text-text">"{stats.topLikedContent}"</p>
-          <p className="mt-1 text-[11px] font-semibold text-star">👍 {stats.topLikedCount}</p>
+      {topMovies.length > 0 && (
+        <div className={stats.reviewCount > 0 ? "mt-4 border-t border-neutral-700 pt-3" : "mt-3"}>
+          <p className="text-[11px] text-muted mb-2">{userName}님이 높게 평가한 순위</p>
+          <div className="space-y-2">
+            {topMovies.map((movie, index) => {
+              const href = movie.id.startsWith("tmdb-tv-")
+                ? `/series/${movie.id}/rate`
+                : `/movies/${movie.id}/rate`;
+              return (
+                <Link
+                  key={movie.id}
+                  href={href}
+                  className="flex items-center gap-3 rounded-lg bg-black/30 p-2.5 transition-colors hover:bg-black/50"
+                >
+                  <span className="w-5 shrink-0 text-center text-sm font-bold text-brand">{index + 1}</span>
+                  <div
+                    className={`relative h-10 w-7 shrink-0 overflow-hidden rounded ${
+                      movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
+                    }`}
+                  >
+                    {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
+                  </div>
+                  <p className="flex-1 truncate text-sm text-text">{movie.title}</p>
+                  <span className="shrink-0 text-xs font-semibold text-star">{movie.rating.toFixed(1)}</span>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

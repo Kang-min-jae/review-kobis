@@ -77,7 +77,11 @@ export default function UserReadOnlyListView({
       <MyRatedMoviesSection movies={movies} userName={userName} />
 
       <div className="mt-6">
-        <UserStyleReport stats={reviewStats} userName={userName} />
+        <UserStyleReport
+          stats={reviewStats}
+          userName={userName}
+          topMovies={[...movies].sort((a, b) => b.rating - a.rating).slice(0, 10)}
+        />
       </div>
     </div>
   );
