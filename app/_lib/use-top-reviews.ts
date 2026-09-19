@@ -26,9 +26,10 @@ async function fetchTopReviews(movieCd: string): Promise<TopReview[]> {
 // BoxOfficeCoverflow 뒤집기 카드와 TopReviewsPanel(호버 팝업)이 공유하는 훅.
 // movieCd가 null이면 아무것도 하지 않는다 (KOBIS 영화가 아닌 경우).
 export function useTopReviews(movieCd: string | null): { reviews: TopReview[]; loading: boolean } {
-  const [reviews, setReviews] = useState<TopReview[]>(() =>
-    movieCd ? (cache.get(movieCd) ?? []) : []
-  );
+  // SSR과 클라이언트 초기 렌더링이 항상 []로 일치하도록 cache를 useState 초기값에 쓰지 않는다.
+  // 서버 프로세스에 남아 있는 모듈 캐시 때문에 서버는 reviews가 있고 클라이언트는
+  // 빈 배열인 상태가 생겨 Hydration Mismatch가 발생할 수 있다.
+  const [reviews, setReviews] = useState<TopReview[]>([]);
   const [loading, setLoading] = useState(false);
   const currentCd = useRef<string | null>(null);
 

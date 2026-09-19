@@ -30,10 +30,10 @@ export default function TopReviewsList({
   loading: boolean;
 }) {
   if (loading) {
-    return <p className="mt-2 text-[11px] text-muted">불러오는 중…</p>;
+    return <div className="mt-2 text-[11px] text-muted">불러오는 중…</div>;
   }
   if (reviews.length === 0) {
-    return <p className="mt-2 text-[11px] text-muted">아직 등록된 한줄평이 없어요.</p>;
+    return <div className="mt-2 text-[11px] text-muted">아직 등록된 한줄평이 없어요.</div>;
   }
 
   return (
