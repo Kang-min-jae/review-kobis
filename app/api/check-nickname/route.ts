@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "../../_lib/prisma";
+import { db as prisma } from "../../_lib/db";
 
 export async function GET(req: NextRequest) {
   const nickname = req.nextUrl.searchParams.get("nickname")?.trim() ?? "";
