@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "../_lib/db";
+import { auth } from "../../auth";
 import BackBar from "../_components/BackBar";
 import FaqAccordion from "../_components/FaqAccordion";
 
@@ -25,11 +26,19 @@ const FAQ_ITEMS = [
 ];
 
 export default async function HelpPage() {
-  const recentNotices = await db.notice.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 4,
-    select: { id: true, type: true, title: true, isNew: true, createdAt: true },
-  });
+  const [session, recentNotices] = await Promise.all([
+    auth(),
+    db.notice.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { id: true, type: true, title: true, isNew: true, createdAt: true },
+    }),
+  ]);
+
+  const isAdmin = session?.user?.role === "ADMIN";
+  const pendingCount = isAdmin
+    ? await db.inquiry.count({ where: { status: "답변 대기" } })
+    : 0;
 
   return (
     <div className="mx-auto max-w-lg px-4 pb-12 pt-4">
@@ -38,8 +47,29 @@ export default async function HelpPage() {
       <h1 className="mt-4 text-xl font-bold text-text">고객센터</h1>
       <p className="mt-1 text-sm text-muted">궁금한 점은 스스로 해결하고, 문제는 편하게 알려주세요.</p>
 
+      {/* 관리자 전용 진입 카드 */}
+      {isAdmin && (
+        <Link
+          href="/admin/inquiries"
+          className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 transition hover:bg-red-500/20"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-lg">🚨</span>
+            <div>
+              <p className="text-sm font-semibold text-red-400">전체 1:1 문의 관리</p>
+              <p className="text-xs text-muted">관리자 전용 — 모든 유저의 문의를 확인하고 답변하세요</p>
+            </div>
+          </div>
+          {pendingCount > 0 && (
+            <span className="shrink-0 rounded-full bg-red-500 px-2.5 py-0.5 text-xs font-bold text-white">
+              {pendingCount}건 대기
+            </span>
+          )}
+        </Link>
+      )}
+
       {/* 빠른 이동 카드 */}
-      <div className="mt-5 grid grid-cols-2 gap-3">
+      <div className={`${isAdmin ? "mt-3" : "mt-5"} grid grid-cols-2 gap-3`}>
         <Link
           href="/help/inquiry"
           className="rounded-xl bg-surface p-4 transition hover:bg-surface-hover"

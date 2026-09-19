@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { auth } from "../../../../auth";
 import { db } from "../../../_lib/db";
 
@@ -59,6 +60,10 @@ export async function POST(request: Request) {
     },
     select: { id: true },
   });
+
+  revalidatePath("/admin/inquiries");
+  revalidatePath("/admin");
+  revalidatePath("/help");
 
   return NextResponse.json({ id: inquiry.id }, { status: 201 });
 }
