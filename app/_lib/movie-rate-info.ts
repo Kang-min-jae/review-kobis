@@ -424,7 +424,7 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
         tmdbId: resolvedTmdbId,
         directorName: director?.name ?? cached.directorName,
         directorKmdbId: director?.kmdbId ?? cached.directorKmdbId,
-        cast: castForStorage.length > 0 ? castForStorage : cached.cast,
+        cast: (castForStorage.length > 0 ? castForStorage : cached.cast) as object | undefined,
       };
       await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };

@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidateTag } from "next/cache";
+import { updateTag } from "next/cache";
 import { db } from "./db";
 import { auth } from "../../auth";
 
@@ -23,13 +23,13 @@ export async function saveOfficialWinnerAction(input: {
     create: input,
     update: { movieId: input.movieId, movieTitle: input.movieTitle, posterUrl: input.posterUrl, updatedAt: new Date() },
   });
-  revalidateTag("official-winners");
+  updateTag("official-winners");
 }
 
 export async function deleteOfficialWinnerAction(id: string) {
   await requireAdmin();
   await db.officialWinner.delete({ where: { id } });
-  revalidateTag("official-winners");
+  updateTag("official-winners");
 }
 
 export async function listOfficialWinnersAction(festival?: string, year?: number) {

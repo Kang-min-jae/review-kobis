@@ -7,13 +7,14 @@ import { getFollowerCount, checkIsFollowing } from "../../_lib/follow-actions";
 
 export default async function UserProfilePage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
-  const [session, user, followerCount] = await Promise.all([
+  const [session, user, followerCount, totalLikes] = await Promise.all([
     auth(),
     db.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, image: true, nickname: true },
     }),
     getFollowerCount(userId),
+    db.review.aggregate({ where: { authorId: userId }, _sum: { likes: true } }).then((r) => r._sum.likes ?? 0),
   ]);
 
   if (!user) notFound();
@@ -28,6 +29,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ us
       <SiteHeader />
       <UserProfileView
         user={user}
+        totalLikes={totalLikes}
         followerCount={followerCount}
         isFollowing={isFollowing}
         isOwnProfile={isOwnProfile}

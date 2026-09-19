@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidateTag } from "next/cache";
+import { updateTag } from "next/cache";
 import { unstable_cache } from "next/cache";
 import { db } from "./db";
 import { auth } from "../../auth";
@@ -76,7 +76,7 @@ export async function getOfficialWinner(
 export async function revalidateOfficialWinnersCache() {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
-  revalidateTag("official-winners");
+  updateTag("official-winners");
 }
 
 export type AwardVoteResult = {
@@ -166,7 +166,7 @@ export async function submitAwardVoteAction(input: {
     }
   });
 
-  revalidateTag(voteTag(input.festival, input.awardCategory));
+  updateTag(voteTag(input.festival, input.awardCategory));
 }
 
 // 투표 취소
@@ -189,5 +189,5 @@ export async function deleteAwardVoteAction(festival: string, awardCategory: str
     }),
   ]);
 
-  revalidateTag(voteTag(festival, awardCategory));
+  updateTag(voteTag(festival, awardCategory));
 }

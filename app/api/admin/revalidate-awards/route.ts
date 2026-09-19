@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   });
 
   // 3. Next.js data cache 무효화 (unstable_cache 12h TTL 강제 만료)
-  revalidateTag("award-winners");
+  revalidateTag("award-winners", { expire: 0 });
 
   return NextResponse.json({
     ok: true,
