@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* hover: 유틸리티를 실제 마우스/포인터가 지원되는 환경에서만 적용
+   — 터치 기기에서 첫 번째 탭이 hover 상태를 선점해 click이 씹히는 현상 방지 */
+@custom-variant hover (@media (hover: hover) { &:hover });
+
 @theme {
   --color-bg: #000000;
   --color-surface: #141414;
