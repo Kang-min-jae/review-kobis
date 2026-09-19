@@ -22,7 +22,7 @@ export default function UserStyleReport({
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg bg-black/30 p-3 text-center">
             <p className="text-lg font-bold text-brand">{stats.movieCount}</p>
-            <p className="mt-0.5 text-[11px] text-muted">평가한 영화</p>
+            <p className="mt-0.5 text-[11px] text-muted">평가한 작품</p>
           </div>
           <div className="rounded-lg bg-black/30 p-3 text-center">
             <p className="text-lg font-bold text-brand">{stats.reviewCount}</p>

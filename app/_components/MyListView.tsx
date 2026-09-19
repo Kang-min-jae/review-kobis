@@ -174,7 +174,7 @@ export default function MyListView({
       {addableMovies.length > 0 && (
         <div className="mt-6">
           <p className="text-xs text-muted">
-            평점을 남긴 영화 중 추가하기
+            평점을 남긴 작품 중 추가하기
             {useCompact && <span className="ml-1 text-neutral-500">({addableMovies.length})</span>}
           </p>
           {useCompact && (
