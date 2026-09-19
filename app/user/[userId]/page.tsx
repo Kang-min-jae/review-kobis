@@ -14,7 +14,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ us
       select: { id: true, name: true, image: true, nickname: true },
     }),
     getFollowerCount(userId),
-    db.review.aggregate({ where: { authorId: userId }, _sum: { likes: true } }).then((r) => r._sum.likes ?? 0),
+    db.review.aggregate({ where: { userId }, _sum: { likeCount: true } }).then((r) => r._sum?.likeCount ?? 0),
   ]);
 
   if (!user) notFound();
