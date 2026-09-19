@@ -294,6 +294,7 @@ model Follow {
   createdAt   DateTime @default(now())
 
   @@unique([followerId, followingId])
+  @@index([followingId])
 }
 
 // "이 리뷰 때문에 봤어요" 추적.
