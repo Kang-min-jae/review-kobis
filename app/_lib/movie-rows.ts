@@ -542,43 +542,81 @@ export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
 }
 
 // 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
-// 평점이 있는 영화를 먼저 보여주고, 없는 영화는 최신순으로 뒤에 붙인다.
+// openDateGte/openDateLte 를 기준으로 CachedMovie.releaseDate를 필터링하므로,
+// KOBIS 카탈로그 풀의 순서·개수에 의존하지 않고 평점이 남겨진 모든 영화가 반영된다.
+// 평점 있는 영화를 먼저 채우고, 자리가 남으면 KOBIS 카탈로그(평점 없는 영화)로 보충한다.
 async function getRatingSortedMovies(
   openDateGte: string,
   openDateLte: string,
   limit: number,
 ): Promise<RowMovie[]> {
-  const candidates = await fetchOpenedBetween(openDateGte, openDateLte, Math.max(limit * 6, 200));
-  if (candidates.length === 0) return [];
-
-  const movieCds = candidates.map((c) => c.movieCd);
-
-  // DB에서 '전체' 카테고리 평점 평균·수 집계
-  const ratings = await db.categoryRating.groupBy({
+  // 1. DB에서 '전체' 카테고리 평점 집계 (KOBIS 코드=숫자만, 시리즈 제외)
+  const allRatings = await db.categoryRating.groupBy({
     by: ["movieCd"],
-    where: { movieCd: { in: movieCds }, category: "전체" },
+    where: { category: "전체" },
     _avg: { score: true },
     _count: { _all: true },
   });
-
   const ratingMap = new Map(
-    ratings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
+    allRatings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
   );
+  const ratedCds = allRatings
+    .map((r) => r.movieCd)
+    .filter((cd) => /^\d+$/.test(cd)); // 숫자 KOBIS 코드만
 
-  // 평점 있는 영화 먼저(평균 내림차순 → 수 내림차순), 없는 영화는 원래 순서 유지
-  const withRating = candidates
-    .filter((c) => ratingMap.has(c.movieCd))
+  // 2. 평점 있는 영화의 메타(개봉일·포스터 포함)를 CachedMovie에서 조회
+  const [ratedMetas, ratedAvgMap] = ratedCds.length > 0
+    ? await Promise.all([getMovieMetas(ratedCds), getBulkMovieRatingAverages(ratedCds)])
+    : [new Map() as Awaited<ReturnType<typeof getMovieMetas>>, new Map() as Awaited<ReturnType<typeof getBulkMovieRatingAverages>>];
+
+  // 3. 개봉일 범위 + 포스터 있는 영화를 평점 내림차순으로 정렬
+  const ratedFiltered = ratedCds
+    .filter((cd) => {
+      const meta = ratedMetas.get(cd);
+      return (
+        meta?.posterUrl &&
+        meta.releaseDate &&
+        meta.releaseDate >= openDateGte &&
+        meta.releaseDate <= openDateLte
+      );
+    })
     .sort((a, b) => {
-      const ra = ratingMap.get(a.movieCd)!;
-      const rb = ratingMap.get(b.movieCd)!;
+      const ra = ratingMap.get(a)!;
+      const rb = ratingMap.get(b)!;
       if (ra.avg !== rb.avg) return rb.avg - ra.avg;
       return rb.count - ra.count;
     });
-  const withoutRating = candidates.filter((c) => !ratingMap.has(c.movieCd));
 
-  const sorted = [...withRating, ...withoutRating];
-  const rows = await toRowMovies(sorted.slice(0, limit * 2));
-  return rows.slice(0, limit);
+  const ratedRows: RowMovie[] = [];
+  for (const cd of ratedFiltered) {
+    if (ratedRows.length >= limit) break;
+    const meta = ratedMetas.get(cd)!;
+    const avgs = ratedAvgMap.get(cd);
+    ratedRows.push({
+      id: `kobis-${cd}`,
+      title: meta.movieTitle,
+      posterUrl: meta.posterUrl,
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: isRecentlyOpened(meta.releaseDate ?? null),
+      releaseDate: meta.releaseDate,
+      ...genreFields(meta.genreAlt),
+      shortAvg: avgs?.shortAvg ?? null,
+      longAvg: avgs?.longAvg ?? null,
+    });
+  }
+
+  if (ratedRows.length >= limit) return ratedRows;
+
+  // 4. 자리가 남으면 KOBIS 카탈로그(평점 없는 영화)로 최신순 보충
+  const ratedCdSet = new Set(ratedCds);
+  const needed = limit - ratedRows.length;
+  const kobisPool = await fetchOpenedBetween(
+    openDateGte, openDateLte,
+    needed * 4 + ratedCdSet.size, // 평점 있는 영화를 걸러낸 뒤에도 needed개 이상 남도록 넉넉히
+  );
+  const kobisUnrated = kobisPool.filter((m) => !ratingMap.has(m.movieCd));
+  const kobisRows = await toRowMovies(kobisUnrated.slice(0, needed * 2));
+  return [...ratedRows, ...kobisRows.slice(0, needed)];
 }
 
 // 올해의 Best: 올해 개봉작 중 DB 평점 높은 순 10편.
@@ -591,37 +629,87 @@ export const getYearlyBestRow = unstable_cache(
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
-// 3년 Best: 최근 3년 개봉작 중 DB 평점 높은 순 15편.
+// 3년 Best: 현재 연도 포함 최근 3개 연도(예: 2024~2026) 개봉작 중 DB 평점 높은 순 15편.
+// "최근 3년"의 시작은 (currentYear - 2)년 1월 1일 — 연도 경계를 기준으로 삼아
+// 같은 해 개봉작이 카테고리마다 다르게 포함/제외되는 혼란을 없앤다.
 export const getBestOf3YearsRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const now = new Date();
-    const gte = new Date(now);
-    gte.setFullYear(now.getFullYear() - 3);
-    return getRatingSortedMovies(isoDate(gte), isoDate(now), 15);
+    const year = new Date().getFullYear();
+    return getRatingSortedMovies(`${year - 2}-01-01`, isoDate(new Date()), 15);
   },
   ["best-of-3-years-row"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
-// 5년 Best: 최근 5년 개봉작 중 DB 평점 높은 순 20편.
+// 5년 Best: 현재 연도 포함 최근 5개 연도(예: 2022~2026) 개봉작 중 DB 평점 높은 순 20편.
+// 시작 = (currentYear - 4)년 1월 1일.
 export const getBestOf5YearsRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const now = new Date();
-    const gte = new Date(now);
-    gte.setFullYear(now.getFullYear() - 5);
-    return getRatingSortedMovies(isoDate(gte), isoDate(now), 20);
+    const year = new Date().getFullYear();
+    return getRatingSortedMovies(`${year - 4}-01-01`, isoDate(new Date()), 20);
   },
   ["best-of-5-years-row"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
+// 역대 Best: 연도 제한 없이 DB 평점 높은 순 20편.
+// 기존 searchMovieCatalog({}, 30) 방식(KOBIS 기본 정렬)을 DB 평점 기반으로 교체한다.
 export const getAllTimeBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const results = await searchMovieCatalog({}, 30);
-    return toRowMovies(results);
+    const allRatings = await db.categoryRating.groupBy({
+      by: ["movieCd"],
+      where: { category: "전체" },
+      _avg: { score: true },
+      _count: { _all: true },
+    });
+    const ratingMap = new Map(
+      allRatings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
+    );
+    const ratedCds = allRatings
+      .map((r) => r.movieCd)
+      .filter((cd) => /^\d+$/.test(cd));
+
+    if (ratedCds.length === 0) {
+      // 평점이 전혀 없으면 KOBIS 최신순으로 폴백
+      const results = await searchMovieCatalog({}, 20);
+      return toRowMovies(results);
+    }
+
+    const [metas, avgMap] = await Promise.all([
+      getMovieMetas(ratedCds),
+      getBulkMovieRatingAverages(ratedCds),
+    ]);
+
+    const sorted = ratedCds
+      .filter((cd) => metas.get(cd)?.posterUrl)
+      .sort((a, b) => {
+        const ra = ratingMap.get(a)!;
+        const rb = ratingMap.get(b)!;
+        if (ra.avg !== rb.avg) return rb.avg - ra.avg;
+        return rb.count - ra.count;
+      });
+
+    const rows: RowMovie[] = [];
+    for (const cd of sorted) {
+      if (rows.length >= 20) break;
+      const meta = metas.get(cd)!;
+      const avgs = avgMap.get(cd);
+      rows.push({
+        id: `kobis-${cd}`,
+        title: meta.movieTitle,
+        posterUrl: meta.posterUrl,
+        gradient: FALLBACK_GRADIENT,
+        isNowShowing: isRecentlyOpened(meta.releaseDate ?? null),
+        releaseDate: meta.releaseDate,
+        ...genreFields(meta.genreAlt),
+        shortAvg: avgs?.shortAvg ?? null,
+        longAvg: avgs?.longAvg ?? null,
+      });
+    }
+    return rows;
   },
   ["all-time-best-row"],
-  { revalidate: 60 * 60 * 24, tags: ["movie-rows"] },
+  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
 // 해외 Best: 외국 영화(repNationCd=F) 중 최신순 10편.
