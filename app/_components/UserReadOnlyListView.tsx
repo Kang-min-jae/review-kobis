@@ -38,7 +38,7 @@ function UserReviewBottomSheet({
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/60" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 max-h-[80dvh] overflow-y-auto rounded-t-2xl bg-surface pb-safe shadow-2xl">
+      <div className="fixed bottom-0 left-0 right-0 z-50 max-h-[80dvh] overflow-y-auto rounded-t-2xl bg-surface pb-safe shadow-2xl" onClick={(e) => e.stopPropagation()}>
         {/* 핸들 바 */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="h-1 w-10 rounded-full bg-neutral-600" />
@@ -94,12 +94,11 @@ function UserReviewBottomSheet({
             <p className="mt-4 text-sm text-muted">아직 남긴 리뷰가 없어요.</p>
           )}
 
-          {/* 영화 상세 이동 버튼 */}
           <Link
             href={href}
             className="mt-4 block w-full rounded-full bg-brand/20 py-3 text-center text-sm font-semibold text-brand ring-1 ring-inset ring-brand/40 transition-colors hover:bg-brand/30"
           >
-            영화 상세 보러가기 →
+            평점 남기러 가기 →
           </Link>
         </div>
       </div>
@@ -232,16 +231,6 @@ function ReadOnlyMovieCard({
       const rect = cardRef.current.getBoundingClientRect();
       setPanelSide(window.innerWidth - rect.right < 240 ? "left" : "right");
     }
-  }, [revealSource]);
-
-  // 모바일 바텀시트 열렸을 때 카드 바깥 탭으로 닫기
-  useEffect(() => {
-    if (revealSource !== "touch") return;
-    function onOutside(e: PointerEvent) {
-      if (e.pointerType === "touch") setRevealSource(null);
-    }
-    document.addEventListener("pointerdown", onOutside);
-    return () => document.removeEventListener("pointerdown", onOutside);
   }, [revealSource]);
 
   // passive 리스너로 이동 여부 추적 — 브라우저 스크롤 판단을 막지 않는다
