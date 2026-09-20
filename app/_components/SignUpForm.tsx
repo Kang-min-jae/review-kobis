@@ -184,6 +184,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
         <div>
           <label htmlFor="email" className="text-xs text-muted">
             이메일 <span className="text-brand">*</span>
+            <span className="ml-1 text-muted opacity-60">(비밀번호 분실시 사용)</span>
           </label>
           <input
             id="email"
