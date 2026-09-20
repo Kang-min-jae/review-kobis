@@ -39,6 +39,7 @@ function EyeIcon({ open }: { open: boolean }) {
 type FieldStatus = "idle" | "checking" | "available" | "taken" | "too_short" | "too_long" | "invalid";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{4,20}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(signUpAction, null);
@@ -50,8 +51,12 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [nicknameStatus, setNicknameStatus] = useState<FieldStatus>("idle");
   const [username, setUsername] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<FieldStatus>("idle");
+  const [email, setEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const nicknameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const emailInvalid = emailTouched && email.length > 0 && !EMAIL_RE.test(email);
 
   useEffect(() => {
     if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current);
@@ -173,6 +178,27 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
           )}
           {usernameStatus === "invalid" && (
             <p className="mt-1 text-xs text-muted">영문, 숫자, 밑줄(_)만 사용 가능해요.</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="email" className="text-xs text-muted">
+            이메일 <span className="text-brand">*</span>
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            placeholder="example@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setEmailTouched(true)}
+            className={inputClass}
+            autoComplete="email"
+          />
+          {emailInvalid && (
+            <p className="mt-1 text-xs text-brand">올바른 이메일 형식을 입력해 주세요.</p>
           )}
         </div>
 

@@ -41,12 +41,16 @@ export async function signUpAction(
   const usernameInput = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const nicknameInput = String(formData.get("nickname") ?? "").trim();
+  const emailInput = String(formData.get("email") ?? "").trim().toLowerCase();
   const callbackUrl = String(formData.get("callbackUrl") ?? "/");
 
   if (!usernameInput) return { error: "아이디를 입력해 주세요." };
   if (usernameInput.length < 4) return { error: "아이디는 4자 이상이어야 해요." };
   if (usernameInput.length > 20) return { error: "아이디는 20자 이하여야 해요." };
   if (!USERNAME_RE.test(usernameInput)) return { error: "아이디는 영문, 숫자, 밑줄(_)만 사용 가능해요." };
+
+  if (!emailInput) return { error: "이메일을 입력해 주세요." };
+  if (!isValidEmail(emailInput)) return { error: "올바른 이메일 형식을 입력해 주세요." };
 
   if (password.length < MIN_PASSWORD_LENGTH) {
     return { error: `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상이어야 해요.` };
@@ -61,9 +65,12 @@ export async function signUpAction(
   const nicknameTaken = await db.user.findUnique({ where: { nickname: nicknameInput } });
   if (nicknameTaken) return { error: "이미 사용 중인 닉네임이에요." };
 
+  const emailTaken = await db.user.findUnique({ where: { email: emailInput } });
+  if (emailTaken) return { error: "이미 사용 중인 이메일이에요." };
+
   const passwordHash = await hash(password, 10);
   try {
-    await db.user.create({ data: { username: usernameInput, password: passwordHash, nickname: nicknameInput } });
+    await db.user.create({ data: { username: usernameInput, password: passwordHash, nickname: nicknameInput, email: emailInput } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { error: "이미 사용 중인 아이디 또는 닉네임이에요. 다시 시도해 주세요." };
