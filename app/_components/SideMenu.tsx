@@ -208,6 +208,22 @@ export default function SideMenu({
               </div>
             </div>
 
+            <div className="mt-5">
+              <Link
+                href="/my-info"
+                onClick={close}
+                className="flex w-full items-center justify-between rounded-xl bg-white/5 px-3 py-3 text-sm font-semibold text-text transition-colors hover:bg-white/10"
+              >
+                <span className="flex items-center gap-2">
+                  <PersonIcon />
+                  내 정보
+                </span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 text-muted" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            </div>
+
             <p className="mt-6 px-2 text-xs font-semibold text-muted">내 활동</p>
             <nav className="mt-2 space-y-1">
               <Link
