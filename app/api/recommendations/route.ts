@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { db } from "../../_lib/db";
 import { getCachedMovieMetas } from "../../_lib/movie-rate-info";
-import { genreFields, splitGenres } from "../../_lib/movie-rows";
+import { genreFields, splitGenres, GENRE_KEYWORDS } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 import {
   buildAffinityContext,
@@ -52,6 +52,9 @@ type IncomingCategoryRating = {
 type RequestBody = {
   myRatings: IncomingRating[];
   myCategoryRatings: IncomingCategoryRating[];
+  // 장르 탭의 추천 행 — 이 장르 영화 안에서만 추천한다.
+  genre?: string;
+  limit?: number;
 };
 
 type UserProfile = {
@@ -527,9 +530,30 @@ function calculateFinalScore(
   return Math.max(0, Math.min(1, (totalScore - negativePenalty) * ratingFactor));
 }
 
-async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): Promise<CandidateMovie[]> {
+// 장르 모드 후보: 그 장르의 영화(포스터 있는 것) 전체에서 뽑는다. 평점이 없어도(cold start)
+// 아래 점수식이 품질 점수만으로 순위를 매긴다.
+async function fetchGenrePool(keywords: string[], ratedMovieIds: Set<string>): Promise<DbMovie[]> {
+  const rows = await db.cachedMovie.findMany({
+    where: {
+      posterUrl: { not: null },
+      NOT: { movieCd: { startsWith: "wikidata-" } },
+      OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+  });
+  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`));
+}
+
+async function getCandidates(
+  profile: UserProfile,
+  ratedMovieIds: Set<string>,
+  options: { keywords?: string[] | null; poolSize?: number } = {},
+): Promise<CandidateMovie[]> {
+  const poolSize = options.poolSize ?? 20;
   // Cold start: 최신 영화 20편 반환 + 품질 점수 계산
-  if (profile.coldStart) {
+  if (profile.coldStart && !options.keywords) {
     const recent = await db.cachedMovie.findMany({
       where: { posterUrl: { not: null }, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
       orderBy: { updatedAt: "desc" },
@@ -558,13 +582,15 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     return coldCandidates;
   }
 
-  // 4채널 병렬 조회 후 union (중복 제거)
-  const [genreDirectorRows, actorRows, categoryRows, trendingRows] = await Promise.all([
-    fetchByGenreDirector(profile, ratedMovieIds),
-    fetchByActors(profile.topActors, ratedMovieIds),
-    fetchByCategory(profile, ratedMovieIds),
-    fetchTrending(ratedMovieIds),
-  ]);
+  // 4채널 병렬 조회 후 union (중복 제거). 장르 모드면 그 장르 영화 풀 하나만 쓴다.
+  const [genreDirectorRows, actorRows, categoryRows, trendingRows] = options.keywords
+    ? [await fetchGenrePool(options.keywords, ratedMovieIds), [], [], []]
+    : await Promise.all([
+        fetchByGenreDirector(profile, ratedMovieIds),
+        fetchByActors(profile.topActors, ratedMovieIds),
+        fetchByCategory(profile, ratedMovieIds),
+        fetchTrending(ratedMovieIds),
+      ]);
 
   const seenCd = new Set<string>();
   const seenTmdbId = new Set<string>();
@@ -613,7 +639,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     if ((directorCount.get(dir) ?? 0) >= 2) continue;
     directorCount.set(dir, (directorCount.get(dir) ?? 0) + 1);
     topN.push(c);
-    if (topN.length >= 20) break;
+    if (topN.length >= poolSize) break;
   }
   return topN;
 }
@@ -706,9 +732,13 @@ async function fetchFallbackCandidates(
   ratedMovieIds: Set<string>,
   excludeMovieCds: Set<string>,
   needed: number,
+  keywords: string[] | null = null,
 ): Promise<CandidateMovie[]> {
   const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null } },
+    where: {
+      posterUrl: { not: null },
+      ...(keywords ? { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     take: needed * 5,
     select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
@@ -738,7 +768,8 @@ type ScoredCandidate = {
 function blendAndMMR(
   candidates: CandidateMovie[],
   llmMap: Map<string, { score: number; reason: string }>,
-  limit: number
+  limit: number,
+  genreCapEnabled = true,
 ): ScoredCandidate[] {
   // 정량 50% + LLM 50% 블렌딩
   const scored: ScoredCandidate[] = candidates.map((c) => {
@@ -760,7 +791,7 @@ function blendAndMMR(
     if (result.length >= limit) break;
     const dir = item.candidate.directorName ?? "__unknown__";
     if (directorSeen.has(dir)) continue;
-    if (item.candidate.allGenres.some((g) => (genreCount.get(g) ?? 0) >= genreCap)) continue;
+    if (genreCapEnabled && item.candidate.allGenres.some((g) => (genreCount.get(g) ?? 0) >= genreCap)) continue;
 
     directorSeen.add(dir);
     for (const g of item.candidate.allGenres) genreCount.set(g, (genreCount.get(g) ?? 0) + 1);
@@ -782,9 +813,11 @@ export async function POST(request: Request) {
   }
 
   const { myRatings = [], myCategoryRatings = [] } = body;
+  const keywords = body.genre ? GENRE_KEYWORDS[body.genre] ?? null : null;
+  const TARGET = Math.min(20, Math.max(1, Math.floor(body.limit ?? 10)));
 
   // 동일 입력에 대한 2분 캐시 히트 → 즉시 반환
-  const cacheKey = hashBody(myRatings, myCategoryRatings);
+  const cacheKey = `${hashBody(myRatings, myCategoryRatings)}|${keywords ? body.genre : ""}|${TARGET}`;
   const cached = recServerCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json(cached.data);
@@ -793,7 +826,7 @@ export async function POST(request: Request) {
   const ratedMovieIds = new Set(myRatings.map((r) => r.movieId));
 
   const { profile, affinityCtx } = await buildUserProfile(myRatings, myCategoryRatings);
-  const candidates = await getCandidates(profile, ratedMovieIds);
+  const candidates = await getCandidates(profile, ratedMovieIds, { keywords, poolSize: Math.max(20, TARGET * 2) });
 
   if (candidates.length === 0) {
     return NextResponse.json({ results: [] });
@@ -802,7 +835,8 @@ export async function POST(request: Request) {
   const movieCds = candidates.map((c) => c.movieCd);
   const cachedLlm = llmCache.get(cacheKey);
   const llmResults = cachedLlm && cachedLlm.expiresAt > Date.now() ? cachedLlm.results : [];
-  if (llmResults.length === 0) {
+  // LLM 리랭킹은 홈 추천에만 쓴다(장르 탭마다 돌리면 호출 비용이 장르 수만큼 늘어난다).
+  if (llmResults.length === 0 && !keywords) {
     after(async () => {
       const results = await callLlm(profile, candidates).catch(() => [] as LlmResult);
       if (results.length === 0) return;
@@ -818,7 +852,7 @@ export async function POST(request: Request) {
   const metas = await getCachedMovieMetas(movieCds);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
-  const final = blendAndMMR(candidates, llmMap, 10);
+  const final = blendAndMMR(candidates, llmMap, TARGET, !keywords);
 
   const buildRowMovie = (
     c: CandidateMovie,
@@ -854,11 +888,10 @@ export async function POST(request: Request) {
 
   // Fallback fill: MMR 다양성 제약 또는 포스터 없는 영화 제거로 10편 미만이 되면
   // 후보 풀 밖의 최신 영화로 채운다.
-  const TARGET = 10;
   if (results.length < TARGET) {
     const needed = TARGET - results.length;
     const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
-    const fallback = await fetchFallbackCandidates(ratedMovieIds, excludeMovieCds, needed);
+    const fallback = await fetchFallbackCandidates(ratedMovieIds, excludeMovieCds, needed, keywords);
     if (fallback.length > 0) {
       const fallbackMetas = await getCachedMovieMetas(fallback.map((c) => c.movieCd));
       for (const c of fallback) {

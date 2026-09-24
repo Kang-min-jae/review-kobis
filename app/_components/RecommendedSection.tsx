@@ -7,10 +7,6 @@ import { subscribe as subscribeReviews, getMyMovieRatingsSnapshot, getMyReviewsS
 import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
-// 동일한 추천 요청이 동시에 여러 번 전송되지 않도록 진행 중인 Promise를 공유한다.
-// 컴포넌트 인스턴스가 여러 개 생기거나 React StrictMode 이중 실행 시에도 네트워크 요청은 1회만 발생한다.
-let inFlightMovieRec: Promise<RowMovie[]> | null = null;
-
 function buildRatingsPayload() {
   const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
     movieId: r.id,
@@ -33,17 +29,22 @@ function buildRatingsPayload() {
   return { myRatings, myCategoryRatings };
 }
 
-// 홈으로 다시 돌아올 때마다 같은 평점으로 추천을 다시 요청하지 않도록, 같은 입력의
-// 성공 결과를 잠시 재사용한다(평점이 바뀌면 요청 본문이 달라져 새로 받는다).
+// 같은 요청(평점·장르·편수)이 동시에 여러 번 나가지 않도록 진행 중인 요청을 공유하고,
+// 홈으로 다시 돌아왔을 때 같은 입력이면 성공 결과를 잠시 재사용한다(평점이 바뀌면
+// 요청 본문이 달라져 새로 받는다). 홈 추천과 장르별 추천은 본문이 달라 서로 섞이지 않는다.
 const CLIENT_REC_TTL_MS = 5 * 60 * 1000;
-let lastMovieRec: { body: string; results: RowMovie[]; at: number } | null = null;
+const inFlight = new Map<string, Promise<RowMovie[]>>();
+const resultCache = new Map<string, { results: RowMovie[]; at: number }>();
 
-function fetchRecommendations(myRatings: ReturnType<typeof buildRatingsPayload>["myRatings"], myCategoryRatings: ReturnType<typeof buildRatingsPayload>["myCategoryRatings"]): Promise<RowMovie[]> {
-  const body = JSON.stringify({ myRatings, myCategoryRatings });
-  if (lastMovieRec && lastMovieRec.body === body && Date.now() - lastMovieRec.at < CLIENT_REC_TTL_MS) {
-    return Promise.resolve(lastMovieRec.results);
-  }
-  inFlightMovieRec = fetch("/api/recommendations", {
+type Payload = ReturnType<typeof buildRatingsPayload>;
+
+function fetchRecommendations(payload: Payload, genre: string | undefined, limit: number): Promise<RowMovie[]> {
+  const body = JSON.stringify({ ...payload, genre, limit });
+  const cached = resultCache.get(body);
+  if (cached && Date.now() - cached.at < CLIENT_REC_TTL_MS) return Promise.resolve(cached.results);
+  const existing = inFlight.get(body);
+  if (existing) return existing;
+  const promise = fetch("/api/recommendations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
@@ -51,15 +52,26 @@ function fetchRecommendations(myRatings: ReturnType<typeof buildRatingsPayload>[
     .then((res) => res.json())
     .then((data: { results?: RowMovie[] }) => {
       const results = data.results ?? [];
-      lastMovieRec = { body, results, at: Date.now() };
+      resultCache.set(body, { results, at: Date.now() });
       return results;
     })
     .catch(() => [] as RowMovie[])
-    .finally(() => { inFlightMovieRec = null; });
-  return inFlightMovieRec!;
+    .finally(() => inFlight.delete(body));
+  inFlight.set(body, promise);
+  return promise;
 }
 
-export default function RecommendedSection() {
+export default function RecommendedSection({
+  genre,
+  limit = 10,
+  title = "사용자 추천 영화",
+  subtitle = "회원님이 남긴 평점을 바탕으로 추천해요",
+}: {
+  genre?: string;
+  limit?: number;
+  title?: string;
+  subtitle?: string;
+}) {
   const [movies, setMovies] = useState<RowMovie[] | null>(null);
   const mounted = useRef(true);
   // 최초 fetch가 cold-start(평점 없음)였는지 추적 — 평점이 생기면 다시 요청한다
@@ -67,50 +79,33 @@ export default function RecommendedSection() {
 
   useEffect(() => {
     mounted.current = true;
+    const show = (results: RowMovie[]) => {
+      if (!mounted.current) return;
+      if (results.length > 0) registerMovieIds(results.map((m) => m.id));
+      setMovies(results);
+    };
 
-    const { myRatings, myCategoryRatings } = buildRatingsPayload();
-    wasColdStart.current = myRatings.length === 0;
+    const payload = buildRatingsPayload();
+    wasColdStart.current = payload.myRatings.length === 0;
+    fetchRecommendations(payload, genre, limit).then(show);
 
-    const promise = inFlightMovieRec ?? fetchRecommendations(myRatings, myCategoryRatings);
-
-    promise.then((results) => {
-      if (mounted.current) {
-        if (results.length > 0) registerMovieIds(results.map((m) => m.id));
-        setMovies(results);
-      }
-    });
-
-    // 최초 fetch가 cold-start였으면 평점 스토어를 구독해서 평점이 생기는 순간 재요청한다
+    // 최초 fetch가 cold-start였으면 평점 스토어를 구독해서 평점이 생기는 순간 한 번 재요청한다
     const unsubscribe = subscribeReviews(() => {
       if (!wasColdStart.current || !mounted.current) return;
-      const { myRatings: newRatings, myCategoryRatings: newCatRatings } = buildRatingsPayload();
-      if (newRatings.length === 0) return;
-      // 평점이 생겼으므로 더 이상 cold-start가 아님 — 한 번만 재요청
+      const next = buildRatingsPayload();
+      if (next.myRatings.length === 0) return;
       wasColdStart.current = false;
-      if (!inFlightMovieRec) {
-        fetchRecommendations(newRatings, newCatRatings).then((results) => {
-          if (mounted.current) {
-            if (results.length > 0) registerMovieIds(results.map((m) => m.id));
-            setMovies(results);
-          }
-        });
-      }
+      fetchRecommendations(next, genre, limit).then(show);
     });
 
     return () => {
       mounted.current = false;
       unsubscribe();
     };
-  }, []);
+  }, [genre, limit]);
 
   if (movies === null) return <RowSkeleton />;
   if (movies.length === 0) return null;
 
-  return (
-    <MovieRow
-      title="사용자 추천 영화"
-      subtitle="회원님이 남긴 평점을 바탕으로 추천해요"
-      movies={movies}
-    />
-  );
+  return <MovieRow title={title} subtitle={subtitle} movies={movies} />;
 }

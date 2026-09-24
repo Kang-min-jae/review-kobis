@@ -616,6 +616,48 @@ async function fillWithUnrated(
   return [...rows, ...(await toRowMovies(rest))];
 }
 
+function matchesGenre(genreAlt: string | null | undefined, keywords: string[] | null): boolean {
+  return !keywords || keywords.some((kw) => genreAlt?.includes(kw));
+}
+
+// 장르 행을 평점 영화만으로 다 못 채울 때, 이미 저장된 그 장르 영화(포스터 있는 것)를
+// 최신 개봉순으로 가져와 채운다 — 외부 API 없이 DB만 읽는다.
+async function fillFromCachedGenre(
+  keywords: string[],
+  range: { gte: string; lte: string } | null,
+  exclude: Set<string>,
+  needed: number,
+): Promise<RowMovie[]> {
+  if (needed <= 0) return [];
+  const rows = await db.cachedMovie.findMany({
+    where: {
+      posterUrl: { not: null },
+      NOT: { movieCd: { startsWith: "wikidata-" } },
+      AND: [
+        { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
+        range
+          ? { releaseDate: { gte: range.gte, lte: range.lte } }
+          : { OR: [{ releaseDate: null }, { releaseDate: { lte: isoDate(new Date()) } }] },
+      ],
+    },
+    orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
+    take: needed + exclude.size,
+    select: { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true },
+  });
+  return rows
+    .filter((m) => !exclude.has(m.movieCd))
+    .slice(0, needed)
+    .map((m) => ({
+      id: /^\d+$/.test(m.movieCd) ? `kobis-${m.movieCd}` : m.movieCd,
+      title: m.title,
+      posterUrl: formatPosterUrl(m.posterUrl),
+      gradient: FALLBACK_GRADIENT,
+      isNowShowing: isRecentlyOpened(m.releaseDate),
+      releaseDate: m.releaseDate,
+      ...genreFields(m.genreAlt),
+    }));
+}
+
 // 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
 // CachedMovie.releaseDate로 범위를 거르므로 KOBIS 카탈로그 풀의 순서·개수에 의존하지
 // 않는다. 평점 있는 영화를 먼저 채우고, 자리가 남으면 평점 없는 KOBIS 영화로 보충한다.
@@ -623,21 +665,29 @@ async function getRatingSortedMovies(
   openDateGte: string,
   openDateLte: string,
   limit: number,
+  keywords: string[] | null = null,
 ): Promise<RowMovie[]> {
   const rated = await loadRatedMovies();
   const inRange = rated
     .filter((r) => r.meta.releaseDate && r.meta.releaseDate >= openDateGte && r.meta.releaseDate <= openDateLte)
+    .filter((r) => matchesGenre(r.meta.genreAlt, keywords))
     .slice(0, limit);
   const rows = await ratedToRows(inRange);
   if (rows.length >= limit) return rows;
 
-  const needed = limit - rows.length;
   const exclude = new Set(rated.map((r) => r.cd));
-  const pool = await fetchOpenedBetween(openDateGte, openDateLte, needed * 4 + exclude.size)
-    .catch(() => [] as KobisMovieSummary[]);
+  if (keywords) {
+    rows.push(...(await fillFromCachedGenre(keywords, { gte: openDateGte, lte: openDateLte }, exclude, limit - rows.length)));
+    if (rows.length >= limit) return rows;
+    for (const r of rows) exclude.add(r.id.replace(/^kobis-/, ""));
+  }
+  const needed = limit - rows.length;
+  const pool = (await fetchOpenedBetween(openDateGte, openDateLte, needed * 4 + exclude.size)
+    .catch(() => [] as KobisMovieSummary[])).filter((m) => matchesGenre(m.genreAlt, keywords));
   let fill = await fillWithUnrated(pool, exclude, needed);
   if (fill.length === 0) {
-    const globalPool = await searchMovieCatalog({}, needed * 2).catch(() => [] as KobisMovieSummary[]);
+    const globalPool = (await searchMovieCatalog({}, needed * 2).catch(() => [] as KobisMovieSummary[]))
+      .filter((m) => matchesGenre(m.genreAlt, keywords));
     fill = await fillWithUnrated(globalPool, exclude, needed);
   }
   return [...rows, ...fill.slice(0, needed)];
@@ -688,6 +738,48 @@ export const getAllTimeBestRow = unstable_cache(
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
+// ── 장르 탭 전용 행 ─────────────────────────────────────────────────────────
+// 올해의 Best(10편)·역대 Best(20편)·사용자 인기영화(15편)를 그 장르 영화로만 만든다.
+// 평점이 부족하면 그 장르의 저장된 영화로 칸을 채운다.
+
+export const getGenreYearlyBestRow = unstable_cache(
+  async (genreLabel: string): Promise<RowMovie[]> => {
+    const keywords = GENRE_KEYWORDS[genreLabel];
+    if (!keywords) return [];
+    const year = new Date().getFullYear();
+    return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10, keywords);
+  },
+  ["genre-yearly-best-row"],
+  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+);
+
+export const getGenreAllTimeBestRow = unstable_cache(
+  async (genreLabel: string): Promise<RowMovie[]> => {
+    const keywords = GENRE_KEYWORDS[genreLabel];
+    if (!keywords) return [];
+    const rated = (await loadRatedMovies()).filter((r) => matchesGenre(r.meta.genreAlt, keywords));
+    const rows = await ratedToRows(rated.slice(0, 20));
+    if (rows.length >= 20) return rows;
+    const exclude = new Set(rated.map((r) => r.cd));
+    return [...rows, ...(await fillFromCachedGenre(keywords, null, exclude, 20 - rows.length))];
+  },
+  ["genre-all-time-best-row"],
+  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+);
+
+export const getGenrePopularRow = unstable_cache(
+  async (genreLabel: string): Promise<RowMovie[]> => {
+    const keywords = GENRE_KEYWORDS[genreLabel];
+    if (!keywords) return [];
+    const popular = await _getUserPopularMoviesRow(genreLabel, 15);
+    if (popular.length >= 15) return popular;
+    const exclude = new Set(popular.map((r) => r.id.replace(/^kobis-/, "")));
+    return [...popular, ...(await fillFromCachedGenre(keywords, null, exclude, 15 - popular.length))];
+  },
+  ["genre-popular-row"],
+  { revalidate: 60 * 15, tags: ["movie-rows"] },
+);
+
 // 해외 Best: 외국 영화(repNationCd=F) 중 최신순 10편.
 export const getInternationalBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
@@ -703,7 +795,7 @@ export const getInternationalBestRow = unstable_cache(
 // KOBIS movieList의 genreAlt(콤마 구분 장르명)에 매칭할 키워드.
 // KOBIS 장르명이 우리 탭 라벨과 표기가 달라(로맨스→멜로/로맨스, 모험→어드벤처, 공포→공포(호러))
 // 후보 키워드 여러 개를 매칭한다.
-const GENRE_KEYWORDS: Record<string, string[]> = {
+export const GENRE_KEYWORDS: Record<string, string[]> = {
   액션: ["액션"],
   스릴러: ["스릴러"],
   로맨스: ["멜로", "로맨스"],

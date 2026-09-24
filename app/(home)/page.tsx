@@ -19,6 +19,9 @@ import {
   getInternationalBestRow,
   getWeeklyBoxOfficeRow,
   getGenreRow,
+  getGenrePopularRow,
+  getGenreYearlyBestRow,
+  getGenreAllTimeBestRow,
   getUserPopularMoviesRow,
 } from "../_lib/movie-rows";
 import {
@@ -301,14 +304,44 @@ async function GenreRowData({ genre }: { genre: GenreLabel }) {
   return <GenreMovieRow genre={genre} initialMovies={movies} />;
 }
 
+async function GenrePopularRowData({ genre }: { genre: GenreLabel }) {
+  const movies = await safeRows("getGenrePopularRow", () => getGenrePopularRow(genre));
+  return <MovieRow title="사용자 인기영화" subtitle={`${genre} 장르 · 평점이 많이 달린 순 15편`} movies={movies} />;
+}
+
+async function GenreYearlyBestRowData({ genre }: { genre: GenreLabel }) {
+  const movies = await safeRows("getGenreYearlyBestRow", () => getGenreYearlyBestRow(genre));
+  return <MovieRow title="올해의 Best" subtitle={`${genre} 장르 · 올해 개봉작 평점 높은 순 10편`} movies={movies} />;
+}
+
+async function GenreAllTimeBestRowData({ genre }: { genre: GenreLabel }) {
+  const movies = await safeRows("getGenreAllTimeBestRow", () => getGenreAllTimeBestRow(genre));
+  return <MovieRow title="역대 Best" subtitle={`${genre} 장르 · 평점 높은 순 20편`} movies={movies} />;
+}
+
+// 장르 탭: 장르 영화 목록 + 그 장르 안에서의 인기(15)·추천(20)·올해 Best(10)·역대 Best(20).
+// 평점이 적은 장르도 칸이 비지 않도록 각 행은 저장된 그 장르 영화로 채워진다.
 function GenreSection({ genre }: { genre: GenreLabel }) {
   return (
     <>
       <Suspense key={genre} fallback={<RowSkeleton />}>
         <GenreRowData genre={genre} />
       </Suspense>
-      <Suspense fallback={null}>
-        <UserPopularMoviesRowData genre={genre} />
+      <Suspense key={`popular-${genre}`} fallback={<RowSkeleton />}>
+        <GenrePopularRowData genre={genre} />
+      </Suspense>
+      <RecommendedSection
+        key={`rec-${genre}`}
+        genre={genre}
+        limit={20}
+        title="추천 영화"
+        subtitle={`${genre} 장르 · 회원님이 남긴 평점을 바탕으로 추천해요`}
+      />
+      <Suspense key={`yearly-${genre}`} fallback={<RowSkeleton />}>
+        <GenreYearlyBestRowData genre={genre} />
+      </Suspense>
+      <Suspense key={`alltime-${genre}`} fallback={<RowSkeleton />}>
+        <GenreAllTimeBestRowData genre={genre} />
       </Suspense>
     </>
   );
