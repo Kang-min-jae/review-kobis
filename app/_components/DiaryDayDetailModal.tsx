@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
@@ -123,10 +122,10 @@ export default function DiaryDayDetailModal({
   onClose: () => void;
   onAddMovie: () => void;
 }) {
-  const router = useRouter();
   const reviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
   const logs = useSyncExternalStore(subscribeDiaryLog, getDiaryLogSnapshot, getServerDiaryLogSnapshot);
-  const rows = buildRows(date, reviews, logs, serverRatedMovies);
+  const [localServerRatedMovies, setLocalServerRatedMovies] = useState(serverRatedMovies);
+  const rows = buildRows(date, reviews, logs, localServerRatedMovies);
   const [deletingAccountRating, setDeletingAccountRating] = useState<string | null>(null);
 
   const handleDelete = (movieId: string) => {
@@ -136,10 +135,13 @@ export default function DiaryDayDetailModal({
 
   const handleDeleteAccountRating = async (movieId: string) => {
     const movieCd = movieId.replace(/^kobis-/, "");
+    const prev = localServerRatedMovies;
+    setLocalServerRatedMovies((list) => list.filter((m) => m.id !== movieId));
     setDeletingAccountRating(movieId);
     try {
       await deleteAccountRatingAction(movieCd);
-      router.refresh();
+    } catch {
+      setLocalServerRatedMovies(prev);
     } finally {
       setDeletingAccountRating(null);
     }

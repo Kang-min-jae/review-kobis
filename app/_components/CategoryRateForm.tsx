@@ -180,6 +180,8 @@ export default function CategoryRateForm({
   const [longInput, setLongInput] = useState(String(myReviews.LONG?.rating ?? 80));
   const [shortContent, setShortContent] = useState(myReviews.SHORT?.content ?? "");
   const [longContent, setLongContent] = useState(myReviews.LONG?.content ?? "");
+  const [localShortReviews, setLocalShortReviews] = useState(reviews.SHORT);
+  const [localLongReviews, setLocalLongReviews] = useState(reviews.LONG);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
 
@@ -215,17 +217,24 @@ export default function CategoryRateForm({
   const canSubmitReview = !tooManySentences;
   const myReview = myReviews[activeTab];
   // SHORT: 평점만 남긴 것도 포함해서 모두 표시, LONG: 텍스트 있는 것만 표시
+  const localReviews = activeTab === "SHORT" ? localShortReviews : localLongReviews;
   const displayReviews = activeTab === "SHORT"
-    ? reviews[activeTab]
-    : reviews[activeTab].filter((r) => r.content.trim().length > 0);
+    ? localReviews
+    : localReviews.filter((r) => r.content.trim().length > 0);
 
   async function handleDeleteReview(reviewId: string) {
     if (deletingReviewId) return;
+    const prevShort = localShortReviews;
+    const prevLong = localLongReviews;
+    setLocalShortReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    setLocalLongReviews((prev) => prev.filter((r) => r.id !== reviewId));
     setDeletingReviewId(reviewId);
     try {
       await deleteReviewAction({ reviewId, movieId, category });
       removeReview(reviewId);
-      router.refresh();
+    } catch {
+      setLocalShortReviews(prevShort);
+      setLocalLongReviews(prevLong);
     } finally {
       setDeletingReviewId(null);
     }
@@ -234,11 +243,17 @@ export default function CategoryRateForm({
   async function handleAdminDelete(reviewId: string, content: string) {
     if (!confirm(`관리자 권한으로 이 리뷰를 삭제하시겠습니까?\n\n"${content.slice(0, 60)}"`)) return;
     if (deletingReviewId) return;
+    const prevShort = localShortReviews;
+    const prevLong = localLongReviews;
+    setLocalShortReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    setLocalLongReviews((prev) => prev.filter((r) => r.id !== reviewId));
     setDeletingReviewId(reviewId);
     try {
       await adminDeleteReviewAction({ reviewId });
       removeReview(reviewId);
-      router.refresh();
+    } catch {
+      setLocalShortReviews(prevShort);
+      setLocalLongReviews(prevLong);
     } finally {
       setDeletingReviewId(null);
     }
