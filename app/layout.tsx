@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
 import "./globals.css";
-// 한글 폰트는 굵기 하나가 ~780KB라, 굵기별 통파일(static/pretendard.css)을 쓰면 첫 방문에
-// 5개 굵기 ≈ 3.9MB를 받는다. dynamic-subset은 글자 범위(unicode-range)별로 쪼개져 있어
-// 화면에 실제로 나온 글자가 든 조각만 받는다. font-family 이름('Pretendard')은 동일하다.
-import "pretendard/dist/web/static/pretendard-dynamic-subset.css";
+// 가변(Variable) 폰트의 글자 범위별 조각 버전. 굵기별 통파일은 첫 방문에 수 MB를 받고,
+// 굵기별 조각(static dynamic-subset)은 @font-face가 828개(9굵기×92조각)라 렌더링을 막는
+// CSS가 137KB(gzip)나 되고 글자마다 폰트 매칭이 느려 첫 레이아웃이 수백 ms 늘어났다.
+// 가변 폰트는 조각 92개가 모든 굵기를 담아 CSS 13KB, 폰트 요청 수도 훨씬 적다.
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
 const SITE_NAME = "무비리뷰";
 const SITE_DESCRIPTION = "한국 영화 평점과 리뷰를 남기고, 영화제 수상작을 한눈에 — 나만의 영화 리스트를 만들어 보세요.";

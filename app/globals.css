@@ -39,7 +39,7 @@ body {
   background-attachment: fixed;
   background-size: cover;
   color: var(--color-text);
-  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .no-scrollbar::-webkit-scrollbar {
