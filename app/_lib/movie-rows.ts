@@ -590,7 +590,8 @@ async function getRatingSortedMovies(
   const ratedRows: RowMovie[] = [];
   for (const cd of ratedFiltered) {
     if (ratedRows.length >= limit) break;
-    const meta = ratedMetas.get(cd)!;
+    const meta = ratedMetas.get(cd);
+    if (!meta) continue;
     const avgs = ratedAvgMap.get(cd);
     ratedRows.push({
       id: `kobis-${cd}`,
@@ -710,7 +711,8 @@ export const getAllTimeBestRow = unstable_cache(
     const rows: RowMovie[] = [];
     for (const cd of sorted) {
       if (rows.length >= 20) break;
-      const meta = metas.get(cd)!;
+      const meta = metas.get(cd);
+      if (!meta) continue;
       const avgs = avgMap.get(cd);
       rows.push({
         id: `kobis-${cd}`,
