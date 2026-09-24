@@ -255,7 +255,7 @@ async function _getNowShowingRow(limit = 15): Promise<RowMovie[]> {
 }
 export const getNowShowingRow = unstable_cache(
   _getNowShowingRow,
-  ["now-showing-row"],
+  ["now-showing-row-v2"],
   { revalidate: 60 * 60, tags: ["movie-rows"] },
 );
 
@@ -366,7 +366,7 @@ async function _getRereleaseRow(limit = 10): Promise<RowMovie[]> {
 }
 export const getRereleaseRow = unstable_cache(
   _getRereleaseRow,
-  ["rerelease-row"],
+  ["rerelease-row-v2"],
   { revalidate: 60 * 60, tags: ["movie-rows"] },
 );
 
@@ -498,7 +498,7 @@ export const getRecentMoviesRow = unstable_cache(
     const rows = await toRowMovies(results);
     return rows.slice(0, 15);
   },
-  ["recent-movies-row"],
+  ["recent-movies-row-v2"],
   { revalidate: 60 * 60, tags: ["movie-rows"] },
 );
 
@@ -626,7 +626,7 @@ export const getYearlyBestRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10);
   },
-  ["yearly-best-row"],
+  ["yearly-best-row-v2"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -638,7 +638,7 @@ export const getBestOf3YearsRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year - 2}-01-01`, isoDate(new Date()), 15);
   },
-  ["best-of-3-years-row"],
+  ["best-of-3-years-row-v2"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -649,7 +649,7 @@ export const getBestOf5YearsRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year - 4}-01-01`, isoDate(new Date()), 20);
   },
-  ["best-of-5-years-row"],
+  ["best-of-5-years-row-v2"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -719,7 +719,7 @@ export const getInternationalBestRow = unstable_cache(
     const results = await searchMovieCatalog({ repNationCd: "F" }, 10);
     return toRowMovies(results);
   },
-  ["international-best-row"],
+  ["international-best-row-v2"],
   { revalidate: 60 * 60 * 24, tags: ["movie-rows"] },
 );
 

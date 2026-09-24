@@ -5,6 +5,7 @@ import { db } from "./db";
 import { getTmdbSeriesDetails, getTmdbPopularSeries } from "./tmdb";
 import { splitGenres } from "./movie-rows";
 import { getBulkMovieRatingAverages } from "./review-data";
+import { formatPosterUrl } from "./formatPosterUrl";
 import type { RowMovie } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -42,7 +43,7 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
     return {
       id: `tmdb-tv-${tmdbId}`,
       title: cached.name,
-      posterUrl: cached.posterUrl,
+      posterUrl: formatPosterUrl(cached.posterUrl),
       gradient: FALLBACK_GRADIENT,
       isNowShowing: false,
       genre: all.length > 0 ? all.slice(0, 2).join(" · ") : null,
@@ -141,7 +142,7 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
       results.push({
         id: r.movieCd,
         title: cached.name,
-        posterUrl: cached.posterUrl,
+        posterUrl: formatPosterUrl(cached.posterUrl),
         gradient: FALLBACK_GRADIENT,
         isNowShowing: false,
         genre: all.length > 0 ? all.slice(0, 2).join(" · ") : null,
@@ -206,7 +207,7 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
       results.push({
         id: r.movieCd,
         title: cached.name,
-        posterUrl: cached.posterUrl,
+        posterUrl: formatPosterUrl(cached.posterUrl),
         gradient: FALLBACK_GRADIENT,
         isNowShowing: false,
         badge: `${results.length + 1}위`,

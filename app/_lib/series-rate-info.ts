@@ -8,6 +8,7 @@
 import { db } from "./db";
 import { getTmdbSeriesDetails } from "./tmdb";
 import { splitGenres } from "./movie-rows";
+import { formatPosterUrl } from "./formatPosterUrl";
 
 const CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -82,7 +83,7 @@ export async function resolveSeriesRateInfo(id: string): Promise<ResolvedSeriesI
       tmdbId,
       title: cached.name,
       description: cached.overview ?? "",
-      posterUrl: cached.posterUrl,
+      posterUrl: formatPosterUrl(cached.posterUrl),
       gradient: FALLBACK_GRADIENT,
       firstAirDate: cached.firstAirDate,
       genre: cached.genreAlt,
