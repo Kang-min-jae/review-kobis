@@ -320,48 +320,45 @@ export function getUserRatedMovieCdsSnapshot(): string[] {
     .map((entry) => entry.movieCd);
 }
 
-// DB에 저장된 "전체" 평점을 localStorage에 없으면 추가한다 — 다른 기기/세션에서 남긴
-// 평점은 이 브라우저의 localStorage에 없어서 통계 리포트에 반영되지 않는 문제를 해결.
-// 이미 같은 movieId+type+category가 있으면 덮어쓰지 않고(리뷰 텍스트 보존) 건너뛴다.
-// 변경이 있을 때만 write + emitChange를 한 번 호출한다.
-export type ServerRating = {
+// 로그인한 사용자의 "내 리뷰"를 서버(DB) 기준으로 통째로 맞춘다. 예전엔 서버에 있고
+// 로컬에 없는 평점만 추가하는 단방향 동기화라, 다른 기기에서 지운 평점이 이 기기의
+// localStorage엔 영원히 남아 다이어리·리스트에 계속 보였다.
+export type ServerReview = {
+  id: string;
   movieId: string;
+  movieCd: string | null;
   movieTitle: string;
   moviePosterUrl: string | null;
   movieGradient: string;
-  movieCd: string | null;
-  rating: number; // 0~10
-  ratedAt: string; // ISO
+  type: ReviewType;
+  category: string;
+  rating: number;
+  content: string;
+  createdAt: string;
 };
 
-export function syncServerRatings(serverRatings: ServerRating[]): void {
-  if (typeof window === "undefined" || serverRatings.length === 0) return;
+export function replaceWithServerReviews(serverReviews: ServerReview[]): void {
+  if (typeof window === "undefined" || currentStorageKey === BASE_STORAGE_KEY) return;
   const identity = getGuestIdentity();
-  const existing = readUserReviews();
-  const existingKeys = new Set(
-    existing
-      .filter((r) => r.type === "short" && (r.category ?? "전체") === "전체")
-      .map((r) => r.movieId)
-  );
-  const toAdd: Review[] = serverRatings
-    .filter((s) => !existingKeys.has(s.movieId))
-    .map((s) => ({
-      id: `server-sync-${s.movieId}-${Date.now()}`,
-      movieId: s.movieId,
-      movieTitle: s.movieTitle,
-      moviePosterUrl: s.moviePosterUrl,
-      movieGradient: s.movieGradient,
-      movieCd: s.movieCd,
-      type: "short" as const,
-      category: "전체" as const,
-      rating: s.rating,
-      content: "",
-      authorId: identity.id,
-      authorName: identity.name,
-      createdAt: s.ratedAt,
-    }));
-  if (toAdd.length === 0) return;
-  writeUserReviews([...existing, ...toAdd]);
+  const next: Review[] = serverReviews.map((s) => ({
+    ...s,
+    category: s.category as RatingCategory,
+    authorId: identity.id,
+    authorName: identity.name,
+  }));
+  const current = readUserReviews();
+  if (JSON.stringify(current) === JSON.stringify(next)) return;
+
+  // 서버 기준으로 바꾸기 전 이 기기에만 있던 기록을 한 번 백업해 둔다(복구용).
+  try {
+    const backupKey = `${currentStorageKey}:backup-before-server-sync`;
+    if (current.length > 0 && !window.localStorage.getItem(backupKey)) {
+      window.localStorage.setItem(backupKey, JSON.stringify(current));
+    }
+  } catch {
+    // 저장 공간 부족 등 — 백업 실패가 동기화를 막지는 않는다.
+  }
+  writeUserReviews(next);
   emitChange();
 }
 
@@ -422,10 +419,10 @@ export function removeReview(reviewId: string) {
   emitChange();
 }
 
-export function removeReviewsForMovieOnDate(movieId: string, dateKey: string) {
-  const remaining = readUserReviews().filter(
-    (r) => !(r.movieId === movieId && toLocalDateKey(r.createdAt) === dateKey)
-  );
-  writeUserReviews(remaining);
+export function removeReviewsForMovieOnDate(movieId: string, dateKey: string): Review[] {
+  const all = readUserReviews();
+  const isTarget = (r: Review) => r.movieId === movieId && toLocalDateKey(r.createdAt) === dateKey;
+  writeUserReviews(all.filter((r) => !isTarget(r)));
   emitChange();
+  return all.filter(isTarget);
 }

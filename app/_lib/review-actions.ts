@@ -107,6 +107,31 @@ export async function submitReviewAction(input: {
   revalidatePath("/", "layout");
 }
 
+// 리뷰가 지워진 뒤 CategoryRating을 남은 리뷰와 맞춘다. submitReviewAction이 한줄평
+// (모든 항목)과 "전체" 장문평을 CategoryRating에 복사해 두므로, 리뷰만 지우고 이걸
+// 그대로 두면 다이어리·리스트·Best 행(모두 CategoryRating 기준)에 평점이 계속 남는다.
+async function resyncCategoryRating(userId: string, movieCd: string, category: string) {
+  const short = await db.review.findUnique({
+    where: { userId_movieCd_category_type: { userId, movieCd, category, type: "SHORT" } },
+  });
+  const long = !short && category === "전체"
+    ? await db.review.findUnique({
+        where: { userId_movieCd_category_type: { userId, movieCd, category, type: "LONG" } },
+      })
+    : null;
+  const score = short ? short.rating : long ? Math.round((long.rating / 100) * 10 * 10) / 10 : null;
+
+  if (score === null) {
+    await db.categoryRating.deleteMany({ where: { userId, movieCd, category } });
+    return;
+  }
+  await db.categoryRating.upsert({
+    where: { userId_movieCd_category: { userId, movieCd, category } },
+    create: { userId, movieCd, category, score },
+    update: { score },
+  });
+}
+
 // 내가 남긴 리뷰 하나를 삭제한다. 보안상 자기 리뷰만 지울 수 있도록 userId도
 // 조건에 포함한다.
 export async function deleteReviewAction(input: {
@@ -118,9 +143,35 @@ export async function deleteReviewAction(input: {
   if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
   const userId = session.user.id;
 
-  await db.review.deleteMany({ where: { id: input.reviewId, userId } });
+  const review = await db.review.findFirst({ where: { id: input.reviewId, userId } });
+  if (review) {
+    await db.review.delete({ where: { id: review.id } });
+    await resyncCategoryRating(userId, review.movieCd, review.category);
+  }
 
   revalidatePath(categoryPath(input.movieId, input.category));
+  revalidatePath("/my-list");
+  revalidatePath("/", "layout");
+}
+
+// 무비 다이어리에서 한 영화의 기록을 지울 때, 그 영화로 남긴 리뷰(항목·타입별)를
+// 서버에서도 지운다 — 예전엔 이 브라우저의 localStorage에서만 지워져 다른 기기와
+// 서버 평점엔 그대로 남아 있었다.
+export async function deleteMyMovieReviewsAction(
+  movieCd: string,
+  entries: { category: string; type: "SHORT" | "LONG" }[],
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
+  const userId = session.user.id;
+
+  for (const { category, type } of entries) {
+    await db.review.deleteMany({ where: { userId, movieCd, category, type } });
+  }
+  for (const category of new Set(entries.map((e) => e.category))) {
+    await resyncCategoryRating(userId, movieCd, category);
+  }
+
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
 }

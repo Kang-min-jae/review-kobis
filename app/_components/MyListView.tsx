@@ -10,7 +10,7 @@ import MyStyleReport from "./MyStyleReport";
 import MovieDiaryCalendar from "./MovieDiaryCalendar";
 import CustomListsSection from "./CustomListsSection";
 import RatedMovieSearch from "./RatedMovieSearch";
-import type { MyRatedMovie } from "../_lib/my-rated-movies";
+import type { MyRatedMovie, SyncedReview } from "../_lib/my-rated-movies";
 import { getBadge, TIER_STYLES, type Tier } from "../_lib/tier";
 import {
   subscribe as subscribeMyList,
@@ -29,13 +29,14 @@ import {
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
   initForUser,
-  syncServerRatings,
+  replaceWithServerReviews,
   type ReviewedMovie,
 } from "../_lib/reviews-store";
 type FollowingUser = { id: string; name: string | null; image: string | null; nickname: string | null; totalLikes?: number };
 
 export default function MyListView({
   myRatedMovies,
+  serverReviews = null,
   followerCount = 0,
   followingList = [],
   showCalendar = true,
@@ -44,6 +45,8 @@ export default function MyListView({
   totalLikes = 0,
 }: {
   myRatedMovies: MyRatedMovie[];
+  // 로그인 계정의 DB 리뷰 전체 — 있으면 이 기기의 localStorage를 이 값으로 맞춘다.
+  serverReviews?: SyncedReview[] | null;
   followerCount?: number;
   followingList?: FollowingUser[];
   showCalendar?: boolean;
@@ -55,22 +58,11 @@ export default function MyListView({
   // 먼저 실행되어야 첫 렌더부터 올바른 계정 데이터를 읽는다.
   initForUser(userId);
 
-  // DB에 저장된 전체 평점을 localStorage에 없으면 추가 — 다른 기기/세션에서 남긴
-  // 평점이 통계 리포트에 반영되지 않는 문제 해결. 이미 있는 리뷰는 덮어쓰지 않는다.
+  // 다른 기기에서 추가·삭제한 평점이 이 기기에도 반영되도록 DB 기준으로 맞춘다.
   useEffect(() => {
-    if (!userId || myRatedMovies.length === 0) return;
-    syncServerRatings(
-      myRatedMovies.map((m) => ({
-        movieId: m.id,
-        movieTitle: m.title,
-        moviePosterUrl: m.posterUrl,
-        movieGradient: m.gradient,
-        movieCd: m.id.startsWith("kobis-") ? m.id.slice("kobis-".length) : null,
-        rating: m.rating,
-        ratedAt: m.ratedAt,
-      }))
-    );
-  }, [userId, myRatedMovies]);
+    if (!userId || !serverReviews) return;
+    replaceWithServerReviews(serverReviews);
+  }, [userId, serverReviews]);
 
   const myListIds = useSyncExternalStore(subscribeMyList, getMyListSnapshot, getServerMyListSnapshot);
   const reviewedMovies = useSyncExternalStore(

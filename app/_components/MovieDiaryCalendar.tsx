@@ -312,6 +312,7 @@ export default function MovieDiaryCalendar({
         <DiaryDayDetailModal
           date={detailDate}
           serverRatedMovies={serverRatedMovies}
+          isLoggedIn={Boolean(userId)}
           onClose={() => setDetailDate(null)}
           onAddMovie={() => {
             const date = detailDate;

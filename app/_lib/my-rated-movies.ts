@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { getMovieMeta } from "./movie-rate-info";
+import { formatPosterUrl } from "./formatPosterUrl";
 import type { FestivalAward } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -127,6 +128,60 @@ export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> 
       rating: r.score,
       ratedAt: r.createdAt.toISOString(),
       ...(awardCdMap.has(r.movieCd) ? { awardBadge: true as const, festivalAwards: awardCdMap.get(r.movieCd)! } : {}),
+    };
+  });
+}
+
+// 브라우저 localStorage의 "내 리뷰"를 서버 기준으로 맞출 때 쓰는 데이터. id는 DB
+// 리뷰 id를 그대로 쓰고, 제목·포스터는 외부 API 없이 DB 캐시에서만 채운다.
+export type SyncedReview = {
+  id: string;
+  movieId: string;
+  movieCd: string | null;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieGradient: string;
+  type: "short" | "long";
+  category: string;
+  rating: number;
+  content: string;
+  createdAt: string;
+};
+
+export async function getMyReviewsForSync(userId: string): Promise<SyncedReview[]> {
+  const reviews = await db.review.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
+  if (reviews.length === 0) return [];
+
+  const cds = Array.from(new Set(reviews.map((r) => r.movieCd)));
+  const seriesIds = cds.filter((cd) => cd.startsWith("tmdb-tv-")).map((cd) => cd.slice("tmdb-tv-".length));
+  const [movies, series] = await Promise.all([
+    db.cachedMovie.findMany({
+      where: { movieCd: { in: cds.filter((cd) => !cd.startsWith("tmdb-tv-")) } },
+      select: { movieCd: true, title: true, posterUrl: true },
+    }),
+    seriesIds.length > 0
+      ? db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, name: true, posterUrl: true } })
+      : Promise.resolve([]),
+  ]);
+  const info = new Map<string, { title: string; posterUrl: string | null }>([
+    ...movies.map((m) => [m.movieCd, { title: m.title, posterUrl: m.posterUrl }] as const),
+    ...series.map((s) => [`tmdb-tv-${s.tmdbId}`, { title: s.name, posterUrl: s.posterUrl }] as const),
+  ]);
+
+  return reviews.map((r) => {
+    const movie = info.get(r.movieCd);
+    return {
+      id: r.id,
+      movieId: movieIdFromCd(r.movieCd),
+      movieCd: /^\d+$/.test(r.movieCd) ? r.movieCd : null,
+      movieTitle: movie?.title ?? r.movieCd,
+      moviePosterUrl: formatPosterUrl(movie?.posterUrl ?? null),
+      movieGradient: FALLBACK_GRADIENT,
+      type: r.type === "SHORT" ? "short" : "long",
+      category: r.category,
+      rating: r.rating,
+      content: r.content,
+      createdAt: r.createdAt.toISOString(),
     };
   });
 }

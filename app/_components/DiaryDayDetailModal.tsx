@@ -12,7 +12,7 @@ import {
 } from "../_lib/reviews-store";
 import type { Review } from "../_lib/mock-reviews";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
-import { deleteAccountRatingAction } from "../_lib/review-actions";
+import { deleteAccountRatingAction, deleteMyMovieReviewsAction } from "../_lib/review-actions";
 import {
   subscribe as subscribeDiaryLog,
   getDiaryLogSnapshot,
@@ -114,11 +114,13 @@ function buildRows(
 export default function DiaryDayDetailModal({
   date,
   serverRatedMovies = [],
+  isLoggedIn = false,
   onClose,
   onAddMovie,
 }: {
   date: string;
   serverRatedMovies?: MyRatedMovie[];
+  isLoggedIn?: boolean;
   onClose: () => void;
   onAddMovie: () => void;
 }) {
@@ -129,8 +131,19 @@ export default function DiaryDayDetailModal({
   const [deletingAccountRating, setDeletingAccountRating] = useState<string | null>(null);
 
   const handleDelete = (movieId: string) => {
-    removeReviewsForMovieOnDate(movieId, date);
+    const removed = removeReviewsForMovieOnDate(movieId, date);
     removeDiaryLogForMovieOnDate(movieId, date);
+    // 로컬에서만 지우면 서버 평점이 남아 다른 기기·다음 동기화 때 다시 나타난다.
+    if (isLoggedIn && removed.length > 0) {
+      const movieCd = movieId.replace(/^kobis-/, "");
+      const entries = removed.map((r) => ({
+        category: r.category ?? "전체",
+        type: r.type === "short" ? ("SHORT" as const) : ("LONG" as const),
+      }));
+      deleteMyMovieReviewsAction(movieCd, entries).catch((error) => {
+        console.error("[diary] 서버 리뷰 삭제 실패", error);
+      });
+    }
   };
 
   const handleDeleteAccountRating = async (movieId: string) => {

@@ -3,7 +3,7 @@ import SiteHeader from "../_components/SiteHeader";
 import MyListView from "../_components/MyListView";
 import { auth } from "../../auth";
 import { db } from "../_lib/db";
-import { getMyRatedMovies } from "../_lib/my-rated-movies";
+import { getMyRatedMovies, getMyReviewsForSync } from "../_lib/my-rated-movies";
 import { getFollowerCount, getFollowingList } from "../_lib/follow-actions";
 import { getProfileViews } from "../_lib/profile-view-actions";
 
@@ -16,8 +16,9 @@ export default async function MyListPage() {
     redirect("/login?callbackUrl=/my-list");
   }
 
-  const [myRatedMovies, followerCount, followingList, profileViews, userRow] = await Promise.all([
+  const [myRatedMovies, serverReviews, followerCount, followingList, profileViews, userRow] = await Promise.all([
     getMyRatedMovies(userId),
+    getMyReviewsForSync(userId),
     getFollowerCount(userId),
     getFollowingList(userId),
     getProfileViews(userId),
@@ -29,6 +30,7 @@ export default async function MyListPage() {
       <SiteHeader active="my-list" />
       <MyListView
         myRatedMovies={myRatedMovies}
+        serverReviews={serverReviews}
         followerCount={followerCount}
         followingList={followingList}
         profileViews={profileViews}
