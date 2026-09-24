@@ -617,7 +617,11 @@ async function getRatingSortedMovies(
   );
   const kobisUnrated = kobisPool.filter((m) => !ratingMap.has(m.movieCd));
   const kobisRows = await toRowMovies(kobisUnrated.slice(0, needed * 2));
-  return [...ratedRows, ...kobisRows.slice(0, needed)];
+  // DB 콜드 스타트 등으로 toRowMovies가 빈 배열이면 그라디언트 카드로 폴백
+  const fillRows = kobisRows.length > 0
+    ? kobisRows.slice(0, needed)
+    : kobisUnrated.slice(0, needed).map((s) => summaryToRowMovie(s, null));
+  return [...ratedRows, ...fillRows];
 }
 
 // 올해의 Best: 올해 개봉작 중 DB 평점 높은 순 10편.
@@ -626,7 +630,7 @@ export const getYearlyBestRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10);
   },
-  ["yearly-best-row-v2"],
+  ["yearly-best-row"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -638,7 +642,7 @@ export const getBestOf3YearsRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year - 2}-01-01`, isoDate(new Date()), 15);
   },
-  ["best-of-3-years-row-v2"],
+  ["best-of-3-years-row"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -649,7 +653,7 @@ export const getBestOf5YearsRow = unstable_cache(
     const year = new Date().getFullYear();
     return getRatingSortedMovies(`${year - 4}-01-01`, isoDate(new Date()), 20);
   },
-  ["best-of-5-years-row-v2"],
+  ["best-of-5-years-row"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
@@ -671,9 +675,13 @@ export const getAllTimeBestRow = unstable_cache(
       .filter((cd) => /^\d+$/.test(cd));
 
     if (ratedCds.length === 0) {
-      // 평점이 전혀 없으면 KOBIS 최신순으로 폴백
+      // 평점이 전혀 없으면 KOBIS 최신순으로 폴백.
+      // toRowMovies는 포스터 없는 영화를 걸러내므로, DB 콜드 스타트 시 모두 걸러질 수 있다.
+      // 그 경우 포스터 없이 그라디언트만 보여주는 로우로 한 번 더 폴백.
       const results = await searchMovieCatalog({}, 20);
-      return toRowMovies(results);
+      const rows = await toRowMovies(results);
+      if (rows.length > 0) return rows;
+      return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
     }
 
     const [metas, avgMap] = await Promise.all([
@@ -717,9 +725,11 @@ export const getAllTimeBestRow = unstable_cache(
 export const getInternationalBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
     const results = await searchMovieCatalog({ repNationCd: "F" }, 10);
-    return toRowMovies(results);
+    const rows = await toRowMovies(results);
+    if (rows.length > 0) return rows;
+    return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
   },
-  ["international-best-row-v2"],
+  ["international-best-row"],
   { revalidate: 60 * 60 * 24, tags: ["movie-rows"] },
 );
 
