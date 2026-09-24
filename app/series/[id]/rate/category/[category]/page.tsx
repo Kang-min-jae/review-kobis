@@ -87,6 +87,7 @@ export default async function SeriesCategoryRatePage({
             category={category}
             isLoggedIn={Boolean(userId)}
             userId={userId}
+            userName={session?.user?.name ?? null}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
             myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
           />

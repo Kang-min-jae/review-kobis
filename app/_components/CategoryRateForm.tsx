@@ -150,6 +150,7 @@ export default function CategoryRateForm({
   category,
   isLoggedIn,
   userId = null,
+  userName,
   isAdmin = false,
   reviews,
   myReviews,
@@ -162,6 +163,7 @@ export default function CategoryRateForm({
   category: RatingCategory;
   isLoggedIn: boolean;
   userId?: string | null;
+  userName?: string | null;
   isAdmin?: boolean;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
@@ -293,20 +295,43 @@ export default function CategoryRateForm({
 
       // 즉시 "내 평점" 패널 갱신
       const now = new Date().toISOString();
+      const isNewReview = !myReview; // 제출 전 값 캡처
       setLocalMyReviews((prev) => ({
         ...prev,
         [activeTab]: { rating: reviewRating, content: content.trim(), createdAt: now },
       }));
-      // 수정 시: 리뷰 목록에서 내 항목 즉시 교체
       if (userId) {
-        const patchList = (prev: ReviewWithAuthor[]) =>
-          prev.map((r) =>
-            r.authorId === userId
-              ? { ...r, rating: reviewRating, content: content.trim(), createdAt: now }
-              : r
-          );
-        setLocalShortReviews(patchList);
-        setLocalLongReviews(patchList);
+        if (isNewReview) {
+          // 신규 작성: 목록 맨 앞에 낙관적 항목 추가 (카운트 즉시 +1)
+          const newEntry: ReviewWithAuthor = {
+            id: `optimistic-${Date.now()}`,
+            rating: reviewRating,
+            content: content.trim(),
+            hasSpoiler: false,
+            authorId: userId,
+            authorName: userName ?? "나",
+            authorTier: "관객",
+            createdAt: now,
+            likeCount: 0,
+            dislikeCount: 0,
+            myVote: null,
+          };
+          if (activeTab === "SHORT") {
+            setLocalShortReviews((prev) => [newEntry, ...prev]);
+          } else {
+            setLocalLongReviews((prev) => [newEntry, ...prev]);
+          }
+        } else {
+          // 수정: 리뷰 목록에서 내 항목 즉시 교체
+          const patchList = (prev: ReviewWithAuthor[]) =>
+            prev.map((r) =>
+              r.authorId === userId
+                ? { ...r, rating: reviewRating, content: content.trim(), createdAt: now }
+                : r
+            );
+          setLocalShortReviews(patchList);
+          setLocalLongReviews(patchList);
+        }
       }
       // 평균 평점(사이드바) 갱신을 위해 백그라운드 새로고침
       router.refresh();

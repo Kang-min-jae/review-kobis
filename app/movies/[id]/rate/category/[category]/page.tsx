@@ -107,6 +107,7 @@ export default async function CategoryRatePage({
             category={category}
             isLoggedIn={Boolean(userId)}
             userId={userId}
+            userName={session?.user?.name ?? null}
             isAdmin={session?.user?.role === "ADMIN"}
             reviews={{ SHORT: shortReviews, LONG: longReviews }}
             myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
