@@ -157,10 +157,36 @@ function pickBestMovieMatch(
     return (!!t1 && acceptableTitles.has(t1)) || (!!t2 && acceptableTitles.has(t2));
   });
   if (pool.length === 0) return null;
-  if (!yearHint) return pool[0];
+  const hint = yearHint ? parseInt(yearHint, 10) : NaN;
+  if (!Number.isFinite(hint)) return pool[0];
 
-  const withYear = pool.filter((r) => r.release_date?.slice(0, 4) === yearHint);
-  return withYear[0] ?? pool[0];
+  // 같은 제목의 영화가 여러 편이면(리메이크·동명 영화) 개봉연도가 가장 가까운 것을 고른다.
+  const distance = (r: RawTmdbMovieSearchResult) => {
+    const y = parseInt(r.release_date?.slice(0, 4) ?? "", 10);
+    return Number.isFinite(y) ? Math.abs(y - hint) : 99;
+  };
+  return [...pool].sort((a, b) => distance(a) - distance(b))[0];
+}
+
+// TMDB 상세가 기대한 영화가 맞는지 검증한다 — 제목(한/영, 원제 포함)이 정규화 후 같거나
+// 한쪽이 다른 쪽을 포함(4자 이상일 때만)하고, 연도를 알면 ±yearTolerance 안이어야 한다.
+// 정규화는 한글 등 모든 문자를 남긴다(영문만 남기면 한국어 제목이 빈 문자열이 되어
+// 어떤 영화와도 "일치"해 버리는 문제가 있었다).
+export function tmdbDetailsMatch(
+  details: { title: string; originalTitle: string | null; releaseDate: string | null },
+  expectedTitles: (string | null | undefined)[],
+  expectedYear: number | null,
+  yearTolerance = 2,
+): boolean {
+  const got = [details.title, details.originalTitle].filter(Boolean).map((t) => normalizeTitle(t!)).filter((t) => t.length >= 2);
+  const want = expectedTitles.filter(Boolean).map((t) => normalizeTitle(t!)).filter((t) => t.length >= 2);
+  const titleOk = want.some((w) =>
+    got.some((g) => g === w || (Math.min(g.length, w.length) >= 4 && (g.includes(w) || w.includes(g)))),
+  );
+  if (!titleOk) return false;
+  const year = parseInt(details.releaseDate?.slice(0, 4) ?? "", 10);
+  if (expectedYear && Number.isFinite(year)) return Math.abs(year - expectedYear) <= yearTolerance;
+  return true;
 }
 
 // 제목(+영문 제목, 개봉연도 힌트)으로 TMDB에서 영화를 찾는다. KOFIC/KMDb 둘 다

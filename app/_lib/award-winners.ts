@@ -11,7 +11,7 @@ import {
   type FestivalWinner,
   type FestivalType,
 } from "./wikidata";
-import { searchTmdbMovie, getTmdbMovieDetailsById, searchTmdbMoviePosterLoose } from "./tmdb";
+import { searchTmdbMovie, getTmdbMovieDetailsById, searchTmdbMoviePosterLoose, tmdbDetailsMatch } from "./tmdb";
 import { searchKmdbMovie } from "./kmdb";
 import { db } from "./db";
 import type { RowMovie } from "./movie-rows";
@@ -52,7 +52,17 @@ function posterTitleMatchesWinner(
 
 // 포스터 검색 5단계 폴백.
 // 각 단계 실패 시 콘솔에 로그를 남겨 어느 단계에서 실패하는지 추적 가능.
-async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Promise<string | null> {
+// 수상작 개봉연도로 그럴듯한 범위 — 시상식 3년 전 ~ 1년 후 개봉작.
+function plausibleForCeremony(releaseDate: string | null, ceremonyYear: number): boolean {
+  const y = parseInt(releaseDate?.slice(0, 4) ?? "", 10);
+  return !Number.isFinite(y) || (y >= ceremonyYear - 3 && y <= ceremonyYear + 1);
+}
+
+type PosterResult = { posterUrl: string | null; tmdbId: string | null };
+
+// posterUrl과 함께 "검증을 통과한" TMDB ID를 돌려준다(검증 안 된 ID는 null) — 이 ID가
+// 평점 페이지의 영화 정보 조회에 그대로 쓰이므로, 틀린 ID를 저장하면 다른 영화 정보가 붙는다.
+async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Promise<PosterResult> {
   const ctx = `[award-tmdb][${festival}] "${winner.titleKo ?? winner.titleEn}" (${winner.ceremonyYear}) [${winner.categoryLabel}]`;
 
   // 1) Wikidata P4947 TMDB ID 직접 조회.
@@ -60,8 +70,8 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
   if (winner.tmdbId) {
     const details = await getTmdbMovieDetailsById(winner.tmdbId, "en-US");
     if (details?.posterUrl) {
-      if (posterTitleMatchesWinner(details, winner)) {
-        return details.posterUrl;
+      if (posterTitleMatchesWinner(details, winner) && plausibleForCeremony(details.releaseDate, winner.ceremonyYear)) {
+        return { posterUrl: details.posterUrl, tmdbId: details.tmdbId };
       }
       console.warn(
         `${ctx} P4947 tmdbId=${winner.tmdbId} 제목 불일치 차단` +
@@ -77,7 +87,13 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
 
   // 2) 제목 exact match: ko-KR → en-US
   const tmdb = await searchTmdbMovie(displayTitle, yearHint, winner.titleEn);
-  if (tmdb?.posterUrl) return tmdb.posterUrl;
+  if (
+    tmdb?.posterUrl &&
+    tmdbDetailsMatch(tmdb, [winner.titleKo, winner.titleEn], null) &&
+    plausibleForCeremony(tmdb.releaseDate, winner.ceremonyYear)
+  ) {
+    return { posterUrl: tmdb.posterUrl, tmdbId: tmdb.tmdbId };
+  }
   console.warn(`${ctx} exact match 실패 (displayTitle="${displayTitle}", titleEn="${winner.titleEn}")`);
 
   // 3) 느슨한 매칭: 한/영 제목 동시 검색 + 제목 유사도 검증
@@ -87,16 +103,16 @@ async function getPosterUrl(winner: FestivalWinner, festival: FestivalType): Pro
     const primaryTitle = winner.titleEn ?? winner.titleKo!;
     const altTitle = winner.titleEn ? winner.titleKo : null;
     const loose = await searchTmdbMoviePosterLoose(primaryTitle, winner.ceremonyYear, altTitle);
-    if (loose) return loose;
+    if (loose) return { posterUrl: loose, tmdbId: null };
     console.warn(`${ctx} loose(한/영 병렬) 실패`);
   }
 
   // 5) KMDb 폴백 — 한국 개봉 영화 위주
   const kmdb = await searchKmdbMovie(displayTitle, yearHint, { titleEn: winner.titleEn });
-  if (kmdb?.posterUrl) return kmdb.posterUrl;
+  if (kmdb?.posterUrl) return { posterUrl: kmdb.posterUrl, tmdbId: null };
 
   console.warn(`${ctx} 모든 단계 실패 — 포스터 없음`);
-  return null;
+  return { posterUrl: null, tmdbId: null };
 }
 
 async function winnersToRows(winners: FestivalWinner[], festival: FestivalType): Promise<AwardMovieRow[]> {
@@ -108,7 +124,7 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
 
   // 같은 영화+부문 조합만 중복 제거 — 같은 영화가 여러 부문을 수상하면 부문별로 카드를 따로 표시.
   const seenKeys = new Set<string>();
-  const posterCache = new Map<string, string | null>();
+  const posterCache = new Map<string, PosterResult>();
 
   const results: AwardMovieRow[] = [];
   for (const winner of winners) {
@@ -116,31 +132,40 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
 
-    let posterUrl: string | null;
+    let poster: PosterResult;
     if (posterCache.has(winner.filmQid)) {
-      posterUrl = posterCache.get(winner.filmQid)!;
+      poster = posterCache.get(winner.filmQid)!;
     } else {
-      posterUrl = await getPosterUrl(winner, festival);
-      posterCache.set(winner.filmQid, posterUrl);
+      poster = await getPosterUrl(winner, festival);
+      posterCache.set(winner.filmQid, poster);
     }
+    const { posterUrl } = poster;
 
     // 평점 페이지가 영화 정보(제목·포스터)를 조회할 수 있도록 CachedMovie에 미리 저장.
     // movieCd로 wikidata ID를 그대로 쓴다 — KOBIS 코드가 없는 해외 수상작 전용.
     try {
+      const movieCd = `wikidata-${winner.filmQid}`;
+      const existing = await db.cachedMovie.findUnique({ where: { movieCd }, select: { tmdbId: true } });
+      // 연결된 TMDB 영화가 바뀌었으면 예전 영화에서 채워진 줄거리·장르 등을 비우고 평점
+      // 페이지에서 다시 검증·보강하게 한다(source를 검증 전 상태로 되돌림).
+      const reset = existing && existing.tmdbId !== poster.tmdbId
+        ? { overview: null, releaseDate: null, runtimeMinutes: null, genreAlt: null, directorName: null, directorKmdbId: null, directorTmdbId: null, cast: [], source: "tmdb" }
+        : {};
       await db.cachedMovie.upsert({
-        where: { movieCd: `wikidata-${winner.filmQid}` },
+        where: { movieCd },
         update: {
           title: winner.titleKo ?? winner.titleEn ?? "",
           titleEn: winner.titleEn ?? null,
           posterUrl,
-          tmdbId: winner.tmdbId ?? null,
+          tmdbId: poster.tmdbId,
+          ...reset,
         },
         create: {
-          movieCd: `wikidata-${winner.filmQid}`,
+          movieCd,
           title: winner.titleKo ?? winner.titleEn ?? "",
           titleEn: winner.titleEn ?? null,
           posterUrl,
-          tmdbId: winner.tmdbId ?? null,
+          tmdbId: poster.tmdbId,
           cast: [],
           source: "tmdb",
         },
@@ -227,6 +252,13 @@ const FESTIVAL_NAMES: Record<FestivalType, string> = {
 
 const FESTIVAL_ORDER: FestivalType[] = ["academy", "cannes", "berlin", "venice"];
 
+const LATEST_WINNER_FETCHERS: Record<FestivalType, () => Promise<FestivalWinner[]>> = {
+  academy: fetchLatestAcademyWinners,
+  cannes: fetchLatestCannesWinners,
+  berlin: fetchLatestBerlinWinners,
+  venice: fetchLatestVeniceWinners,
+};
+
 // Wikidata에서 해당 영화의 수상 이력을 직접 조회한다 (연도 제한 없음).
 // tmdbId로 1차 조회하고, 없으면 영문 제목으로 2차 조회한다.
 // 결과는 Wikidata에 의해 부문별 중복 없이 모든 연도 수상작이 포함된다.
@@ -243,11 +275,19 @@ export async function getMovieAwardWins({
 }): Promise<AwardWin[]> {
   // Wikidata(자동) + 관리자가 등록한 공식 수상작(수동). 신작은 Wikidata 반영이 늦어
   // 관리자 등록분이 유일한 출처일 수 있다.
-  const [entries, official] = await Promise.all([
+  const [entries, official, festivalLists] = await Promise.all([
     fetchMovieAwardWins(tmdbId, titleEn, titleKo),
     movieId
       ? db.officialWinner.findMany({ where: { movieId }, select: { festival: true, awardCategory: true, year: true } }).catch(() => [])
       : Promise.resolve([]),
+    // 사이트가 이미 갖고 있는 영화제별 최신 수상작 목록 — 영화 단위 Wikidata 조회에
+    // 수상 기록이 아직 없는 신작도 여기엔 들어 있을 수 있다.
+    Promise.all(
+      (["academy", "cannes", "berlin", "venice"] as const).map(async (festival) => ({
+        festival,
+        winners: await LATEST_WINNER_FETCHERS[festival]().catch(() => [] as FestivalWinner[]),
+      })),
+    ),
   ]);
 
   const wins: AwardWin[] = entries.map((e) => ({
@@ -257,6 +297,21 @@ export async function getMovieAwardWins({
     year: e.ceremonyYear,
   }));
   const seen = new Set(wins.map((w) => `${w.festivalId}-${w.year}-${w.category}`));
+
+  // 제목이 정확히 같은(한/영, 기호·공백 무시) 수상작이거나 이 수상작 항목 자체일 때만 인정.
+  const myTitles = new Set([titleKo, titleEn].filter(Boolean).map((t) => normForComp(t!)).filter((t) => t.length >= 2));
+  for (const { festival, winners } of festivalLists) {
+    for (const w of winners) {
+      const isSelf = movieId?.startsWith(`wikidata-${w.filmQid}`) ?? false;
+      const titleHit = [w.titleKo, w.titleEn].some((t) => t && myTitles.has(normForComp(t)));
+      if (!isSelf && !titleHit) continue;
+      const key = `${festival}-${w.ceremonyYear}-${w.categoryLabel}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      wins.push({ festivalId: festival, festivalName: FESTIVAL_NAMES[festival], category: w.categoryLabel, year: w.ceremonyYear });
+    }
+  }
+
   for (const o of official) {
     if (!(o.festival in FESTIVAL_NAMES)) continue;
     const festivalId = o.festival as FestivalType;

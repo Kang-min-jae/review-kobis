@@ -219,20 +219,21 @@ function nextCeremonyDate(type: FestivalType, maxYear: number): Date {
 }
 
 // 폴백은 Wikidata 연결 실패 시에만 사용된다. 최신 데이터는 항상 Wikidata에서 온다.
+// tmdbId는 힌트일 뿐이다 — award-winners.ts가 제목·개봉연도로 검증한 뒤에만 쓴다.
 const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   // 97회 아카데미 시상식 (2025년 3월)
   academy: [
     { categoryLabel: "작품상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1064213"  }, // Anora (2024)
-    { categoryLabel: "감독상",    titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1010818"  }, // The Brutalist (2024)
-    { categoryLabel: "남우주연상", titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "1010818"  }, // The Brutalist (2024)
+    { categoryLabel: "감독상",    titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "549509"   }, // The Brutalist (2024)
+    { categoryLabel: "남우주연상", titleKo: null,            titleEn: "The Brutalist",  ceremonyYear: 2025, filmQid: "Q108851477", tmdbId: "549509"   }, // The Brutalist (2024)
     { categoryLabel: "여우주연상", titleKo: null,            titleEn: "The Substance",  ceremonyYear: 2025, filmQid: "Q125889440", tmdbId: "933260"   }, // The Substance (2024)
-    { categoryLabel: "국제영화상", titleKo: null,            titleEn: "I'm Still Here", ceremonyYear: 2025, filmQid: "Q128023745", tmdbId: "1032823"  }, // Ainda Estou Aqui (2024)
+    { categoryLabel: "국제영화상", titleKo: null,            titleEn: "I'm Still Here", ceremonyYear: 2025, filmQid: "Q128023745", tmdbId: "1000837"  }, // Ainda Estou Aqui (2024)
     { categoryLabel: "각본상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1064213"  }, // Anora (2024)
-    { categoryLabel: "각색상",    titleKo: null,            titleEn: "Conclave",       ceremonyYear: 2025, filmQid: "Q128029218", tmdbId: "1063879"  }, // Conclave (2024)
+    { categoryLabel: "각색상",    titleKo: null,            titleEn: "Conclave",       ceremonyYear: 2025, filmQid: "Q128029218", tmdbId: "974576"   }, // Conclave (2024)
   ],
   // 78회 칸 영화제 (2025년 5월) — Wikidata 재조회로 자동 반영
   cannes: [
-    { categoryLabel: "황금종려상", titleKo: "아노라", titleEn: "Anora", ceremonyYear: 2024, filmQid: "Q125499906", tmdbId: "1209290" },
+    { categoryLabel: "황금종려상", titleKo: "아노라", titleEn: "Anora", ceremonyYear: 2024, filmQid: "Q125499906", tmdbId: "1064213" },
     { categoryLabel: "심사위원대상", titleKo: null, titleEn: "All We Imagine as Light", ceremonyYear: 2024, filmQid: "Q124949622", tmdbId: "1164659" },
   ],
   // 75회 베를린 영화제 (2025년 2월) — Wikidata 재조회로 자동 반영

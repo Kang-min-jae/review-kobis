@@ -1,12 +1,16 @@
 import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
-import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, type TmdbMovieDetails } from "./tmdb";
+import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, tmdbDetailsMatch, type TmdbMovieDetails } from "./tmdb";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
+
+// 수상작(wikidata-*) 항목 중 TMDB 연결을 제목·연도로 검증한 것 — 이 표시가 없으면 다음
+// 조회 때 다시 검증한다.
+export const WIKIDATA_VERIFIED = "tmdb_verified";
 
 // 평점 페이지에서 화면에 실제로 보여주는 출연진 수(MovieInfoHeader의 DISPLAY_CAST_LIMIT과
 // 동일) — 그 이상은 화면에 안 보여서 클릭할 수 없으므로 코드를 역조회할 필요가 없다.
@@ -160,7 +164,7 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
     cast: row.cast as PersonRef[],
     tmdbId: row.tmdbId,
     source: row.source === "kmdb_via_tmdb_match" ? "kmdb_via_tmdb_match"
-           : row.source === "tmdb" ? "tmdb"
+           : row.source === "tmdb" || row.source === WIKIDATA_VERIFIED ? "tmdb"
            : "kmdb",
   };
 }
@@ -414,84 +418,69 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
     const cached = await db.cachedMovie.findUnique({ where: { movieCd } }).catch(() => null);
     if (!cached) return null;
 
-    // 개요·개봉일·감독·출연진 중 하나라도 비어 있으면 TMDB+KMDb에서 전체 정보를 보완한다.
-    const needsEnrich = !cached.overview || !cached.releaseDate || !cached.directorName ||
-      !(Array.isArray(cached.cast) && (cached.cast as unknown[]).length > 0);
+    // 수상작 항목은 Wikidata/하드코딩 목록의 TMDB ID를 그대로 받아와서 틀린 영화와 연결될 수
+    // 있다(예전 검증이 한글 제목을 빈 문자열로 만들어 어떤 영화든 통과시켰다). 제목·연도로
+    // 검증을 마친 항목만 WIKIDATA_VERIFIED로 표시하고, 아니면 다시 검증해 채운다.
+    const verified = cached.source === WIKIDATA_VERIFIED;
 
-    if (needsEnrich) {
-      const norm = (s: string | null | undefined) =>
-        (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!verified) {
+      const expectedTitles = [cached.titleEn, cached.title];
+      // 검증 전 개봉일은 틀린 영화에서 왔을 수 있어 연도 조건으로 쓰지 않는다. 수상작 항목은
+      // 최신 수상작 목록에서만 만들어지므로, 동명 영화가 여러 편이면 최근작을 고르도록
+      // 검색 힌트만 올해로 준다.
+      const trustedYear: number | null = null;
+      const searchYearHint = String(new Date().getFullYear());
 
-      // 1) TMDB: tmdbId 직접 조회 → 제목 검증 → 실패하면 제목 검색
       let tmdb: TmdbMovieDetails | null = null;
-      let resolvedTmdbId: string | null = cached.tmdbId;
-      let tmdbIdWasWrong = false;
-
       if (cached.tmdbId) {
         const byId = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
-        if (byId) {
-          const expectedEn = norm(cached.titleEn ?? cached.title);
-          const tTitle = norm(byId.title);
-          const tOrig = norm(byId.originalTitle);
-          const matched =
-            expectedEn.length >= 2 &&
-            (tTitle.includes(expectedEn) || expectedEn.includes(tTitle) ||
-             tOrig.includes(expectedEn) || expectedEn.includes(tOrig));
-          if (matched) {
-            tmdb = byId;
-          } else {
-            // 잘못된 P4947 ID — DB에서 제거, 제목 검색으로 대체.
-            // tmdbIdWasWrong=true로 표시해서 이 tmdbId에 연결된 posterUrl도 신뢰하지 않는다.
-            resolvedTmdbId = null;
-            tmdbIdWasWrong = true;
-            await db.cachedMovie.update({ where: { movieCd }, data: { tmdbId: null, posterUrl: null } }).catch(() => null);
-          }
-        }
+        if (byId && tmdbDetailsMatch(byId, expectedTitles, trustedYear)) tmdb = byId;
       }
-
       if (!tmdb) {
-        const displayTitle = cached.titleEn ?? cached.title;
-        const yearHint = cached.releaseDate?.slice(0, 4) ?? null;
-        const byTitle = await searchTmdbMovie(displayTitle, yearHint, cached.titleEn).catch(() => null);
-        if (byTitle) {
-          tmdb = byTitle;
-          resolvedTmdbId = byTitle.tmdbId ?? resolvedTmdbId;
-        }
+        const primary = cached.titleEn ?? cached.title;
+        const byTitle = await searchTmdbMovie(primary, searchYearHint, cached.titleEn).catch(() => null);
+        if (byTitle && tmdbDetailsMatch(byTitle, expectedTitles, trustedYear)) tmdb = byTitle;
+      }
+      if (!tmdb && cached.titleEn && cached.title !== cached.titleEn) {
+        const byKo = await searchTmdbMovie(cached.title, searchYearHint, cached.titleEn).catch(() => null);
+        if (byKo && tmdbDetailsMatch(byKo, expectedTitles, trustedYear)) tmdb = byKo;
       }
 
-      // 2) KMDb: 한국어 감독·출연진 조회 (한국 개봉작 위주)
-      const displayTitle = cached.title;
-      // titleKo 필드가 없을 경우를 대비해 cached.title 사용
-      const yearHint = (tmdb?.releaseDate ?? cached.releaseDate)?.slice(0, 4) ?? null;
-      const kmdb = await searchKmdbMovie(displayTitle, yearHint, { titleEn: cached.titleEn }).catch(() => null);
+      // 기존 필드는 저장돼 있던 TMDB ID가 검증을 통과한 경우에만 믿는다.
+      const trustCached = tmdb !== null && tmdb.tmdbId === cached.tmdbId;
+      const base = trustCached
+        ? cached
+        : { ...cached, overview: null, releaseDate: null, runtimeMinutes: null, genreAlt: null, posterUrl: null, directorName: null, directorKmdbId: null, cast: [] };
 
-      // 3) 감독·출연진 해결
+      const yearHint = (tmdb?.releaseDate ?? base.releaseDate)?.slice(0, 4) ?? null;
+      const kmdb = await searchKmdbMovie(cached.title, yearHint, { titleEn: cached.titleEn }).catch(() => null);
+
       const directorRaw = kmdb?.director ?? null;
       const castRaw = (kmdb?.cast && kmdb.cast.length > 0 ? kmdb.cast : []).slice(0, DISPLAY_CAST_LIMIT);
-      const contextYear = yearHint;
-
       const directorRef = toPersonRef(directorRaw);
       const castRefs = castRaw.map(toPersonRef);
       const [director, cast] = await Promise.all([
-        withResolvedId(directorRef, "감독", contextYear),
-        Promise.all(castRefs.map((m) => withResolvedId(m, "배우", contextYear))),
+        withResolvedId(directorRef, "감독", yearHint),
+        Promise.all(castRefs.map((m) => withResolvedId(m, "배우", yearHint))),
       ]);
       const castForStorage = cast
         .filter((c): c is PersonRef => c !== null)
         .map((c) => ({ name: c.name, kmdbId: c.kmdbId, tmdbId: null }));
 
       const update = {
-        overview: tmdb?.overview ?? kmdb?.overview ?? cached.overview,
-        releaseDate: tmdb?.releaseDate ?? kmdb?.releaseDate ?? cached.releaseDate,
-        runtimeMinutes: tmdb?.runtimeMinutes ?? kmdb?.runtimeMinutes ?? cached.runtimeMinutes,
-        genreAlt: tmdb?.genre ?? kmdb?.genre ?? cached.genreAlt,
-        // tmdbId가 잘못된 것으로 확인됐으면 기존 posterUrl도 오염돼 있으므로 사용하지 않는다.
-        posterUrl: tmdb?.posterUrl ?? (tmdbIdWasWrong ? null : cached.posterUrl),
-        titleEn: tmdb?.originalTitle ?? cached.titleEn,
-        tmdbId: resolvedTmdbId,
-        directorName: director?.name ?? cached.directorName,
-        directorKmdbId: director?.kmdbId ?? cached.directorKmdbId,
-        cast: castForStorage.length > 0 ? castForStorage : (cached.cast ?? []),
+        overview: tmdb?.overview ?? kmdb?.overview ?? base.overview,
+        releaseDate: tmdb?.releaseDate ?? kmdb?.releaseDate ?? base.releaseDate,
+        runtimeMinutes: tmdb?.runtimeMinutes ?? kmdb?.runtimeMinutes ?? base.runtimeMinutes,
+        genreAlt: tmdb?.genre ?? kmdb?.genre ?? base.genreAlt,
+        posterUrl: tmdb?.posterUrl ?? kmdb?.posterUrl ?? base.posterUrl,
+        titleEn: cached.titleEn ?? tmdb?.originalTitle ?? null,
+        tmdbId: tmdb?.tmdbId ?? null,
+        directorName: director?.name ?? base.directorName,
+        directorKmdbId: director?.kmdbId ?? base.directorKmdbId,
+        cast: castForStorage.length > 0 ? castForStorage : (base.cast ?? []),
+        // 올바른 TMDB 영화를 찾았을 때만 검증 완료로 표시 — 못 찾았으면(일시적 오류 포함)
+        // 틀린 정보는 이미 비웠고, 다음 조회 때 다시 시도한다.
+        source: tmdb ? WIKIDATA_VERIFIED : "tmdb",
       };
       await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };

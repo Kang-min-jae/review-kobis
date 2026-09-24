@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { db } from "../../_lib/db";
-import { getCachedMovieMetas } from "../../_lib/movie-rate-info";
+import { getCachedMovieMetas, WIKIDATA_VERIFIED } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres, GENRE_KEYWORDS } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 import {
@@ -12,6 +12,12 @@ import {
 } from "../../_lib/calculateAffinity";
 
 const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
+
+// 수상작 항목(wikidata-*) 중 TMDB 연결 검증 전인 것은 다른 영화의 포스터·장르가 붙어
+// 있을 수 있어 추천 후보에서 뺀다(평점 페이지 조회 시 검증되면 다시 포함된다).
+const EXCLUDE_UNVERIFIED_AWARD = {
+  NOT: { movieCd: { startsWith: "wikidata-" }, source: { not: WIKIDATA_VERIFIED } },
+};
 
 // 동일 입력(평점 데이터)에 대한 반복 요청을 2분간 캐싱 — React StrictMode 이중 호출,
 // 빠른 페이지 재진입 등으로 발생하는 중복 요청을 서버에서 흡수한다.
@@ -301,7 +307,7 @@ async function fetchByGenreDirector(profile: UserProfile, ratedMovieIds: Set<str
   ];
   if (conditions.length === 0) return [];
   const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, OR: conditions },
+    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, OR: conditions },
     orderBy: { updatedAt: "desc" },
     take: 150,
     select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
@@ -316,6 +322,7 @@ async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): P
     SELECT DISTINCT "movieCd", "tmdbId", "title", "posterUrl", "genreAlt", "directorName", "cast"
     FROM "CachedMovie"
     WHERE "posterUrl" IS NOT NULL
+      AND NOT ("movieCd" LIKE 'wikidata-%' AND "source" <> ${WIKIDATA_VERIFIED})
       AND EXISTS (
         SELECT 1
         FROM jsonb_array_elements("cast"::jsonb) AS elem
@@ -345,7 +352,7 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
     .slice(0, 80)
     .map((g) => g.movieCd);
   const byRating = bestCds.length > 0
-    ? (await db.cachedMovie.findMany({ where: { movieCd: { in: bestCds }, posterUrl: { not: null } }, select })).filter(notRated)
+    ? (await db.cachedMovie.findMany({ where: { movieCd: { in: bestCds }, posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD }, select })).filter(notRated)
     : [];
   if (byRating.length >= 20) return byRating.slice(0, 60);
 
@@ -357,7 +364,7 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
     "연기": ["드라마", "멜로/로맨스"],
   };
   const byGenre = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, OR: (genreMap[topCategory] ?? ["드라마"]).map((g) => ({ genreAlt: { contains: g } })) },
+    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, OR: (genreMap[topCategory] ?? ["드라마"]).map((g) => ({ genreAlt: { contains: g } })) },
     orderBy: { updatedAt: "desc" },
     take: 80,
     select,
@@ -370,7 +377,7 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
 async function fetchTrending(ratedMovieIds: Set<string>): Promise<DbMovie[]> {
   const twoYearsAgo = new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, releaseDate: { gte: twoYearsAgo } },
+    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, releaseDate: { gte: twoYearsAgo } },
     orderBy: { updatedAt: "desc" },
     take: 60,
     select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
@@ -555,7 +562,7 @@ async function getCandidates(
   // Cold start: 최신 영화 20편 반환 + 품질 점수 계산
   if (profile.coldStart && !options.keywords) {
     const recent = await db.cachedMovie.findMany({
-      where: { posterUrl: { not: null }, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
+      where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
       orderBy: { updatedAt: "desc" },
       take: 25,
       select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
@@ -737,6 +744,7 @@ async function fetchFallbackCandidates(
   const rows = await db.cachedMovie.findMany({
     where: {
       posterUrl: { not: null },
+      ...EXCLUDE_UNVERIFIED_AWARD,
       ...(keywords ? { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) } : {}),
     },
     orderBy: { updatedAt: "desc" },
