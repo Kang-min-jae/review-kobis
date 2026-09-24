@@ -717,33 +717,72 @@ const GENRE_KEYWORDS: Record<string, string[]> = {
   판타지: ["판타지"],
   미스터리: ["미스터리"],
   다큐멘터리: ["다큐멘터리", "다큐"],
-  뮤지컬: ["뮤지컬"],
+  뮤지컬: ["뮤지컬", "음악"],
 };
 
-// offset/pageSize로 페이지네이션을 지원한다. KOBIS 후보를 150편으로 줄여 응답 크기를
-// 낮추고, 포스터 없는 영화가 걸러지는 걸 감안해 요청 편수보다 넉넉히(2배) 가져온 뒤
-// 슬라이스한다.
-export async function getGenreRow(
+// 장르 탭 행. 예전엔 KOBIS 최근 3년 개봉작 150편만 장르로 걸러 외부 API로 포스터를
+// 받아왔는데, 편수가 적은 장르(공포 등)는 거의 걸리지 않았고 매번 외부 조회를 기다리다
+// 실패하면 행 자체가 사라졌다. 이제 이미 캐시된 영화(포스터·장르가 있는 CachedMovie)를
+// 최신 개봉순으로 먼저 채우고, 모자랄 때만 KOBIS 카탈로그로 보충한다(외부 조회 없음).
+const genreRowSelect = { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true } as const;
+
+async function _getGenreRow(
   genreLabel: string,
   offset = 0,
   pageSize = 20
 ): Promise<RowMovie[]> {
   const keywords = GENRE_KEYWORDS[genreLabel];
   if (!keywords) return [];
+  const want = offset + pageSize;
+  const today = isoDate(new Date());
 
-  const threeYearsAgo = new Date();
-  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-  const candidates = await fetchOpenedBetween(isoDate(threeYearsAgo), isoDate(new Date()), 150);
+  const cached = await db.cachedMovie.findMany({
+    where: {
+      posterUrl: { not: null },
+      NOT: { movieCd: { startsWith: "wikidata-" } }, // 수상작 전용 사본 — KOBIS 영화와 중복된다
+      AND: [
+        { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
+        { OR: [{ releaseDate: null }, { releaseDate: { lte: today } }] },
+      ],
+    },
+    orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
+    take: want,
+    select: genreRowSelect,
+  });
+  const rows: RowMovie[] = cached.map((m) => ({
+    id: /^\d+$/.test(m.movieCd) ? `kobis-${m.movieCd}` : m.movieCd,
+    title: m.title,
+    posterUrl: formatPosterUrl(m.posterUrl),
+    gradient: FALLBACK_GRADIENT,
+    isNowShowing: isRecentlyOpened(m.releaseDate),
+    releaseDate: m.releaseDate,
+    ...genreFields(m.genreAlt),
+  }));
 
-  const matched = candidates.filter((movie) =>
-    keywords.some((kw) => movie.genreAlt?.includes(kw))
-  );
+  if (rows.length < want) {
+    const seen = new Set(cached.map((m) => m.movieCd));
+    const threeYearsAgo = new Date();
+    threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+    const candidates = await fetchOpenedBetween(isoDate(threeYearsAgo), today, 150).catch(() => [] as KobisMovieSummary[]);
+    const extra = candidates
+      .filter((m) => !seen.has(m.movieCd) && keywords.some((kw) => m.genreAlt?.includes(kw)))
+      .slice(0, want - rows.length);
+    const metas = await getCachedMovieMetas(extra.map((m) => m.movieCd));
+    rows.push(...extra.map((m) => summaryToRowMovie(m, metas.get(m.movieCd) ?? null)));
+  }
 
-  // 포스터 없는 영화가 toRowMovies에서 빠지는 만큼 부족해지지 않도록 넉넉히 뽑아둔다.
-  const fetchBuf = pageSize * 2;
-  const rows = await toRowMovies(matched.slice(offset, offset + fetchBuf));
-  return rows.slice(0, pageSize);
+  const page = rows.slice(offset, offset + pageSize);
+  const avgMap = await getBulkMovieRatingAverages(page.map((r) => r.id.replace(/^kobis-/, "")));
+  return page.map((r) => {
+    const avgs = avgMap.get(r.id.replace(/^kobis-/, ""));
+    return { ...r, shortAvg: avgs?.shortAvg ?? null, longAvg: avgs?.longAvg ?? null };
+  });
 }
+export const getGenreRow = unstable_cache(
+  _getGenreRow,
+  ["genre-row-v2"],
+  { revalidate: 60 * 60, tags: ["movie-rows"] },
+);
 
 // 사용자 인기영화: 이 사이트에서 평점을 가장 많이 받은 영화 순서로 최대 limit편을 반환한다.
 // genreFilter가 있으면 그 장르에 속하는 영화만 남긴다 — 각 장르 섹션에서 "이 장르 내 인기"를
