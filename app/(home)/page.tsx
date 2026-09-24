@@ -1,18 +1,12 @@
 import { Suspense } from "react";
-import SiteHeader from "./_components/SiteHeader";
-import {
-  tabCategories,
-  genreLabels,
-  type TabCategory,
-  type GenreLabel,
-} from "./_components/CategoryNav";
-import MovieRow from "./_components/MovieRow";
-import GenreMovieRow from "./_components/GenreMovieRow";
-import BoxOfficeCoverflow from "./_components/BoxOfficeCoverflow";
-import RatingSortedMovieRow from "./_components/RatingSortedMovieRow";
-import RecommendedSection from "./_components/RecommendedSection";
-import RecommendedSeriesSection from "./_components/RecommendedSeriesSection";
-import AwardWinnersSection, { type AwardTab } from "./_components/AwardWinnersSection";
+import { resolveCategory, resolveGenre, type GenreLabel } from "../_components/CategoryNav";
+import MovieRow from "../_components/MovieRow";
+import GenreMovieRow from "../_components/GenreMovieRow";
+import BoxOfficeCoverflow from "../_components/BoxOfficeCoverflow";
+import RatingSortedMovieRow from "../_components/RatingSortedMovieRow";
+import RecommendedSection from "../_components/RecommendedSection";
+import RecommendedSeriesSection from "../_components/RecommendedSeriesSection";
+import AwardWinnersSection, { type AwardTab } from "../_components/AwardWinnersSection";
 import {
   getNowShowingRow,
   getRereleaseRow,
@@ -26,27 +20,18 @@ import {
   getWeeklyBoxOfficeRow,
   getGenreRow,
   getUserPopularMoviesRow,
-} from "./_lib/movie-rows";
+} from "../_lib/movie-rows";
 import {
   getLatestAcademyWinnerRows,
   getLatestCannesWinnerRows,
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
-} from "./_lib/award-winners";
-import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "./_lib/series-rows";
-import SeriesKeywordSearch from "./_components/SeriesKeywordSearch";
-import CoverflowCarousel from "./_components/CoverflowCarousel";
-import RowSkeleton from "./_components/RowSkeleton";
+} from "../_lib/award-winners";
+import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "../_lib/series-rows";
+import SeriesKeywordSearch from "../_components/SeriesKeywordSearch";
+import CoverflowCarousel from "../_components/CoverflowCarousel";
+import RowSkeleton from "../_components/RowSkeleton";
 
-function resolveCategory(value: string | undefined): TabCategory {
-  return (tabCategories as readonly string[]).includes(value ?? "")
-    ? (value as TabCategory)
-    : "영화";
-}
-
-function resolveGenre(value: string | undefined): GenreLabel {
-  return (genreLabels as readonly string[]).includes(value ?? "") ? (value as GenreLabel) : "전체";
-}
 
 // 행 하나의 데이터 조회가 throw하면 Suspense는 잡지 못하고 app/error.tsx까지 올라가
 // 홈 화면 전체가 "오류"로 바뀐다. 실패한 행만 빈 배열로 숨기고 나머지는 그대로 보여준다.
@@ -338,8 +323,6 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <main>
-      <SiteHeader active={category} activeGenre={genre} />
-
       {category === "현재 상영중인 영화" && <NowShowingSection />}
 
       {category === "영화" && genre === "전체" && <MovieCategorySection />}

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db } from "../../_lib/db";
 import { getCachedMovieMetas } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres } from "../../_lib/movie-rows";
@@ -18,6 +18,12 @@ const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 const recServerCache = new Map<string, { data: { results: RowMovie[] }; expiresAt: number }>();
 const REC_CACHE_TTL = 2 * 60 * 1000; // 2분
 const REC_CACHE_MAX = 200;
+
+// LLM 리랭킹은 보통 수 초가 걸려 요청 안에서 기다리면(예전엔 400ms 상한) 응답만
+// 늦어지고 결과는 거의 매번 버려졌다. 응답을 먼저 보내고 after()에서 LLM을 돌려
+// 결과를 캐시해 두면, 같은 입력의 다음 요청부터 LLM 순위·추천 이유가 반영된다.
+const llmCache = new Map<string, { results: LlmResult; expiresAt: number }>();
+const LLM_CACHE_TTL = 30 * 60 * 1000;
 
 function hashBody(ratings: { movieId: string; rating: number }[], catRatings: { movieId: string; category: string; value: number }[]): string {
   const rStr = ratings.map((r) => `${r.movieId}:${r.rating}`).sort().join(",");
@@ -727,12 +733,22 @@ export async function POST(request: Request) {
   }
 
   const movieCds = candidates.map((c) => c.movieCd);
-  const llmTimeout = new Promise<LlmResult>((resolve) => setTimeout(() => resolve([]), 400));
-  const [llmResults, metas] = await Promise.all([
-    Promise.race([callLlm(profile, candidates), llmTimeout]).catch(() => [] as LlmResult),
-    // 후보는 전부 cachedMovie에서 뽑혔으므로 외부 API 재조회 없이 DB만 읽는다.
-    getCachedMovieMetas(movieCds),
-  ]);
+  const cachedLlm = llmCache.get(cacheKey);
+  const llmResults = cachedLlm && cachedLlm.expiresAt > Date.now() ? cachedLlm.results : [];
+  if (llmResults.length === 0) {
+    after(async () => {
+      const results = await callLlm(profile, candidates).catch(() => [] as LlmResult);
+      if (results.length === 0) return;
+      if (llmCache.size >= REC_CACHE_MAX) {
+        const oldestKey = llmCache.keys().next().value;
+        if (oldestKey !== undefined) llmCache.delete(oldestKey);
+      }
+      llmCache.set(cacheKey, { results, expiresAt: Date.now() + LLM_CACHE_TTL });
+      recServerCache.delete(cacheKey); // 다음 요청이 LLM 결과로 다시 계산되도록
+    });
+  }
+  // 후보는 전부 cachedMovie에서 뽑혔으므로 외부 API 재조회 없이 DB만 읽는다.
+  const metas = await getCachedMovieMetas(movieCds);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
   const final = blendAndMMR(candidates, llmMap, 10);

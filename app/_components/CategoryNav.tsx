@@ -27,6 +27,14 @@ export const genreLabels = [
 ] as const;
 export type GenreLabel = (typeof genreLabels)[number];
 
+export function resolveCategory(value: string | null | undefined): TabCategory {
+  return (tabCategories as readonly string[]).includes(value ?? "") ? (value as TabCategory) : "영화";
+}
+
+export function resolveGenre(value: string | null | undefined): GenreLabel {
+  return (genreLabels as readonly string[]).includes(value ?? "") ? (value as GenreLabel) : "전체";
+}
+
 export default function CategoryNav({
   active,
   activeGenre = "전체",

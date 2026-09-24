@@ -31,14 +31,27 @@ function buildRatingsPayload() {
   return { myRatings, myCategoryRatings };
 }
 
+// 홈으로 다시 돌아올 때마다 같은 평점으로 추천을 다시 요청하지 않도록, 같은 입력의
+// 성공 결과를 잠시 재사용한다(평점이 바뀌면 요청 본문이 달라져 새로 받는다).
+const CLIENT_REC_TTL_MS = 5 * 60 * 1000;
+let lastMovieRec: { body: string; results: RowMovie[]; at: number } | null = null;
+
 function fetchRecommendations(myRatings: ReturnType<typeof buildRatingsPayload>["myRatings"], myCategoryRatings: ReturnType<typeof buildRatingsPayload>["myCategoryRatings"]): Promise<RowMovie[]> {
+  const body = JSON.stringify({ myRatings, myCategoryRatings });
+  if (lastMovieRec && lastMovieRec.body === body && Date.now() - lastMovieRec.at < CLIENT_REC_TTL_MS) {
+    return Promise.resolve(lastMovieRec.results);
+  }
   inFlightMovieRec = fetch("/api/recommendations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ myRatings, myCategoryRatings }),
+    body,
   })
     .then((res) => res.json())
-    .then((data: { results?: RowMovie[] }) => data.results ?? [])
+    .then((data: { results?: RowMovie[] }) => {
+      const results = data.results ?? [];
+      lastMovieRec = { body, results, at: Date.now() };
+      return results;
+    })
     .catch(() => [] as RowMovie[])
     .finally(() => { inFlightMovieRec = null; });
   return inFlightMovieRec!;

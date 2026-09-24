@@ -8,6 +8,9 @@ import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
 let inFlightSeriesRec: Promise<RowMovie[]> | null = null;
+// 홈으로 다시 돌아올 때 같은 평점이면 직전 추천을 잠시 재사용한다.
+const CLIENT_REC_TTL_MS = 5 * 60 * 1000;
+let lastSeriesRec: { body: string; results: RowMovie[]; at: number } | null = null;
 
 export default function RecommendedSeriesSection() {
   const [series, setSeries] = useState<RowMovie[] | null>(null);
@@ -22,19 +25,27 @@ export default function RecommendedSeriesSection() {
       ratedAt: r.ratedAt,
     }));
 
-    if (!inFlightSeriesRec) {
+    const body = JSON.stringify({ myRatings, myCategoryRatings: [] });
+    const cached = lastSeriesRec && lastSeriesRec.body === body && Date.now() - lastSeriesRec.at < CLIENT_REC_TTL_MS
+      ? Promise.resolve(lastSeriesRec.results)
+      : null;
+    if (!cached && !inFlightSeriesRec) {
       inFlightSeriesRec = fetch("/api/recommendations/series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ myRatings, myCategoryRatings: [] }),
+        body,
       })
         .then((res) => res.json())
-        .then((data: { results?: RowMovie[] }) => data.results ?? [])
+        .then((data: { results?: RowMovie[] }) => {
+          const results = data.results ?? [];
+          lastSeriesRec = { body, results, at: Date.now() };
+          return results;
+        })
         .catch(() => [] as RowMovie[])
         .finally(() => { inFlightSeriesRec = null; });
     }
 
-    inFlightSeriesRec.then((results) => {
+    (cached ?? inFlightSeriesRec)?.then((results) => {
       if (mounted.current) {
         if (results.length > 0) registerMovieIds(results.map((m) => m.id));
         setSeries(results);
