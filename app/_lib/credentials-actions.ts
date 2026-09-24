@@ -1,6 +1,6 @@
 "use server";
 
-import { randomInt } from "node:crypto";
+import { randomInt, timingSafeEqual } from "node:crypto";
 import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { Prisma } from "../generated/prisma/client";
@@ -10,6 +10,16 @@ import { sendPasswordResetCodeEmail } from "./mailer";
 
 const MIN_PASSWORD_LENGTH = 8;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10분
+// 6자리 코드(90만 가지)는 시도 제한이 없으면 10분 안에 자동화로 맞출 수 있다. 틀릴 때마다
+// 만료 시각을 이만큼 당겨서, 코드 하나당 최대 5번까지만 시도할 수 있게 한다.
+const RESET_MAX_ATTEMPTS = 5;
+const ATTEMPT_PENALTY_MS = OTP_TTL_MS / RESET_MAX_ATTEMPTS;
+
+function codesMatch(expected: string, actual: string): boolean {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(actual);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 // 레이트 리미터 — 이메일당 1분에 최대 3회 (단일 인스턴스).
 const RESET_RATE_WINDOW_MS = 60 * 1000;
@@ -151,13 +161,20 @@ export async function resetPasswordWithCodeAction(
     return { error: `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상이어야 해요.` };
   }
 
-  const record = await db.passwordResetCode.findFirst({ where: { email, code } });
-  if (!record) return { error: "인증 코드가 올바르지 않아요." };
-
-  if (new Date() > record.expiresAt) {
-    await db.passwordResetCode.delete({ where: { id: record.id } });
-    return { error: "인증 코드가 만료됐어요. 다시 요청해 주세요." };
+  const record = await db.passwordResetCode.findFirst({ where: { email }, orderBy: { createdAt: "desc" } });
+  if (!record || new Date() >= record.expiresAt) {
+    if (record) await db.passwordResetCode.deleteMany({ where: { id: record.id } });
+    return { error: "인증 코드가 만료됐거나 올바르지 않아요. 다시 요청해 주세요." };
   }
+
+  // 비교 전에 시도 1회를 원자적으로 차감한다(만료 시각 당기기). 같은 만료 시각을 본
+  // 동시 요청 중 하나만 성공하므로, 요청을 병렬로 쏟아부어 여러 번 맞춰보는 것도 막힌다.
+  const claimed = await db.passwordResetCode.updateMany({
+    where: { id: record.id, expiresAt: record.expiresAt },
+    data: { expiresAt: new Date(record.expiresAt.getTime() - ATTEMPT_PENALTY_MS) },
+  });
+  if (claimed.count === 0) return { error: "잠시 후 다시 시도해 주세요." };
+  if (!codesMatch(record.code, code)) return { error: "인증 코드가 올바르지 않아요." };
 
   const passwordHash = await hash(password, 10);
   await db.$transaction([
