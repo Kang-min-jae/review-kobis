@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import RowSkeleton from "./RowSkeleton";
-import { subscribe as subscribeReviews, getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
-import { RATING_CATEGORIES, getMyCategoryRating } from "../_lib/category-ratings-store";
+import { subscribe as subscribeReviews, getMyMovieRatingsSnapshot, getMyReviewsSnapshot } from "../_lib/reviews-store";
 import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
 
@@ -18,16 +17,19 @@ function buildRatingsPayload() {
     rating: r.rating,
     ratedAt: r.ratedAt,
   }));
-  const myCategoryRatings: { movieId: string; category: string; value: number }[] = [];
-  for (const r of myRatings) {
-    for (const cat of RATING_CATEGORIES) {
-      if (cat === "전체") continue;
-      const value = getMyCategoryRating(r.movieId, cat);
-      if (value !== null) {
-        myCategoryRatings.push({ movieId: r.movieId, category: cat, value });
-      }
-    }
+  // 항목별(연출·연기·각본·음악·편집) 평점은 항목 리뷰로 저장된다 — 한줄평 점수(0~10)를
+  // 우선 쓰고, 장문평만 있으면 0~100을 0~10으로 환산한다.
+  const byKey = new Map<string, { movieId: string; category: string; value: number; short: boolean }>();
+  for (const r of getMyReviewsSnapshot()) {
+    const category = r.category ?? "전체";
+    if (category === "전체") continue;
+    const key = `${r.movieId}|${category}`;
+    const short = r.type === "short";
+    const prev = byKey.get(key);
+    if (prev?.short && !short) continue;
+    byKey.set(key, { movieId: r.movieId, category, value: short ? r.rating : r.rating / 10, short });
   }
+  const myCategoryRatings = [...byKey.values()].map(({ movieId, category, value }) => ({ movieId, category, value }));
   return { myRatings, myCategoryRatings };
 }
 

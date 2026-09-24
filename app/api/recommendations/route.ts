@@ -61,7 +61,8 @@ type UserProfile = {
   topActors: string[];
   avoidedGenres: string[];
   avoidedDirectors: string[];
-  categoryWeights: Record<string, number>; // 0-1, 카테고리별 사용자 선호 강도
+  // 항목별 선호 비중(합계 1). 자주 평가하는 항목일수록, 내 평균보다 높게 주는 항목일수록 크다.
+  categoryWeights: Record<string, number>;
   coldStart: boolean;
   // 코사인 유사도용 가중치 벡터 (긍정/부정 분리)
   genreVec: Record<string, number>;
@@ -94,8 +95,8 @@ type CandidateMovie = {
   // 사이트 리뷰 집계 (Bayesian 품질 점수 + 항목별 친화도용)
   reviewAvg: number | null;
   reviewCount: number;
-  categoryRatings: Record<string, number>; // category → avg rating (0-10), 5건 이상 집계된 항목만
-  categoryDataCount: number;               // 5건 이상 집계된 항목 수
+  // 다른 사용자들이 남긴 항목별 평점 집계 (연출·연기·각본·음악·편집)
+  categoryStats: Record<string, { avg: number; count: number }>;
 };
 
 type LlmResult = { movieCd: string; score: number; reason: string }[];
@@ -111,6 +112,52 @@ function getTemporalWeight(rating: number, ratedAt: string, totalCount: number):
   const halfLifeDays = totalCount < 10 ? 180 : totalCount < 30 ? 120 : 90;
   const timeWeight = Math.pow(0.5, daysDiff / halfLifeDays);
   return (rating - 5) * timeWeight; // -5~+5 범위
+}
+
+// ─────────────────────────────────────────────────────
+// 1-b. 항목별 선호 비중
+// ─────────────────────────────────────────────────────
+
+const CATEGORY_KEYS = ["연출", "연기", "각본", "음악", "편집"];
+
+// 사용자가 어떤 항목을 중시하는지 — 두 신호를 곱해 비중(합계 1)으로 만든다.
+//  · 빈도: 그 항목에 평점을 얼마나 자주 남겼나 (연출에 유독 많이 남김 → 연출 비중↑)
+//  · 상대 점수: 그 항목에 준 평균이 내 항목 평균보다 얼마나 높은가
+//    (음악을 다른 항목보다 높게 줌 → 음악 비중↑, 1점 높을 때마다 ×1.2, 0.5~1.5배로 제한)
+// "전체" 평점을 높게(7점 이상) 준 영화에서 남긴 항목 점수는 취향을 더 잘 드러내므로
+// 그렇지 않은 영화의 항목 점수보다 2배로 반영한다.
+function buildCategoryWeights(
+  ratings: IncomingRating[],
+  categoryRatings: IncomingCategoryRating[],
+): Record<string, number> {
+  const overallByMovie = new Map(ratings.map((r) => [r.movieId, r.rating]));
+  const agg = new Map<string, { weightedSum: number; weight: number }>();
+  let totalSum = 0;
+  let totalWeight = 0;
+  for (const cr of categoryRatings) {
+    if (!CATEGORY_KEYS.includes(cr.category)) continue;
+    const overall = overallByMovie.get(cr.movieId);
+    const w = overall === undefined || overall >= 7 ? 1 : 0.5;
+    const entry = agg.get(cr.category) ?? { weightedSum: 0, weight: 0 };
+    entry.weightedSum += cr.value * w;
+    entry.weight += w;
+    agg.set(cr.category, entry);
+    totalSum += cr.value * w;
+    totalWeight += w;
+  }
+  if (totalWeight === 0) return {};
+
+  const userMean = totalSum / totalWeight;
+  const raw: Record<string, number> = {};
+  let rawSum = 0;
+  for (const [cat, { weightedSum, weight }] of agg) {
+    const share = weight / totalWeight;
+    const relative = weightedSum / weight - userMean;
+    const emphasis = Math.min(1.5, Math.max(0.5, 1 + relative * 0.2));
+    raw[cat] = share * emphasis;
+    rawSum += raw[cat];
+  }
+  return Object.fromEntries(Object.entries(raw).map(([cat, v]) => [cat, v / rawSum]));
 }
 
 // ─────────────────────────────────────────────────────
@@ -206,18 +253,7 @@ async function buildUserProfile(
   const topActors = Object.entries(actorVec)
     .filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a]) => a);
 
-  const catSum = new Map<string, { sum: number; count: number }>();
-  for (const cr of categoryRatings) {
-    if (cr.category === "전체") continue;
-    const entry = catSum.get(cr.category) ?? { sum: 0, count: 0 };
-    entry.sum += cr.value;
-    entry.count += 1;
-    catSum.set(cr.category, entry);
-  }
-  const categoryWeights: Record<string, number> = {};
-  for (const [cat, { sum, count }] of catSum) {
-    categoryWeights[cat] = sum / count / 10; // 0-1 정규화
-  }
+  const categoryWeights = buildCategoryWeights(ratings, categoryRatings);
 
   return {
     profile: {
@@ -250,8 +286,7 @@ function toCandidate(m: DbMovie, score: number): CandidateMovie {
     totalScore: score,
     reviewAvg: null,
     reviewCount: 0,
-    categoryRatings: {},
-    categoryDataCount: 0,
+    categoryStats: {},
   };
 }
 
@@ -288,11 +323,28 @@ async function fetchByActors(topActors: string[], ratedMovieIds: Set<string>): P
   return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 60);
 }
 
-// Channel 2: 항목별 선호 특화
+// Channel 2: 항목별 선호 특화 — 내가 가장 중시하는 항목에서 다른 사용자들이 높게 평가한
+// 영화를 후보로 가져온다. 그 항목 평점이 아직 적으면 항목에 어울리는 장르로 보충한다.
 async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>): Promise<DbMovie[]> {
-  const cw = profile.categoryWeights;
-  const maxEntry = Object.entries(cw).sort((a, b) => b[1] - a[1])[0];
-  if (!maxEntry || maxEntry[1] < 0.5) return [];
+  const topCategory = Object.entries(profile.categoryWeights).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!topCategory) return [];
+  const select = { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true } as const;
+  const notRated = (m: DbMovie) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`);
+
+  const groups = await db.categoryRating.groupBy({
+    by: ["movieCd"],
+    where: { category: topCategory },
+    _avg: { score: true },
+  });
+  const bestCds = groups
+    .filter((g) => g._avg.score !== null && g._avg.score >= 7)
+    .sort((a, b) => (b._avg.score ?? 0) - (a._avg.score ?? 0))
+    .slice(0, 80)
+    .map((g) => g.movieCd);
+  const byRating = bestCds.length > 0
+    ? (await db.cachedMovie.findMany({ where: { movieCd: { in: bestCds }, posterUrl: { not: null } }, select })).filter(notRated)
+    : [];
+  if (byRating.length >= 20) return byRating.slice(0, 60);
 
   const genreMap: Record<string, string[]> = {
     "연출": ["드라마", "스릴러", "SF", "범죄"],
@@ -301,15 +353,14 @@ async function fetchByCategory(profile: UserProfile, ratedMovieIds: Set<string>)
     "음악": ["뮤지컬", "애니메이션"],
     "연기": ["드라마", "멜로/로맨스"],
   };
-  const targetGenres = genreMap[maxEntry[0]] ?? ["드라마"];
-
-  const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, OR: targetGenres.map((g) => ({ genreAlt: { contains: g } })) },
+  const byGenre = await db.cachedMovie.findMany({
+    where: { posterUrl: { not: null }, OR: (genreMap[topCategory] ?? ["드라마"]).map((g) => ({ genreAlt: { contains: g } })) },
     orderBy: { updatedAt: "desc" },
     take: 80,
-    select: { movieCd: true, tmdbId: true, title: true, posterUrl: true, genreAlt: true, directorName: true, cast: true },
+    select,
   });
-  return rows.filter((m) => !ratedMovieIds.has(`kobis-${m.movieCd}`) && !ratedMovieIds.has(`tmdb-${m.tmdbId}`)).slice(0, 60);
+  const seen = new Set(byRating.map((m) => m.movieCd));
+  return [...byRating, ...byGenre.filter((m) => notRated(m) && !seen.has(m.movieCd))].slice(0, 60);
 }
 
 // Channel 3: 최근 2년 최신작
@@ -331,37 +382,45 @@ async function fetchTrending(ratedMovieIds: Set<string>): Promise<DbMovie[]> {
 type ReviewAggEntry = {
   reviewAvg: number | null;
   reviewCount: number;
-  categoryRatings: Record<string, number>;
-  categoryDataCount: number;
+  categoryStats: Record<string, { avg: number; count: number }>;
 };
 
 async function fetchCandidateReviews(movieCds: string[]): Promise<Map<string, ReviewAggEntry>> {
   if (movieCds.length === 0) return new Map();
 
-  const groups = await db.review.groupBy({
-    by: ["movieCd", "category"],
-    where: { movieCd: { in: movieCds }, type: "SHORT" },
-    _avg: { rating: true },
-    _count: { _all: true },
-  });
+  const [groups, categoryGroups] = await Promise.all([
+    db.review.groupBy({
+      by: ["movieCd"],
+      where: { movieCd: { in: movieCds }, type: "SHORT", category: "전체" },
+      _avg: { rating: true },
+      _count: { _all: true },
+    }),
+    // 항목 점수는 한줄평·장문평 모두 동기화되는 CategoryRating에서 집계한다.
+    db.categoryRating.groupBy({
+      by: ["movieCd", "category"],
+      where: { movieCd: { in: movieCds }, category: { in: CATEGORY_KEYS } },
+      _avg: { score: true },
+      _count: { _all: true },
+    }),
+  ]);
 
   const result = new Map<string, ReviewAggEntry>();
+  const entryFor = (movieCd: string) => {
+    let entry = result.get(movieCd);
+    if (!entry) {
+      entry = { reviewAvg: null, reviewCount: 0, categoryStats: {} };
+      result.set(movieCd, entry);
+    }
+    return entry;
+  };
   for (const g of groups) {
-    if (!result.has(g.movieCd)) {
-      result.set(g.movieCd, { reviewAvg: null, reviewCount: 0, categoryRatings: {}, categoryDataCount: 0 });
-    }
-    const entry = result.get(g.movieCd)!;
-    if (g.category === "전체") {
-      entry.reviewAvg = g._avg.rating;
-      entry.reviewCount = g._count._all;
-    } else if (g._count._all >= 5 && g._avg.rating !== null) {
-      // 항목별 집계는 5건 이상 확보된 것만 신뢰
-      entry.categoryRatings[g.category] = g._avg.rating;
-    }
+    const entry = entryFor(g.movieCd);
+    entry.reviewAvg = g._avg.rating;
+    entry.reviewCount = g._count._all;
   }
-  // 신뢰 가능한 항목 수 집계
-  for (const entry of result.values()) {
-    entry.categoryDataCount = Object.keys(entry.categoryRatings).length;
+  for (const g of categoryGroups) {
+    if (g._avg.score === null) continue;
+    entryFor(g.movieCd).categoryStats[g.category] = { avg: g._avg.score, count: g._count._all };
   }
   return result;
 }
@@ -404,19 +463,32 @@ function bayesianQualityScore(movie: CandidateMovie, catalogMean: number): numbe
   return ((v / (v + m)) * R + (m / (v + m)) * C) / 10;
 }
 
-// 항목별 친화도 점수 — 사용자가 중시하는 항목에서 해당 영화가 좋은 평가를 받을수록 높아짐.
-// 모든 카테고리에서 5건 이상 집계된 데이터가 없으면 null(점수 제외) 반환.
-function calculateCategoryMatchScore(
+// 항목 궁합 보정 — 영화의 항목별 평점에서 "그 영화 안에서 상대적으로 강한 항목"을 찾고,
+// 그 항목을 내가 중시할수록 점수를 조금 올린다(약한 항목이면 조금 내린다).
+//  · 상대 강점 = 항목 평균 − 그 영화의 항목 평균 전체 (점 단위, 보통 -2~+2)
+//    평가가 적은 항목은 영화 평균 쪽으로 끌어당겨(K건 가상 평가) 1~2명 평가에 휘둘리지 않게 한다.
+//  · 보정 = Σ(내 항목 비중 × 상대 강점) / 2 → -1~1로 자른 뒤 × CATEGORY_BOOST_MAX
+// 두 개 이상 항목에 평가가 있어야 "다른 항목보다 높다"를 판단할 수 있다.
+const CATEGORY_BOOST_MAX = 0.1;
+const CATEGORY_SHRINK_K = 3;
+
+function calculateCategoryBoost(
   userCategoryWeights: Record<string, number>,
-  movie: CandidateMovie
-): number | null {
-  if (movie.categoryDataCount < 5) return null;
-  const categories = ["연출", "연기", "각본", "음악", "편집"];
-  let score = 0;
-  for (const cat of categories) {
-    score += (userCategoryWeights[cat] ?? 0.2) * ((movie.categoryRatings[cat] ?? 7.0) / 10);
+  movie: CandidateMovie,
+): number {
+  const stats = Object.values(movie.categoryStats);
+  if (Object.keys(userCategoryWeights).length === 0 || stats.length < 2) return 0;
+  const totalCount = stats.reduce((sum, s) => sum + s.count, 0);
+  const movieMean = stats.reduce((sum, s) => sum + s.avg * s.count, 0) / totalCount;
+
+  let affinity = 0;
+  for (const [cat, weight] of Object.entries(userCategoryWeights)) {
+    const s = movie.categoryStats[cat];
+    if (!s) continue;
+    const shrunk = (s.count * s.avg + CATEGORY_SHRINK_K * movieMean) / (s.count + CATEGORY_SHRINK_K);
+    affinity += weight * (shrunk - movieMean);
   }
-  return score / categories.length; // 0-1 정규화
+  return Math.max(-1, Math.min(1, affinity / 2)) * CATEGORY_BOOST_MAX;
 }
 
 // 최종 후보 점수 계산
@@ -445,15 +517,10 @@ function calculateFinalScore(
   // 베이지안 품질 점수
   const qualityScore = bayesianQualityScore(movie, catalogMean);
 
-  // 항목별 친화도 점수 (데이터 부족 시 null → 가중치 재분배)
-  const categoryScore = calculateCategoryMatchScore(profile.categoryWeights, movie);
+  // 항목 궁합 보정 (±CATEGORY_BOOST_MAX)
+  const categoryBoost = calculateCategoryBoost(profile.categoryWeights, movie);
 
-  let totalScore: number;
-  if (categoryScore === null) {
-    totalScore = 0.55 * userSimScore + 0.45 * qualityScore;
-  } else {
-    totalScore = 0.40 * userSimScore + 0.30 * categoryScore + 0.30 * qualityScore;
-  }
+  const totalScore = 0.55 * userSimScore + 0.45 * qualityScore + categoryBoost;
 
   // 평점 페널티: 플랫폼 리뷰 평균이 낮으면 취향 유사도가 높아도 최종 점수를 끌어내린다.
   const ratingFactor = getRatingPenaltyFactor(movie.reviewAvg, movie.reviewCount);
@@ -532,8 +599,7 @@ async function getCandidates(profile: UserProfile, ratedMovieIds: Set<string>): 
     if (rev) {
       candidate.reviewAvg = rev.reviewAvg;
       candidate.reviewCount = rev.reviewCount;
-      candidate.categoryRatings = rev.categoryRatings;
-      candidate.categoryDataCount = rev.categoryDataCount;
+      candidate.categoryStats = rev.categoryStats;
     }
     candidate.totalScore = calculateFinalScore(candidate, profile, catalogMean);
     return candidate;
@@ -562,7 +628,8 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
   if (!apiKey) return [];
 
   const categoryDesc = Object.entries(profile.categoryWeights)
-    .map(([cat, w]) => `${cat}: ${w >= 0.7 ? "매우 중시" : w >= 0.5 ? "중시" : "비중 낮음"}`)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, w]) => `${cat} ${Math.round(w * 100)}%`)
     .join(", ");
 
   const profileSummary = {
@@ -583,8 +650,8 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
     quantScore: Math.round(c.totalScore * 100),
     averageRating: c.reviewAvg !== null ? Math.round(c.reviewAvg * 10) / 10 : null,
     reviewCount: c.reviewCount,
-    categoryRatings: Object.keys(c.categoryRatings).length > 0
-      ? Object.fromEntries(Object.entries(c.categoryRatings).map(([k, v]) => [k, Math.round(v * 10) / 10]))
+    categoryRatings: Object.keys(c.categoryStats).length > 0
+      ? Object.fromEntries(Object.entries(c.categoryStats).map(([k, v]) => [k, Math.round(v.avg * 10) / 10]))
       : null,
   }));
 
@@ -593,7 +660,7 @@ async function callLlm(profile: UserProfile, candidates: CandidateMovie[]): Prom
 
 [Scoring Rules]
 1. Absolute Quality Rule: averageRating이 8.5 이상이고 reviewCount가 20 이상인 검증된 명작은 최종 score가 75 미만으로 떨어지지 않아야 한다. reviewCount가 20 미만이면 소표본이므로 예외로 하고 quantScore를 그대로 신뢰하라.
-2. Category Rating Weight Rule: 사용자의 항목별 선호도(categoryWeights)를 반영해, 해당 항목 평점이 높은 영화에 가점을 주라. categoryRatings가 null인 영화는 이 규칙을 건너뛰라.
+2. Category Rating Weight Rule: 사용자의 항목별 선호 비중(항목별선호도, %)이 큰 항목에서 그 영화의 다른 항목보다 상대적으로 평점이 높은 영화에 가점을 주라. categoryRatings가 null인 영화는 이 규칙을 건너뛰라.
 3. Negative Signal Rule: 사용자의 기피 감독/기피 장르와 겹치는 후보는 감점하라.
 4. Reason Rule: 추천 이유(20~40자)에 사용자가 중시하는 항목을 자연스럽게 언급하라.
 5. 근거 없이 quantScore 순위를 크게 뒤집지 말 것.
