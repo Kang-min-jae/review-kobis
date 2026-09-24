@@ -614,14 +614,21 @@ async function getRatingSortedMovies(
   const kobisPool = await fetchOpenedBetween(
     openDateGte, openDateLte,
     needed * 4 + ratedCdSet.size, // 평점 있는 영화를 걸러낸 뒤에도 needed개 이상 남도록 넉넉히
-  );
+  ).catch(() => [] as KobisMovieSummary[]);
   const kobisUnrated = kobisPool.filter((m) => !ratingMap.has(m.movieCd));
   const kobisRows = await toRowMovies(kobisUnrated.slice(0, needed * 2));
-  // DB 콜드 스타트 등으로 toRowMovies가 빈 배열이면 그라디언트 카드로 폴백
-  const fillRows = kobisRows.length > 0
-    ? kobisRows.slice(0, needed)
-    : kobisUnrated.slice(0, needed).map((s) => summaryToRowMovie(s, null));
-  return [...ratedRows, ...fillRows];
+
+  if (kobisRows.length > 0) return [...ratedRows, ...kobisRows.slice(0, needed)];
+
+  // 그라디언트 카드로 폴백 — 날짜 필터 없이 최신 KOBIS 카탈로그 재시도
+  if (kobisUnrated.length > 0) {
+    return [...ratedRows, ...kobisUnrated.slice(0, needed).map((s) => summaryToRowMovie(s, null))];
+  }
+  const globalPool = await searchMovieCatalog({}, needed * 2).catch(() => [] as KobisMovieSummary[]);
+  const globalFiltered = globalPool.filter((m) => !ratingMap.has(m.movieCd));
+  const globalRows = await toRowMovies(globalFiltered.slice(0, needed * 2));
+  if (globalRows.length > 0) return [...ratedRows, ...globalRows.slice(0, needed)];
+  return [...ratedRows, ...globalFiltered.slice(0, needed).map((s) => summaryToRowMovie(s, null))];
 }
 
 // 올해의 Best: 올해 개봉작 중 DB 평점 높은 순 10편.
@@ -678,10 +685,13 @@ export const getAllTimeBestRow = unstable_cache(
       // 평점이 전혀 없으면 KOBIS 최신순으로 폴백.
       // toRowMovies는 포스터 없는 영화를 걸러내므로, DB 콜드 스타트 시 모두 걸러질 수 있다.
       // 그 경우 포스터 없이 그라디언트만 보여주는 로우로 한 번 더 폴백.
-      const results = await searchMovieCatalog({}, 20);
-      const rows = await toRowMovies(results);
-      if (rows.length > 0) return rows;
-      return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
+      const results = await searchMovieCatalog({}, 20).catch(() => [] as KobisMovieSummary[]);
+      if (results.length > 0) {
+        const rows = await toRowMovies(results);
+        if (rows.length > 0) return rows;
+        return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
+      }
+      return [];
     }
 
     const [metas, avgMap] = await Promise.all([

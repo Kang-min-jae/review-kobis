@@ -101,8 +101,18 @@ async function MonthlyBestRowData() {
   return <MovieRow title="이 달의 Best" subtitle="이번 달 국내 누적 관객수 기준" movies={movies} />;
 }
 
+function BestRowEmpty({ title }: { title: string }) {
+  return (
+    <section className="px-4 py-5 sm:px-5 sm:py-6">
+      <h2 className="text-lg font-bold text-text">{title}</h2>
+      <p className="mt-2 text-sm text-muted">데이터를 집계하는 중입니다. 잠시 후 새로고침해 주세요.</p>
+    </section>
+  );
+}
+
 async function YearlyBestRowData() {
   const movies = await getYearlyBestRow();
+  if (movies.length === 0) return <BestRowEmpty title="올해의 Best" />;
   return (
     <MovieRow
       title="올해의 Best"
@@ -114,6 +124,7 @@ async function YearlyBestRowData() {
 
 async function Best3YearsRowData() {
   const movies = await getBestOf3YearsRow();
+  if (movies.length === 0) return <BestRowEmpty title="3년 Best" />;
   return (
     <MovieRow
       title="3년 Best"
@@ -125,6 +136,7 @@ async function Best3YearsRowData() {
 
 async function Best5YearsRowData() {
   const movies = await getBestOf5YearsRow();
+  if (movies.length === 0) return <BestRowEmpty title="5년 Best" />;
   return (
     <MovieRow
       title="5년 Best"
@@ -136,6 +148,7 @@ async function Best5YearsRowData() {
 
 async function AllTimeBestRowData() {
   const movies = await getAllTimeBestRow();
+  if (movies.length === 0) return <BestRowEmpty title="역대 Best" />;
   return (
     <RatingSortedMovieRow
       title="역대 Best"
@@ -147,6 +160,7 @@ async function AllTimeBestRowData() {
 
 async function InternationalBestRowData() {
   const movies = await getInternationalBestRow();
+  if (movies.length === 0) return <BestRowEmpty title="해외 Best" />;
   return (
     <RatingSortedMovieRow
       title="해외 Best"
