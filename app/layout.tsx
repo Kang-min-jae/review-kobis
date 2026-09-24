@@ -1,19 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Geist, Geist_Mono } from "next/font/google";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
 import "./globals.css";
-import "pretendard/dist/web/static/pretendard.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// 한글 폰트는 굵기 하나가 ~780KB라, 굵기별 통파일(static/pretendard.css)을 쓰면 첫 방문에
+// 5개 굵기 ≈ 3.9MB를 받는다. dynamic-subset은 글자 범위(unicode-range)별로 쪼개져 있어
+// 화면에 실제로 나온 글자가 든 조각만 받는다. font-family 이름('Pretendard')은 동일하다.
+import "pretendard/dist/web/static/pretendard-dynamic-subset.css";
 
 const SITE_NAME = "무비리뷰";
 const SITE_DESCRIPTION = "한국 영화 평점과 리뷰를 남기고, 영화제 수상작을 한눈에 — 나만의 영화 리스트를 만들어 보세요.";
@@ -48,7 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
         <Suspense fallback={null}>

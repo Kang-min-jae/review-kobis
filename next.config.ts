@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 // 포스터/스틸컷 이미지는 KMDb(한국영상자료원)에서 가져온다 — KOBIS 자체는 이미지를 제공하지 않는다.
 const nextConfig: NextConfig = {
   images: {
+    // 포스터 URL은 이미지가 바뀌면 경로 자체가 바뀌므로 오래 캐시해도 안전하다(기본 4시간).
+    // 최적화된 포스터를 31일간 재사용해 재방문·다른 사용자 요청 때 변환 대기를 없앤다.
+    minimumCacheTTL: 2678400,
     remotePatterns: [
       {
         protocol: "https",

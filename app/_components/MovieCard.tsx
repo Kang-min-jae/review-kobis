@@ -172,7 +172,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
           if (lastPointerTypeRef.current === "touch" && !movedRef.current) setRevealed((v) => !v);
         }}
       >
-        {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} priority={priority} onError={() => setPosterFailed(true)} />}
+        {/* 카드 폭(130px/sm:160px)에서 p-2를 뺀 실제 포스터 폭 — 기본값 200px면 고해상도 폰이 640w를 받는다. */}
+        {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} sizes="(min-width: 640px) 144px, 114px" priority={priority} onError={() => setPosterFailed(true)} />}
         {/* 왼쪽: 추천 % */}
         {matchBadge && (
           <span className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">

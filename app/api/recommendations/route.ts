@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../_lib/db";
-import { getMovieMetas } from "../../_lib/movie-rate-info";
+import { getCachedMovieMetas } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 import {
@@ -730,7 +730,8 @@ export async function POST(request: Request) {
   const llmTimeout = new Promise<LlmResult>((resolve) => setTimeout(() => resolve([]), 400));
   const [llmResults, metas] = await Promise.all([
     Promise.race([callLlm(profile, candidates), llmTimeout]).catch(() => [] as LlmResult),
-    getMovieMetas(movieCds),
+    // 후보는 전부 cachedMovie에서 뽑혔으므로 외부 API 재조회 없이 DB만 읽는다.
+    getCachedMovieMetas(movieCds),
   ]);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
@@ -776,7 +777,7 @@ export async function POST(request: Request) {
     const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
     const fallback = await fetchFallbackCandidates(ratedMovieIds, excludeMovieCds, needed);
     if (fallback.length > 0) {
-      const fallbackMetas = await getMovieMetas(fallback.map((c) => c.movieCd));
+      const fallbackMetas = await getCachedMovieMetas(fallback.map((c) => c.movieCd));
       for (const c of fallback) {
         const meta = fallbackMetas.get(c.movieCd);
         const posterUrl = meta?.posterUrl ?? c.posterUrl;

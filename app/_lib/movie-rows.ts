@@ -431,7 +431,7 @@ async function fetchWeeklyBoxOfficeRanking(): Promise<RankingEntry[]> {
     .map((e) => ({ rank: e.rank, movieCd: e.movieCd, movieTitle: e.movieNm, audiAcc: e.audiAcc }));
 }
 
-export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
+async function _getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
   let ranking = await readRankingSnapshot("weekly_box_office");
   if (!ranking) {
     ranking = await fetchWeeklyBoxOfficeRanking();
@@ -442,6 +442,13 @@ export async function getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
     (e) => `${e.rank}위 · 누적 ${e.audiAcc.toLocaleString("ko-KR")}명`
   );
 }
+// 순위 자체는 12시간 스냅샷이지만, 카드 조립(메타·수상·평균 조회)은 매 요청 DB를 여러 번
+// 왕복했다. 결과 카드를 30분 캐시해 홈 화면 방문마다 DB에 가는 일을 없앤다.
+export const getWeeklyBoxOfficeRow = unstable_cache(
+  _getWeeklyBoxOfficeRow,
+  ["weekly-box-office-row"],
+  { revalidate: 60 * 30, tags: ["movie-rows"] },
+);
 
 // 평가한 영화들의 장르를 모은 집합 — "추천 N%" 배지(이 영화의 장르 중 몇 %가 내가
 // 남긴 평점의 장르와 겹치는지)는 사용자의 평점(localStorage, 브라우저에만 있음)이
@@ -533,7 +540,7 @@ async function fetchMonthlyBestRanking(limit: number): Promise<RankingEntry[]> {
     .map((m, i) => ({ rank: i + 1, movieCd: m.movieCd, movieTitle: m.movieNm, audiAcc: m.audiAcc }));
 }
 
-export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
+async function _getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
   let ranking = await readRankingSnapshot("monthly_best");
   if (!ranking) {
     ranking = await fetchMonthlyBestRanking(limit);
@@ -541,6 +548,11 @@ export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
   }
   return rankingRowsToCards(ranking, () => "");
 }
+export const getMonthlyBestRow = unstable_cache(
+  _getMonthlyBestRow,
+  ["monthly-best-row"],
+  { revalidate: 60 * 30, tags: ["movie-rows"] },
+);
 
 type RatedMovie = { cd: string; meta: MovieMeta; avg: number; count: number };
 
@@ -736,7 +748,7 @@ export async function getGenreRow(
 // 사용자 인기영화: 이 사이트에서 평점을 가장 많이 받은 영화 순서로 최대 limit편을 반환한다.
 // genreFilter가 있으면 그 장르에 속하는 영화만 남긴다 — 각 장르 섹션에서 "이 장르 내 인기"를
 // 보여줄 때 쓴다. 평점 데이터가 충분하지 않으면 빈 배열을 돌려줘서 행 자체를 숨긴다.
-export async function getUserPopularMoviesRow(
+async function _getUserPopularMoviesRow(
   genreFilter?: string,
   limit = 10
 ): Promise<RowMovie[]> {
@@ -755,8 +767,10 @@ export async function getUserPopularMoviesRow(
 
   if (movieCds.length === 0) return [];
 
+  // 장르 탭에선 후보가 200편이라 getMovieMetas를 쓰면 만료된 영화마다 외부 API 재조회가
+  // 줄을 선다. 평점이 달린 영화는 이미 DB에 캐시돼 있으니 DB만 읽는다.
   const [metas, avgMap] = await Promise.all([
-    getMovieMetas(movieCds),
+    getCachedMovieMetas(movieCds),
     getBulkMovieRatingAverages(movieCds),
   ]);
 
@@ -789,3 +803,8 @@ export async function getUserPopularMoviesRow(
 
   return rows;
 }
+export const getUserPopularMoviesRow = unstable_cache(
+  _getUserPopularMoviesRow,
+  ["user-popular-movies-row"],
+  { revalidate: 60 * 15, tags: ["movie-rows"] },
+);
