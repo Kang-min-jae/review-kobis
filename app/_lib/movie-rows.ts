@@ -10,6 +10,7 @@ import {
 } from "./kobis";
 import { db } from "./db";
 import { getMovieMetas } from "./movie-rate-info";
+import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
 
 export type RowMovie = {
@@ -116,7 +117,7 @@ export function summaryToRowMovie(summary: KobisMovieSummary, meta: { posterUrl:
   return {
     id: `kobis-${summary.movieCd}`,
     title: summary.title,
-    posterUrl: meta?.posterUrl ?? null,
+    posterUrl: formatPosterUrl(meta?.posterUrl ?? null),
     gradient: FALLBACK_GRADIENT,
     isNowShowing: isRecentlyOpened(summary.openDate),
     releaseDate: summary.openDate,

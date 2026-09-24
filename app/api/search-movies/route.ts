@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMetas } from "../../_lib/movie-rate-info";
+import { formatPosterUrl } from "../../_lib/formatPosterUrl";
 import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
@@ -155,7 +156,7 @@ async function searchCachedMovies(query: string): Promise<MovieHit[]> {
       title: r.title,
       releaseDate: r.releaseDate,
       genre: null,
-      posterUrl: r.posterUrl,
+      posterUrl: formatPosterUrl(r.posterUrl),
     }));
 }
 
@@ -448,7 +449,7 @@ async function fuzzySearchDb(query: string): Promise<{ movies: MovieHit[]; peopl
       title: r.title,
       releaseDate: r.releaseDate,
       genre: null,
-      posterUrl: r.posterUrl,
+      posterUrl: formatPosterUrl(r.posterUrl),
     }));
 
   const scoredPeople = personRows
