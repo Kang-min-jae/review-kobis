@@ -254,10 +254,15 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     directorTmdbId,
     cast: castForStorage,
   };
+  // 포스터를 끝내 못 찾은 경우 updatedAt을 이미 만료된 시각으로 지정해서
+  // 다음 요청 때 즉시 재시도하도록 한다 (null을 장기 캐싱하지 않는다).
+  const overrideUpdatedAt = !meta.posterUrl
+    ? { updatedAt: new Date(Date.now() - CACHE_TTL_MS - 1) }
+    : {};
   await db.cachedMovie.upsert({
     where: { movieCd },
-    create: { movieCd, ...data },
-    update: data,
+    create: { movieCd, ...data, ...overrideUpdatedAt },
+    update: { ...data, ...overrideUpdatedAt },
   });
 
   return meta;

@@ -204,7 +204,7 @@ async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> 
       longAvg: avgs?.longAvg ?? null,
     };
   });
-  return rows.filter((row) => row.posterUrl !== null);
+  return rows;
 }
 
 // 재개봉 판정(scripts/refresh-rerelease-classifications.mts)이 이미 재개봉으로
