@@ -12,6 +12,11 @@ import {
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
 
+// 항목별 평점을 보여줄 순서 — "전체"는 결과 행 자체에 표시한다.
+const CATEGORY_ORDER = ["연출", "연기", "각본", "음악", "편집"];
+
+type CategoryEntry = { category: string; rating: number; content: string };
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
@@ -32,11 +37,57 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
     return map;
   }, [myReviews]);
 
+  // movieId → 항목별(연출·연기·각본·음악·편집) 내 평점. 같은 항목에 한줄평과 장문평이 둘 다
+  // 있으면 한줄평 점수(0~10)를 쓰고, 장문평만 있으면 0~100을 0~10으로 환산한다.
+  const categoryMap = useMemo(() => {
+    const byMovie = new Map<string, Map<string, CategoryEntry>>();
+    for (const r of myReviews) {
+      const category = r.category ?? "전체";
+      if (category === "전체") continue;
+      const byCategory = byMovie.get(r.movieId) ?? new Map<string, CategoryEntry>();
+      const prev = byCategory.get(category);
+      if (!prev || r.type === "short") {
+        byCategory.set(category, {
+          category,
+          rating: r.type === "short" ? r.rating : r.rating / 10,
+          content: r.content.trim() || prev?.content || "",
+        });
+      }
+      byMovie.set(r.movieId, byCategory);
+    }
+    return new Map(
+      [...byMovie].map(([id, m]) => [
+        id,
+        [...m.values()].sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)),
+      ]),
+    );
+  }, [myReviews]);
+
+  // "전체" 평점 없이 항목에만 평가한 영화도 검색되도록 후보에 넣는다.
+  const { pool, categoryOnlyIds } = useMemo(() => {
+    const known = new Set(movies.map((m) => m.id));
+    const extra = new Map<string, MyRatedMovie>();
+    for (const r of myReviews) {
+      if (known.has(r.movieId) || extra.has(r.movieId)) continue;
+      const entries = categoryMap.get(r.movieId);
+      if (!entries || entries.length === 0) continue;
+      extra.set(r.movieId, {
+        id: r.movieId,
+        title: r.movieTitle,
+        posterUrl: r.moviePosterUrl,
+        gradient: r.movieGradient,
+        rating: entries.reduce((sum, e) => sum + e.rating, 0) / entries.length,
+        ratedAt: r.createdAt,
+      });
+    }
+    return { pool: [...movies, ...extra.values()], categoryOnlyIds: new Set(extra.keys()) };
+  }, [movies, myReviews, categoryMap]);
+
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return movies.filter((m) => m.title.toLowerCase().includes(q)).slice(0, 10);
-  }, [query, movies]);
+    return pool.filter((m) => m.title.toLowerCase().includes(q)).slice(0, 10);
+  }, [query, pool]);
 
   return (
     <div className="mt-6">
@@ -65,38 +116,54 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
       {results.length > 0 && (
         <div className="mt-1 overflow-hidden rounded-lg border border-neutral-700 bg-surface">
           {results.map((movie) => {
-            const href = movie.id.startsWith("tmdb-tv-")
-              ? `/series/${movie.id}/rate`
-              : `/movies/${movie.id}/rate`;
+            const base = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
             const reviewContent = reviewMap.get(movie.id);
+            const categoryEntries = categoryMap.get(movie.id) ?? [];
+            const hasOverall = !categoryOnlyIds.has(movie.id);
             return (
-              <Link
-                key={movie.id}
-                href={href}
-                className="flex items-center gap-3 border-b border-neutral-800 p-3 transition-colors last:border-b-0 hover:bg-black/30"
-              >
-                <div
-                  className={`relative h-12 w-9 shrink-0 overflow-hidden rounded ${
-                    movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
-                  }`}
-                >
-                  {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-text">{movie.title}</p>
-                  {reviewContent ? (
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">{reviewContent}</p>
-                  ) : (
-                    <p className="text-[11px] text-muted">내 평점</p>
-                  )}
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[11px] text-muted">{formatDate(movie.ratedAt)}</p>
-                  <div className="mt-0.5">
-                    <StarRating rating={movie.rating} scale={10} size="h-3 w-3" />
+              <div key={movie.id} className="border-b border-neutral-800 last:border-b-0">
+                <Link href={base} className="flex items-center gap-3 p-3 transition-colors hover:bg-black/30">
+                  <div
+                    className={`relative h-12 w-9 shrink-0 overflow-hidden rounded ${
+                      movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
+                    }`}
+                  >
+                    {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} sizes="36px" />}
                   </div>
-                </div>
-              </Link>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-text">{movie.title}</p>
+                    {reviewContent ? (
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">{reviewContent}</p>
+                    ) : (
+                      <p className="text-[11px] text-muted">{hasOverall ? "내 평점" : "항목별 평가만 남김"}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] text-muted">{formatDate(movie.ratedAt)}</p>
+                    {hasOverall && (
+                      <div className="mt-0.5">
+                        <StarRating rating={movie.rating} scale={10} size="h-3 w-3" />
+                      </div>
+                    )}
+                  </div>
+                </Link>
+                {categoryEntries.length > 0 && (
+                  <ul className="pb-2 pl-[60px] pr-3">
+                    {categoryEntries.map((entry) => (
+                      <li key={entry.category}>
+                        <Link
+                          href={`${base}/category/${encodeURIComponent(entry.category)}`}
+                          className="flex items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-black/30"
+                        >
+                          <span className="w-8 shrink-0 text-[11px] font-semibold text-text/80">{entry.category}</span>
+                          <span className="min-w-0 flex-1 truncate text-[11px] text-muted">{entry.content}</span>
+                          <StarRating rating={entry.rating} scale={10} size="h-3 w-3" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             );
           })}
         </div>
