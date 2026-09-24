@@ -370,11 +370,14 @@ function detectFestival(awardLabelEn: string): FestivalType | null {
   return null;
 }
 
-// TMDB ID로 해당 영화의 모든 수상 이력을 조회하는 SPARQL 쿼리
-function buildMovieAwardsQuery(tmdbId: string): string {
+// 영화 하나의 수상 이력 조회 SPARQL. filmClause로 영화를 찾는 방법(TMDB ID / 영문 제목 /
+// 한국어 제목)만 바꿔 끼운다. 신작은 수상 기록에 수상 시점(P585)이 아직 없는 경우가 많아
+// 필수로 두면 통째로 빠진다 — 시점은 선택으로 받고, 없으면 시상식 항목(P805)의 시점,
+// 그것도 없으면 영화 개봉일(P577) 연도로 채운다(연도 계산은 parseMovieAwardRows에서).
+function buildMovieAwardsQueryFor(filmClause: string): string {
   return `
-SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?year WHERE {
-  ?film wdt:P4947 "${tmdbId}" .
+SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?date ?evDate ?pub WHERE {
+  ${filmClause}
   {
     ?film p:P166 ?stmt .
   } UNION {
@@ -383,54 +386,70 @@ SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?year WHERE {
     ?person wdt:P31 wd:Q5 .
   }
   ?stmt ps:P166 ?award .
-  ?stmt pq:P585 ?date .
-  BIND(YEAR(?date) AS ?year)
+  OPTIONAL { ?stmt pq:P585 ?date }
+  OPTIONAL { ?stmt pq:P805 ?event . ?event wdt:P585 ?evDate }
+  OPTIONAL { ?film wdt:P577 ?pub }
   ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
   FILTER${ALL_FESTIVALS_FILTER}
   OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
 }
-ORDER BY DESC(?year) ?awardLabelEn
-LIMIT 50
+LIMIT 200
 `.trim();
 }
 
-// 영화 제목으로 조회하는 SPARQL 쿼리 (tmdbId 없을 때 폴백)
-function buildMovieAwardsByTitleQuery(titleEn: string): string {
-  const escaped = titleEn.replace(/"/g, '\\"');
-  return `
-SELECT DISTINCT ?award ?awardLabelEn ?awardLabelKo ?year WHERE {
-  ?film rdfs:label "${escaped}"@en .
-  FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }
-  {
-    ?film p:P166 ?stmt .
-  } UNION {
-    ?person p:P166 ?stmt .
-    ?stmt pq:P1686 ?film .
-    ?person wdt:P31 wd:Q5 .
-  }
-  ?stmt ps:P166 ?award .
-  ?stmt pq:P585 ?date .
-  BIND(YEAR(?date) AS ?year)
-  ?award rdfs:label ?awardLabelEn FILTER(LANG(?awardLabelEn) = "en")
-  FILTER${ALL_FESTIVALS_FILTER}
-  OPTIONAL { ?award rdfs:label ?awardLabelKo FILTER(LANG(?awardLabelKo) = "ko") }
+function escapeSparqlString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
-ORDER BY DESC(?year) ?awardLabelEn
-LIMIT 50
-`.trim();
+
+function buildMovieAwardsQuery(tmdbId: string): string {
+  return buildMovieAwardsQueryFor(`?film wdt:P4947 "${escapeSparqlString(tmdbId)}" .`);
+}
+
+// 영화 제목으로 조회하는 SPARQL 쿼리 (tmdbId로 못 찾을 때 폴백)
+function buildMovieAwardsByTitleQuery(titleEn: string): string {
+  return buildMovieAwardsQueryFor(`?film rdfs:label "${escapeSparqlString(titleEn)}"@en .
+  FILTER NOT EXISTS { ?film wdt:P31 wd:Q5 }`);
+}
+
+// 한국어 제목 폴백 — 한국 영화는 Wikidata에 TMDB ID가 아직 없거나 영문 표기가 KOBIS와
+// 다른 경우가 많다. 사람·드라마 등과 겹치지 않게 영화 계열 항목으로만 좁힌다.
+function buildMovieAwardsByKoTitleQuery(titleKo: string): string {
+  return buildMovieAwardsQueryFor(`?film rdfs:label "${escapeSparqlString(titleKo)}"@ko .
+  VALUES ?filmType { wd:Q11424 wd:Q24869 wd:Q202866 wd:Q93204 }
+  ?film wdt:P31 ?filmType .`);
+}
+
+function yearOf(value: string | undefined): number | null {
+  if (!value) return null;
+  const year = parseInt(value.slice(0, 4), 10);
+  return Number.isFinite(year) && year > 1800 ? year : null;
 }
 
 function parseMovieAwardRows(rows: RawRow[]): MovieAwardEntry[] {
-  const seen = new Set<string>();
-  const entries: MovieAwardEntry[] = [];
+  // 같은 상이 개봉일 여러 개 등으로 여러 행이 될 수 있어 상(award)별로 모아 연도를 정한다.
+  const byAward = new Map<string, { en: string; ko: string | null; dates: number[]; eventDates: number[]; pubs: number[] }>();
   for (const row of rows) {
     const awardLabelEn = row.awardLabelEn?.value ?? "";
-    const awardLabelKo = row.awardLabelKo?.value ?? null;
-    const year = parseInt(row.year?.value ?? "0", 10);
-    if (!awardLabelEn || !year) continue;
-    const festivalId = detectFestival(awardLabelEn);
+    if (!awardLabelEn) continue;
+    const key = row.award?.value ?? awardLabelEn;
+    const entry = byAward.get(key) ?? { en: awardLabelEn, ko: row.awardLabelKo?.value ?? null, dates: [], eventDates: [], pubs: [] };
+    const d = yearOf(row.date?.value), e = yearOf(row.evDate?.value), p = yearOf(row.pub?.value);
+    if (d) entry.dates.push(d);
+    if (e) entry.eventDates.push(e);
+    if (p) entry.pubs.push(p);
+    if (!entry.ko && row.awardLabelKo?.value) entry.ko = row.awardLabelKo.value;
+    byAward.set(key, entry);
+  }
+
+  const seen = new Set<string>();
+  const entries: MovieAwardEntry[] = [];
+  for (const { en, ko, dates, eventDates, pubs } of byAward.values()) {
+    const festivalId = detectFestival(en);
     if (!festivalId) continue;
-    const categoryLabel = shortenLabel(awardLabelKo, awardLabelEn);
+    const pool = dates.length > 0 ? dates : eventDates.length > 0 ? eventDates : pubs;
+    if (pool.length === 0) continue;
+    const year = Math.min(...pool);
+    const categoryLabel = shortenLabel(ko, en);
     const key = `${festivalId}-${year}-${categoryLabel}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -449,45 +468,55 @@ if (!gMovieAwards.__movieAwardsCache) {
 }
 const movieAwardsMemCache = gMovieAwards.__movieAwardsCache;
 
+// 캐시된 수상 이력도 이 기간이 지나면 다시 조회한다 — 신작은 Wikidata에 수상 기록이
+// 나중에 추가되는 경우가 많은데, 예전엔 한 번 저장되면 영원히 갱신되지 않았다.
+const MOVIE_AWARD_DB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function fetchMovieAwardWins(
   tmdbId: string | null,
   titleEn: string | null,
+  titleKo: string | null = null,
 ): Promise<MovieAwardEntry[]> {
-  const cacheKey = tmdbId ? `movie-tmdb-${tmdbId}` : titleEn ? `movie-title-${titleEn.toLowerCase()}` : null;
+  const cacheKey = tmdbId
+    ? `movie-tmdb-${tmdbId}`
+    : titleEn
+      ? `movie-title-${titleEn.toLowerCase()}`
+      : titleKo
+        ? `movie-title-ko-${titleKo}`
+        : null;
   if (!cacheKey) return [];
 
   // 1) 메모리 캐시 — 빈 결과는 잘못된 tmdbId로 인한 캐시일 수 있어 재조회
   const mem = movieAwardsMemCache.get(cacheKey);
   if (mem && mem.data.length > 0 && Date.now() - mem.at < MOVIE_AWARD_MEM_TTL_MS) return mem.data;
 
-  // 2) DB 캐시 (CachedAwardWinners 테이블 재사용, key = "movie-tmdb-{tmdbId}")
-  // 빈 결과는 잘못된 tmdbId로 인한 캐시일 수 있어 신뢰하지 않고 재조회
+  // 2) DB 캐시 (CachedAwardWinners 테이블 재사용). 빈 결과는 신뢰하지 않고 재조회하고,
+  // 오래된 결과는 다시 조회하되 새 조회가 비면 기존 값을 그대로 쓴다.
+  let stale: MovieAwardEntry[] = [];
   try {
     const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
     if (cached) {
       const data = cached.winners as unknown as MovieAwardEntry[];
       if (data.length > 0) {
-        movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
-        return data;
+        if (Date.now() - cached.updatedAt.getTime() < MOVIE_AWARD_DB_TTL_MS) {
+          movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
+          return data;
+        }
+        stale = data;
       }
     }
   } catch {
     // 테이블 없으면 통과
   }
 
-  // 3) Wikidata SPARQL — tmdbId 우선, 결과 없으면 영문 제목으로 폴백
+  // 3) Wikidata SPARQL — TMDB ID → 영문 제목 → 한국어 제목 순으로, 결과가 나올 때까지
   let rows: Record<string, { value: string }>[] = [];
-  if (tmdbId) {
-    rows = await sparqlFetch(buildMovieAwardsQuery(tmdbId));
-    // tmdbId가 잘못된 경우(Wikidata P4947 오매핑) 결과가 비어있을 수 있음 — 제목으로 재시도
-    if (rows.length === 0 && titleEn) {
-      rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
-    }
-  } else if (titleEn) {
-    rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
-  }
+  if (tmdbId) rows = await sparqlFetch(buildMovieAwardsQuery(tmdbId));
+  if (rows.length === 0 && titleEn) rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
+  if (rows.length === 0 && titleKo) rows = await sparqlFetch(buildMovieAwardsByKoTitleQuery(titleKo));
 
-  const data = parseMovieAwardRows(rows);
+  const fresh = parseMovieAwardRows(rows);
+  const data = fresh.length > 0 ? fresh : stale;
 
   // 4) DB 캐시 저장
   try {

@@ -231,26 +231,44 @@ const FESTIVAL_ORDER: FestivalType[] = ["academy", "cannes", "berlin", "venice"]
 // tmdbId로 1차 조회하고, 없으면 영문 제목으로 2차 조회한다.
 // 결과는 Wikidata에 의해 부문별 중복 없이 모든 연도 수상작이 포함된다.
 export async function getMovieAwardWins({
+  movieId = null,
   tmdbId,
-  titleKo: _titleKo,
+  titleKo,
   titleEn,
 }: {
+  movieId?: string | null;
   tmdbId: string | null;
   titleKo: string | null;
   titleEn: string | null;
 }): Promise<AwardWin[]> {
-  const entries = await fetchMovieAwardWins(tmdbId, titleEn);
+  // Wikidata(자동) + 관리자가 등록한 공식 수상작(수동). 신작은 Wikidata 반영이 늦어
+  // 관리자 등록분이 유일한 출처일 수 있다.
+  const [entries, official] = await Promise.all([
+    fetchMovieAwardWins(tmdbId, titleEn, titleKo),
+    movieId
+      ? db.officialWinner.findMany({ where: { movieId }, select: { festival: true, awardCategory: true, year: true } }).catch(() => [])
+      : Promise.resolve([]),
+  ]);
 
-  return entries
-    .map((e) => ({
-      festivalId: e.festivalId,
-      festivalName: FESTIVAL_NAMES[e.festivalId],
-      category: e.categoryLabel,
-      year: e.ceremonyYear,
-    }))
-    .sort(
-      (a, b) =>
-        b.year - a.year ||
-        FESTIVAL_ORDER.indexOf(a.festivalId) - FESTIVAL_ORDER.indexOf(b.festivalId)
-    );
+  const wins: AwardWin[] = entries.map((e) => ({
+    festivalId: e.festivalId,
+    festivalName: FESTIVAL_NAMES[e.festivalId],
+    category: e.categoryLabel,
+    year: e.ceremonyYear,
+  }));
+  const seen = new Set(wins.map((w) => `${w.festivalId}-${w.year}-${w.category}`));
+  for (const o of official) {
+    if (!(o.festival in FESTIVAL_NAMES)) continue;
+    const festivalId = o.festival as FestivalType;
+    const key = `${festivalId}-${o.year}-${o.awardCategory}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    wins.push({ festivalId, festivalName: FESTIVAL_NAMES[festivalId], category: o.awardCategory, year: o.year });
+  }
+
+  return wins.sort(
+    (a, b) =>
+      b.year - a.year ||
+      FESTIVAL_ORDER.indexOf(a.festivalId) - FESTIVAL_ORDER.indexOf(b.festivalId)
+  );
 }

@@ -37,7 +37,7 @@ export async function generateMetadata({
   };
 }
 
-async function AwardsBannerData(props: { tmdbId: string | null; titleKo: string; titleEn: string | null }) {
+async function AwardsBannerData(props: { movieId: string; tmdbId: string | null; titleKo: string; titleEn: string | null }) {
   const wins = await getMovieAwardWins(props).catch(() => []);
   return <AwardsBanner wins={wins} />;
 }
@@ -94,7 +94,7 @@ export default async function CategoryRatePage({
         <div className="mt-6">
           {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
           <Suspense fallback={null}>
-            <AwardsBannerData tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
+            <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
           </Suspense>
           <CategoryRateForm
             movieId={info.movieId}
