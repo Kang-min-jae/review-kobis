@@ -2,6 +2,8 @@ import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type K
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
 import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, type TmdbMovieDetails } from "./tmdb";
 import { formatPosterUrl } from "./formatPosterUrl";
+import { cache } from "react";
+import { after } from "next/server";
 import { db } from "./db";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -292,6 +294,26 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
 // 그 결과를 같이 기다리게 한다.
 const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 
+// 만료된 캐시가 있으면 그걸 바로 보여주고 갱신은 응답 뒤로 미룬다(stale-while-revalidate).
+// 갱신 한 번이 KOBIS·TMDB·KMDb와 인물 조회 10여 건이라 수 초가 걸리는데, 예전엔 캐시가
+// 3일만 지나도 평점 페이지가 그걸 다 기다린 뒤에야 떴다. 요청 밖(스크립트 등)에선
+// after()를 쓸 수 없으므로 바로 백그라운드로 돌린다.
+function refreshInBackground(movieCd: string) {
+  if (inFlightMovieMeta.has(movieCd)) return;
+  const run = () => {
+    const promise = fetchAndCacheMovieMeta(movieCd)
+      .catch(() => null)
+      .finally(() => inFlightMovieMeta.delete(movieCd));
+    inFlightMovieMeta.set(movieCd, promise);
+    return promise.then(() => undefined);
+  };
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
+}
+
 // 캐시에 신선한(TTL 이내) 데이터가 있으면 그대로 쓰고, 없거나 오래됐으면 새로 받아
 // 캐시에 채워 넣는다(lazy cache). 박스오피스 로우(movie-rows.ts)도 포스터 조회에
 // 이 캐시를 그대로 재사용한다 — 인기작은 홈 화면만 봐도 캐시가 데워진다.
@@ -309,10 +331,14 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
     return rowToMeta(cached);
   }
 
+  if (cached) {
+    refreshInBackground(movieCd);
+    return rowToMeta(cached);
+  }
+
   const existing = inFlightMovieMeta.get(movieCd);
   if (existing) return existing;
 
-  // 신선한 데이터 조회 실패 시 만료된 캐시라도 반환해 rate 페이지 404 방지
   const promise = fetchAndCacheMovieMeta(movieCd)
     .catch(() => null)
     .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
@@ -348,7 +374,8 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
   const entries = await Promise.all(
     uniqueCds.map(async (movieCd): Promise<[string, MovieMeta | null]> => {
       const cached = cachedByCd.get(movieCd);
-      if (cached && isCacheFresh(cached)) {
+      if (cached) {
+        if (!isCacheFresh(cached)) refreshInBackground(movieCd);
         return [movieCd, rowToMeta(cached)];
       }
 
@@ -377,7 +404,7 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
 // 평점 페이지와 항목별 평점 페이지가 공통으로 필요로 하는 영화 정보(포스터/개봉정보/
 // 줄거리/감독·출연/박스오피스)를 만든다. 상세정보는 캐시를 거치고, 박스오피스 순위는
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
-export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInfo | null> {
+async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieInfo | null> {
   // wikidata 수상작 — CachedMovie에서 조회 (award-winners.ts가 홈 화면 렌더 시 미리 저장)
   // award-winners.ts가 링크 id를 "wikidata-{filmQid}-{categoryLabel}" 형태로 만들지만
   // CachedMovie에는 "wikidata-{filmQid}" 형태로 저장되므로 카테고리 접미사를 제거한다.
@@ -571,3 +598,7 @@ export async function resolveMovieRateInfo(id: string): Promise<ResolvedMovieInf
     boxOffice,
   };
 }
+
+// generateMetadata와 페이지 본문이 같은 요청 안에서 각각 부르므로, 요청 단위로 한 번만
+// 계산하도록 묶는다(예전엔 영화 정보·박스오피스 조회가 매 방문 두 번씩 돌았다).
+export const resolveMovieRateInfo = cache(resolveMovieRateInfoUncached);

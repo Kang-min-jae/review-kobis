@@ -2,6 +2,18 @@ import type { NextConfig } from "next";
 
 // 포스터/스틸컷 이미지는 KMDb(한국영상자료원)에서 가져온다 — KOBIS 자체는 이미지를 제공하지 않는다.
 const nextConfig: NextConfig = {
+  // /movies/:id/rate, /series/:id/rate는 "전체" 항목 페이지로 보내기만 하는 페이지라,
+  // 리다이렉트로 두면 클릭할 때마다 서버를 한 번 더 왕복한다. 서버 안에서 바로 연결한다.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: "/movies/:id/rate", destination: "/movies/:id/rate/category/%EC%A0%84%EC%B2%B4" },
+        { source: "/series/:id/rate", destination: "/series/:id/rate/category/%EC%A0%84%EC%B2%B4" },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
   images: {
     // 포스터 URL은 이미지가 바뀌면 경로 자체가 바뀌므로 오래 캐시해도 안전하다(기본 4시간).
     // 최적화된 포스터를 31일간 재사용해 재방문·다른 사용자 요청 때 변환 대기를 없앤다.

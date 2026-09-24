@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { auth } from "../../../../../../auth";
@@ -5,7 +6,6 @@ import { resolveMovieRateInfo } from "../../../../../_lib/movie-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
 import {
   getAllCategoryAverages,
-  getMyCategoryScore,
   getReviewsForCategoryType,
   getMyReview,
 } from "../../../../../_lib/review-data";
@@ -37,6 +37,11 @@ export async function generateMetadata({
   };
 }
 
+async function AwardsBannerData(props: { tmdbId: string | null; titleKo: string; titleEn: string | null }) {
+  const wins = await getMovieAwardWins(props).catch(() => []);
+  return <AwardsBanner wins={wins} />;
+}
+
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
@@ -51,29 +56,19 @@ export default async function CategoryRatePage({
     notFound();
   }
 
-  const info = await resolveMovieRateInfo(id);
+  const [info, session] = await Promise.all([resolveMovieRateInfo(id), auth()]);
   if (!info) {
     notFound();
   }
-
-  const session = await auth();
   const userId = session?.user?.id ?? null;
 
-  const [averages, myScore, shortReviews, longReviews, myShortReview, myLongReview, awardWins] = await Promise.all([
+  const [averages, shortReviews, longReviews, myShortReview, myLongReview] = await Promise.all([
     getAllCategoryAverages(info.movieCd),
-    getMyCategoryScore(userId, info.movieCd, category),
     getReviewsForCategoryType(info.movieCd, category, "SHORT", userId),
     getReviewsForCategoryType(info.movieCd, category, "LONG", userId),
     getMyReview(userId, info.movieCd, category, "SHORT"),
     getMyReview(userId, info.movieCd, category, "LONG"),
-    getMovieAwardWins({
-      tmdbId: info.tmdbId ?? null,
-      titleKo: info.movieTitle,
-      titleEn: info.movieTitleEn ?? null,
-    }),
   ]);
-
-  const categoryAverage = averages.find((a) => a.category === category) ?? { average: null, count: 0 };
 
   return (
     <main>
@@ -97,7 +92,10 @@ export default async function CategoryRatePage({
         </MovieInfoHeader>
 
         <div className="mt-6">
-          <AwardsBanner wins={awardWins} />
+          {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
+          <Suspense fallback={null}>
+            <AwardsBannerData tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
+          </Suspense>
           <CategoryRateForm
             movieId={info.movieId}
             movieCd={info.movieCd}

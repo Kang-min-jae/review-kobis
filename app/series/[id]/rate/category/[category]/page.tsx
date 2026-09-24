@@ -4,7 +4,6 @@ import { resolveSeriesRateInfo } from "../../../../../_lib/series-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
 import {
   getAllCategoryAverages,
-  getMyCategoryScore,
   getReviewsForCategoryType,
   getMyReview,
 } from "../../../../../_lib/review-data";
@@ -38,16 +37,13 @@ export default async function SeriesCategoryRatePage({
   const session = await auth();
   const userId = session?.user?.id ?? null;
 
-  const [averages, myScore, shortReviews, longReviews, myShortReview, myLongReview] = await Promise.all([
+  const [averages, shortReviews, longReviews, myShortReview, myLongReview] = await Promise.all([
     getAllCategoryAverages(info.movieCd),
-    getMyCategoryScore(userId, info.movieCd, category),
     getReviewsForCategoryType(info.movieCd, category, "SHORT", userId),
     getReviewsForCategoryType(info.movieCd, category, "LONG", userId),
     getMyReview(userId, info.movieCd, category, "SHORT"),
     getMyReview(userId, info.movieCd, category, "LONG"),
   ]);
-
-  const categoryAverage = averages.find((a) => a.category === category) ?? { average: null, count: 0 };
 
   // 시즌 수가 있으면 "(시즌 N개)" 형태로 정보 표시
   const seasonNote = info.seasonCount ? `시즌 ${info.seasonCount}개` : null;
