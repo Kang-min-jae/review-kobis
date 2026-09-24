@@ -51,3 +51,8 @@ next-env.d.ts
 
 # scripts/audit-cached-persons.mts가 만드는 실제 DB 조사 결과물 — 커밋 대상 아님
 /scripts/.audit-output.json
+
+# SQLite 데이터베이스 파일 — 로컬 개발용이므로 저장소에 포함하지 않는다
+*.db
+*.db-shm
+*.db-wal
