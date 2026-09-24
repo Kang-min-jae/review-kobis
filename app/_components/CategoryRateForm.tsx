@@ -180,6 +180,7 @@ export default function CategoryRateForm({
   const [longInput, setLongInput] = useState(String(myReviews.LONG?.rating ?? 80));
   const [shortContent, setShortContent] = useState(myReviews.SHORT?.content ?? "");
   const [longContent, setLongContent] = useState(myReviews.LONG?.content ?? "");
+  const [localMyReviews, setLocalMyReviews] = useState<{ SHORT: MyReview; LONG: MyReview }>(myReviews);
   const [localShortReviews, setLocalShortReviews] = useState(reviews.SHORT);
   const [localLongReviews, setLocalLongReviews] = useState(reviews.LONG);
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -215,7 +216,7 @@ export default function CategoryRateForm({
   const sentenceCount = activeTab === "SHORT" ? countSentences(content) : 0;
   const tooManySentences = activeTab === "SHORT" && sentenceCount > SHORT_MAX_SENTENCES;
   const canSubmitReview = !tooManySentences;
-  const myReview = myReviews[activeTab];
+  const myReview = localMyReviews[activeTab];
   // SHORT: 평점만 남긴 것도 포함해서 모두 표시, LONG: 텍스트 있는 것만 표시
   const localReviews = activeTab === "SHORT" ? localShortReviews : localLongReviews;
   const displayReviews = activeTab === "SHORT"
@@ -289,6 +290,25 @@ export default function CategoryRateForm({
         rating: reviewRating,
         content: content.trim(),
       });
+
+      // 즉시 "내 평점" 패널 갱신
+      const now = new Date().toISOString();
+      setLocalMyReviews((prev) => ({
+        ...prev,
+        [activeTab]: { rating: reviewRating, content: content.trim(), createdAt: now },
+      }));
+      // 수정 시: 리뷰 목록에서 내 항목 즉시 교체
+      if (userId) {
+        const patchList = (prev: ReviewWithAuthor[]) =>
+          prev.map((r) =>
+            r.authorId === userId
+              ? { ...r, rating: reviewRating, content: content.trim(), createdAt: now }
+              : r
+          );
+        setLocalShortReviews(patchList);
+        setLocalLongReviews(patchList);
+      }
+      // 평균 평점(사이드바) 갱신을 위해 백그라운드 새로고침
       router.refresh();
     } finally {
       setSubmittingReview(false);
