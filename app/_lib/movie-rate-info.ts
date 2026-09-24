@@ -226,7 +226,7 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     movieTitleEn: info.titleEn ?? tmdbInfo?.originalTitle ?? null,
     // 개요·장르·런타임: TMDB 1차 → KMDb 폴백 → KOBIS
     description: tmdbInfo?.overview ?? kmdbInfo?.overview ?? info.overview ?? "아직 등록된 설명이 없어요.",
-    posterUrl: finalPosterUrl,
+    posterUrl: formatPosterUrl(finalPosterUrl),
     gradient: FALLBACK_GRADIENT,
     // 개봉연도: 항상 KOBIS 원본 (KMDb가 다른 연도를 돌려줄 수 있어서 KOBIS 우선)
     releaseDate,
