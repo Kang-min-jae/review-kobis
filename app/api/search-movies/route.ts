@@ -21,6 +21,22 @@ function tokenizeQuery(q: string): string[] {
   return q.trim().split(/\s+/).filter((t) => t.length > 0);
 }
 
+// ── 시리즈 숫자 약칭 → 공식 제목 변환 ────────────────────────────────────────
+// "듄 2" → ["듄 파트 2", "듄 파트2", "듄: 파트 2", "듄 Part 2"]
+// "범죄도시 3" → ["범죄도시 파트 3", ...]
+function expandNumberedQuery(query: string): string[] {
+  const match = query.trim().match(/^(.+?)\s+(\d+)$/);
+  if (!match) return [];
+  const [, base, num] = match;
+  return [
+    `${base} 파트 ${num}`,
+    `${base} 파트${num}`,
+    `${base}: 파트 ${num}`,
+    `${base} Part ${num}`,
+    `${base}: Part ${num}`,
+  ];
+}
+
 // ── 서버 인메모리 LRU 캐시 (2분 TTL, 최대 300개) ──────────────────────────────
 // 서버리스 환경에서도 요청 간 모듈 상태가 유지되는 동안 살아있어, 같은 쿼리를
 // 짧은 간격으로 반복해서 보낼 때 외부 API를 다시 호출하지 않고 즉시 응답한다.
@@ -87,9 +103,10 @@ async function withPosters(hits: KobisSearchHit[]): Promise<MovieHit[]> {
 async function searchCachedMovies(query: string): Promise<MovieHit[]> {
   const normalized = normalizeForSearch(query);
   const tokens = tokenizeQuery(query);
+  const expandedQueries = expandNumberedQuery(query);
 
   // DB-level OR: original + normalized (no-space) + each token individually
-  // → broad fetch so in-memory post-filter can apply stricter AND logic
+  // + expanded numbered variants ("듄 파트 2" etc.) → broad fetch
   const orConditions: object[] = [{ title: { contains: query, mode: "insensitive" } }];
   if (normalized !== query.toLowerCase()) {
     orConditions.push({ title: { contains: normalized, mode: "insensitive" } });
@@ -97,6 +114,13 @@ async function searchCachedMovies(query: string): Promise<MovieHit[]> {
   for (const token of tokens) {
     if (token.length >= 2) {
       orConditions.push({ title: { contains: token, mode: "insensitive" } });
+    }
+  }
+  for (const eq of expandedQueries) {
+    orConditions.push({ title: { contains: eq, mode: "insensitive" } });
+    const neq = normalizeForSearch(eq);
+    if (neq !== eq.toLowerCase()) {
+      orConditions.push({ title: { contains: neq, mode: "insensitive" } });
     }
   }
 
@@ -110,11 +134,16 @@ async function searchCachedMovies(query: string): Promise<MovieHit[]> {
   // In-memory post-filter: keep only results that match by either strategy
   // Strategy A (no-space): normalizedTitle contains normalizedQuery (or vice-versa)
   // Strategy B (tokenized AND): every token appears in normalizedTitle
+  // Strategy C (expanded): normalizedTitle matches any expanded variant
   const normalizedTokens = tokens.map(normalizeForSearch).filter((t) => t.length > 0);
+  const expandedNormalized = expandedQueries.map(normalizeForSearch);
   const filtered = rows.filter((r) => {
     const nt = normalizeForSearch(r.title);
     if (normalized.length >= 2 && (nt.includes(normalized) || normalized.includes(nt))) return true;
     if (normalizedTokens.length >= 2 && normalizedTokens.every((t) => nt.includes(t))) return true;
+    for (const en of expandedNormalized) {
+      if (en.length >= 2 && (nt.includes(en) || en.includes(nt))) return true;
+    }
     return false;
   });
 
@@ -232,11 +261,12 @@ async function correctQueryWithLlm(query: string): Promise<LlmCorrection | null>
 
 [Rules]
 1. 오타, 발음 변형, 맞춤법 오류, 영문-한글 혼용을 분석하세요. (예: "젠데이야" -> "젠데이아", "티모시샬라메" -> "티모시 샬라메", "돈룩백인앵거" -> "돈 룩 백 인 앵거")
-2. 사용자의 입력이 오타/변형 표기로 판단되면 isCorrected: true로 설정하고 올바른 표준 명칭을 correctedQuery에 넣으세요.
-3. 한국어 표기뿐만 아니라 영문 공식 명칭(English Title/Name)도 searchKeywords 배열에 포함하세요.
-4. 검색어가 이미 완벽히 올바르다면 isCorrected: false, correctedQuery는 원본 그대로 유지하세요.
-5. 오답 처리나 모호한 입력(예: 단순 외마디 초성, 의미 없는 문자열)일 경우 isValid: false로 응답하세요.
-6. 오직 JSON 형식으로만 응답하며 다른 설명은 절대 추가하지 마세요.
+2. 시리즈 숫자 약칭도 처리하세요. "제목 숫자" 패턴(예: "듄 2", "범죄도시 3")이면 isCorrected: true로 설정하고 "제목 파트 숫자" 또는 공식 부제(예: "듄: 파트 2", "범죄도시3: 하이퍼")를 correctedQuery에 넣으세요. searchKeywords에는 "파트 N" 변형과 영문 제목을 모두 포함하세요.
+3. 사용자의 입력이 오타/변형 표기로 판단되면 isCorrected: true로 설정하고 올바른 표준 명칭을 correctedQuery에 넣으세요.
+4. 한국어 표기뿐만 아니라 영문 공식 명칭(English Title/Name)도 searchKeywords 배열에 포함하세요.
+5. 검색어가 이미 완벽히 올바르다면 isCorrected: false, correctedQuery는 원본 그대로 유지하세요.
+6. 오답 처리나 모호한 입력(예: 단순 외마디 초성, 의미 없는 문자열)일 경우 isValid: false로 응답하세요.
+7. 오직 JSON 형식으로만 응답하며 다른 설명은 절대 추가하지 마세요.
 
 [Output JSON Schema]
 {
@@ -347,6 +377,18 @@ async function runExternalSearch(query: string) {
   const stripped = normalizeForSearch(query);
   if (movieHits.length === 0 && stripped !== query.toLowerCase() && stripped.length >= 2) {
     finalMovieHits = await searchMoviesSince1960(stripped);
+  }
+
+  // Strategy D: 숫자 약칭 → "파트 N" 변환 후 재시도 ("듄 2" → "듄 파트 2")
+  if (finalMovieHits.length === 0) {
+    const expanded = expandNumberedQuery(query);
+    for (const eq of expanded) {
+      const hits = await searchMoviesSince1960(eq);
+      if (hits.length > 0) {
+        finalMovieHits = hits;
+        break;
+      }
+    }
   }
 
   return { movieHits: finalMovieHits, rawPeople, multiHits, cachedPeople, tmdbPersonHits };
