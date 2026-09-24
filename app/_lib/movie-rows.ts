@@ -570,13 +570,12 @@ async function getRatingSortedMovies(
     ? await Promise.all([getMovieMetas(ratedCds), getBulkMovieRatingAverages(ratedCds)])
     : [new Map() as Awaited<ReturnType<typeof getMovieMetas>>, new Map() as Awaited<ReturnType<typeof getBulkMovieRatingAverages>>];
 
-  // 3. 개봉일 범위 + 포스터 있는 영화를 평점 내림차순으로 정렬
+  // 3. 개봉일 범위 내 영화를 평점 내림차순으로 정렬 (포스터 없어도 그래디언트 카드로 포함)
   const ratedFiltered = ratedCds
     .filter((cd) => {
       const meta = ratedMetas.get(cd);
       return (
-        meta?.posterUrl &&
-        meta.releaseDate &&
+        meta?.releaseDate &&
         meta.releaseDate >= openDateGte &&
         meta.releaseDate <= openDateLte
       );
@@ -699,8 +698,8 @@ export const getAllTimeBestRow = unstable_cache(
       getBulkMovieRatingAverages(ratedCds),
     ]);
 
+    // 포스터 없는 영화도 그래디언트 카드로 포함 — posterUrl 필터 제거
     const sorted = ratedCds
-      .filter((cd) => metas.get(cd)?.posterUrl)
       .sort((a, b) => {
         const ra = ratingMap.get(a)!;
         const rb = ratingMap.get(b)!;
