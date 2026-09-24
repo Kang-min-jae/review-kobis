@@ -14,6 +14,14 @@ const DISPLAY_CAST_LIMIT = 6;
 // 데이터라 lazy cache로 관리한다 — 이 시간(3일)이 지나면 다음 조회 때 KOBIS+KMDb에서
 // 다시 받아와 갱신한다. 박스오피스 수치는 매일 바뀌므로 캐시하지 않고 항상 새로 받는다.
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 3;
+// 포스터를 못 찾은 레코드는 일시적 API 실패였을 수 있어 더 짧게 두고 재시도한다.
+// 0으로 두면 포스터가 원래 없는 영화가 매 요청마다 외부 API 수십 건을 다시 부른다.
+const NULL_POSTER_RETRY_MS = 1000 * 60 * 60 * 6;
+
+function isCacheFresh(row: { posterUrl: string | null; updatedAt: Date }): boolean {
+  const ttl = row.posterUrl ? CACHE_TTL_MS : NULL_POSTER_RETRY_MS;
+  return Date.now() - row.updatedAt.getTime() < ttl;
+}
 
 export type PersonRef = { name: string; kmdbId: string | null };
 
@@ -239,6 +247,19 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     source,
   };
 
+  // TMDB/KMDb 타임아웃·429는 null로 돌아온다 — 그걸 그대로 저장하면 이전에 찾아둔
+  // 멀쩡한 포스터가 null로 덮어써진다. 이번에 못 찾았으면 기존 포스터를 유지한다.
+  if (!meta.posterUrl) {
+    const prev = await db.cachedMovie.findUnique({
+      where: { movieCd },
+      select: { posterUrl: true, tmdbId: true },
+    });
+    if (prev?.posterUrl) {
+      meta.posterUrl = formatPosterUrl(prev.posterUrl);
+      meta.tmdbId = meta.tmdbId ?? prev.tmdbId;
+    }
+  }
+
   const data = {
     title: meta.movieTitle,
     posterUrl: meta.posterUrl,
@@ -254,15 +275,10 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     directorTmdbId,
     cast: castForStorage,
   };
-  // 포스터를 끝내 못 찾은 경우 updatedAt을 이미 만료된 시각으로 지정해서
-  // 다음 요청 때 즉시 재시도하도록 한다 (null을 장기 캐싱하지 않는다).
-  const overrideUpdatedAt = !meta.posterUrl
-    ? { updatedAt: new Date(Date.now() - CACHE_TTL_MS - 1) }
-    : {};
   await db.cachedMovie.upsert({
     where: { movieCd },
-    create: { movieCd, ...data, ...overrideUpdatedAt },
-    update: { ...data, ...overrideUpdatedAt },
+    create: { movieCd, ...data },
+    update: data,
   });
 
   return meta;
@@ -281,7 +297,7 @@ const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 // 이 캐시를 그대로 재사용한다 — 인기작은 홈 화면만 봐도 캐시가 데워진다.
 export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const cached = await db.cachedMovie.findUnique({ where: { movieCd } });
-  if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
+  if (cached && isCacheFresh(cached)) {
     // 포스터가 null로 캐시됐지만 tmdbId가 있으면 TTL 만료를 기다리지 않고 즉시 보정한다.
     if (!cached.posterUrl && cached.tmdbId) {
       const details = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
@@ -298,6 +314,7 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
 
   // 신선한 데이터 조회 실패 시 만료된 캐시라도 반환해 rate 페이지 404 방지
   const promise = fetchAndCacheMovieMeta(movieCd)
+    .catch(() => null)
     .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
     .finally(() => {
       inFlightMovieMeta.delete(movieCd);
@@ -321,16 +338,24 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
   const entries = await Promise.all(
     uniqueCds.map(async (movieCd): Promise<[string, MovieMeta | null]> => {
       const cached = cachedByCd.get(movieCd);
-      if (cached && cached.source !== "tmdb" && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
+      if (cached && isCacheFresh(cached)) {
         return [movieCd, rowToMeta(cached)];
       }
 
       const existing = inFlightMovieMeta.get(movieCd);
       if (existing) return [movieCd, await existing];
 
-      const promise = fetchAndCacheMovieMeta(movieCd).finally(() => {
-        inFlightMovieMeta.delete(movieCd);
-      });
+      // 한 편의 갱신 실패(throw)가 Promise.all 전체를 깨뜨려 홈 화면 행 전체(나아가
+      // app/error.tsx로 페이지 전체)를 날리지 않도록, 실패 시 만료된 캐시라도 쓴다.
+      const promise = fetchAndCacheMovieMeta(movieCd)
+        .catch((error) => {
+          console.warn(`[movie-meta] ${movieCd} 갱신 실패`, error);
+          return null;
+        })
+        .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
+        .finally(() => {
+          inFlightMovieMeta.delete(movieCd);
+        });
       inFlightMovieMeta.set(movieCd, promise);
       return [movieCd, await promise];
     })
