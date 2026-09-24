@@ -14,7 +14,11 @@ export type MyRatedMovie = {
   ratedAt: string; // ISO
   awardBadge?: true;
   festivalAwards?: FestivalAward[];
+  // 항목별 점수(전체 → 연출 → 연기 → 각본 → 음악 → 편집 순). 다른 사람 프로필에서만 채운다.
+  categoryScores?: { category: string; score: number }[];
 };
+
+const CATEGORY_ORDER = ["전체", "연출", "연기", "각본", "음악", "편집"];
 
 function movieIdFromCd(movieCd: string): string {
   if (movieCd.startsWith("tmdb-tv-") || movieCd.startsWith("wikidata-")) return movieCd;
@@ -72,11 +76,12 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
 
 async function getRatingsIncludingCategoryOnly(
   userId: string,
-): Promise<{ movieCd: string; score: number; createdAt: Date }[]> {
+): Promise<{ movieCd: string; score: number; createdAt: Date; categoryScores: { category: string; score: number }[] }[]> {
   const rows = await db.categoryRating.findMany({ where: { userId }, select: { movieCd: true, category: true, score: true, createdAt: true } });
-  const byMovie = new Map<string, { overall: number | null; sum: number; count: number; createdAt: Date }>();
+  const byMovie = new Map<string, { overall: number | null; sum: number; count: number; createdAt: Date; scores: { category: string; score: number }[] }>();
   for (const r of rows) {
-    const entry = byMovie.get(r.movieCd) ?? { overall: null, sum: 0, count: 0, createdAt: r.createdAt };
+    const entry = byMovie.get(r.movieCd) ?? { overall: null, sum: 0, count: 0, createdAt: r.createdAt, scores: [] };
+    entry.scores.push({ category: r.category, score: r.score });
     if (r.category === "전체") entry.overall = r.score;
     else { entry.sum += r.score; entry.count += 1; }
     if (r.createdAt > entry.createdAt) entry.createdAt = r.createdAt;
@@ -87,6 +92,7 @@ async function getRatingsIncludingCategoryOnly(
       movieCd,
       score: e.overall ?? Math.round((e.sum / e.count) * 10) / 10,
       createdAt: e.createdAt,
+      categoryScores: e.scores.sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)),
     }))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
@@ -156,6 +162,7 @@ export async function getMyRatedMovies(
       gradient: FALLBACK_GRADIENT,
       rating: r.score,
       ratedAt: r.createdAt.toISOString(),
+      ...("categoryScores" in r ? { categoryScores: r.categoryScores } : {}),
       ...(awardCdMap.has(r.movieCd) ? { awardBadge: true as const, festivalAwards: awardCdMap.get(r.movieCd)! } : {}),
     };
   });

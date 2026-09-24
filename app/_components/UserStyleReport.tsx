@@ -68,7 +68,19 @@ export default function UserStyleReport({
                     {movie.posterUrl && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} />}
                   </div>
                   <p className="flex-1 truncate text-sm text-text">{movie.title}</p>
-                  <span className="shrink-0 text-xs font-semibold text-star">{movie.rating.toFixed(1)}</span>
+                  {movie.categoryScores && movie.categoryScores.some((c) => c.category !== "전체") ? (
+                    <div className="shrink-0 space-y-0.5">
+                      {movie.categoryScores.map((c) => (
+                        <div key={c.category} className="flex items-center justify-end gap-1.5 text-xs">
+                          <span className="text-muted">{c.category}</span>
+                          <span className="text-star" aria-hidden>★</span>
+                          <span className="w-7 text-right font-semibold text-star">{c.score.toFixed(1)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="shrink-0 text-xs font-semibold text-star">{movie.rating.toFixed(1)}</span>
+                  )}
                 </Link>
               );
             })}
