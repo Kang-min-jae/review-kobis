@@ -70,11 +70,40 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
   }
 }
 
-export async function getMyRatedMovies(userId: string): Promise<MyRatedMovie[]> {
-  const ratings = await db.categoryRating.findMany({
-    where: { userId, category: "전체" },
-    orderBy: { createdAt: "desc" },
-  });
+async function getRatingsIncludingCategoryOnly(
+  userId: string,
+): Promise<{ movieCd: string; score: number; createdAt: Date }[]> {
+  const rows = await db.categoryRating.findMany({ where: { userId }, select: { movieCd: true, category: true, score: true, createdAt: true } });
+  const byMovie = new Map<string, { overall: number | null; sum: number; count: number; createdAt: Date }>();
+  for (const r of rows) {
+    const entry = byMovie.get(r.movieCd) ?? { overall: null, sum: 0, count: 0, createdAt: r.createdAt };
+    if (r.category === "전체") entry.overall = r.score;
+    else { entry.sum += r.score; entry.count += 1; }
+    if (r.createdAt > entry.createdAt) entry.createdAt = r.createdAt;
+    byMovie.set(r.movieCd, entry);
+  }
+  return [...byMovie.entries()]
+    .map(([movieCd, e]) => ({
+      movieCd,
+      score: e.overall ?? Math.round((e.sum / e.count) * 10) / 10,
+      createdAt: e.createdAt,
+    }))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+// includeCategoryOnly: "전체" 평점 없이 항목(연출·편집 등)에만 평가한 영화도 포함한다 —
+// 그런 영화는 그 사람이 남긴 항목 점수 평균을 평점으로 쓴다. 다른 사람 프로필에서만 켠다
+// (내 리스트·다이어리의 "계정 평점" 삭제는 "전체" 평점 기준이라 거기엔 섞지 않는다).
+export async function getMyRatedMovies(
+  userId: string,
+  options: { includeCategoryOnly?: boolean } = {},
+): Promise<MyRatedMovie[]> {
+  const ratings = options.includeCategoryOnly
+    ? await getRatingsIncludingCategoryOnly(userId)
+    : await db.categoryRating.findMany({
+        where: { userId, category: "전체" },
+        orderBy: { createdAt: "desc" },
+      });
   if (ratings.length === 0) return [];
 
   const allMovieCds = ratings.map((r) => r.movieCd);

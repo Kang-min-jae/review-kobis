@@ -30,7 +30,7 @@ export default async function UserProfilePage({ params }: PageProps<"/users/[id]
   const [session, profileUser, movies, followerCount, reviewStats, userReviews] = await Promise.all([
     auth(),
     getUserProfileData(id),
-    getMyRatedMovies(id),
+    getMyRatedMovies(id, { includeCategoryOnly: true }),
     getFollowerCount(id),
     getUserReviewStats(id),
     getReviewsByUser(id),
