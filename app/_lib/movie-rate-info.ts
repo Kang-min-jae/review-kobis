@@ -323,6 +323,16 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   return promise;
 }
 
+// 외부 API를 부르지 않고 DB 캐시만 읽는다(만료 여부 무시). 평점 기반 Best 행처럼
+// 평점 달린 영화 전체를 한 번에 훑어야 하는 곳에서 getMovieMetas를 쓰면, 만료된
+// 영화마다 TMDB/KMDb 재조회(편당 10여 건, 동시 4건 제한)가 줄을 서서 행이 끝나지 않는다.
+export async function getCachedMovieMetas(movieCds: string[]): Promise<Map<string, MovieMeta>> {
+  const uniqueCds = Array.from(new Set(movieCds));
+  if (uniqueCds.length === 0) return new Map();
+  const rows = await db.cachedMovie.findMany({ where: { movieCd: { in: uniqueCds } } });
+  return new Map(rows.map((row) => [row.movieCd, rowToMeta(row)]));
+}
+
 // getMovieMeta를 movieCd 개수만큼 Promise.all로 돌리면, 캐시에 이미 있는 영화라도
 // "캐시에 있나?" DB 조회(findUnique)를 영화 한 편당 한 번씩 따로 날린다 — 홈 화면
 // 한 행이 영화 20~30편을 보여줄 때마다 20~30번 개별 왕복이 생긴다는 뜻이다. 캐시

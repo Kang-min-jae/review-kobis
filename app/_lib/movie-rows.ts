@@ -9,7 +9,7 @@ import {
   type CatalogSearchParams,
 } from "./kobis";
 import { db } from "./db";
-import { getMovieMetas } from "./movie-rate-info";
+import { getMovieMetas, getCachedMovieMetas, type MovieMeta } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
 
@@ -542,93 +542,93 @@ export async function getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
   return rankingRowsToCards(ranking, () => "");
 }
 
-// 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
-// openDateGte/openDateLte 를 기준으로 CachedMovie.releaseDate를 필터링하므로,
-// KOBIS 카탈로그 풀의 순서·개수에 의존하지 않고 평점이 남겨진 모든 영화가 반영된다.
-// 평점 있는 영화를 먼저 채우고, 자리가 남으면 KOBIS 카탈로그(평점 없는 영화)로 보충한다.
-async function getRatingSortedMovies(
-  openDateGte: string,
-  openDateLte: string,
-  limit: number,
-): Promise<RowMovie[]> {
-  // 1. DB에서 '전체' 카테고리 평점 집계 (KOBIS 코드=숫자만, 시리즈 제외)
+type RatedMovie = { cd: string; meta: MovieMeta; avg: number; count: number };
+
+// 평점이 달린 KOBIS 영화 전체를 평점 높은 순(동점이면 평점 수 많은 순)으로 돌려준다.
+// 메타는 DB 캐시만 읽는다 — 여기서 getMovieMetas를 쓰면 만료된 영화마다 외부 API
+// 재조회가 줄을 서서 Best 행이 제한 시간 안에 끝나지 못하고 화면에서 사라진다.
+async function loadRatedMovies(): Promise<RatedMovie[]> {
   const allRatings = await db.categoryRating.groupBy({
     by: ["movieCd"],
     where: { category: "전체" },
     _avg: { score: true },
     _count: { _all: true },
   });
-  const ratingMap = new Map(
-    allRatings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
-  );
-  const ratedCds = allRatings
-    .map((r) => r.movieCd)
-    .filter((cd) => /^\d+$/.test(cd)); // 숫자 KOBIS 코드만
-
-  // 2. 평점 있는 영화의 메타(개봉일·포스터 포함)를 CachedMovie에서 조회
-  const [ratedMetas, ratedAvgMap] = ratedCds.length > 0
-    ? await Promise.all([getMovieMetas(ratedCds), getBulkMovieRatingAverages(ratedCds)])
-    : [new Map() as Awaited<ReturnType<typeof getMovieMetas>>, new Map() as Awaited<ReturnType<typeof getBulkMovieRatingAverages>>];
-
-  // 3. 개봉일 범위 내 영화를 평점 내림차순으로 정렬 (포스터 없어도 그래디언트 카드로 포함)
-  const ratedFiltered = ratedCds
-    .filter((cd) => {
-      const meta = ratedMetas.get(cd);
-      return (
-        meta?.releaseDate &&
-        meta.releaseDate >= openDateGte &&
-        meta.releaseDate <= openDateLte
-      );
+  const ratings = allRatings.filter((r) => /^\d+$/.test(r.movieCd)); // 숫자 KOBIS 코드만(시리즈 제외)
+  const metas = await getCachedMovieMetas(ratings.map((r) => r.movieCd));
+  return ratings
+    .flatMap((r) => {
+      const meta = metas.get(r.movieCd);
+      return meta ? [{ cd: r.movieCd, meta, avg: r._avg.score ?? 0, count: r._count._all }] : [];
     })
-    .sort((a, b) => {
-      const ra = ratingMap.get(a)!;
-      const rb = ratingMap.get(b)!;
-      if (ra.avg !== rb.avg) return rb.avg - ra.avg;
-      return rb.count - ra.count;
-    });
+    .sort((a, b) => (a.avg !== b.avg ? b.avg - a.avg : b.count - a.count));
+}
 
-  const ratedRows: RowMovie[] = [];
-  for (const cd of ratedFiltered) {
-    if (ratedRows.length >= limit) break;
-    const meta = ratedMetas.get(cd);
-    if (!meta) continue;
-    const avgs = ratedAvgMap.get(cd);
-    ratedRows.push({
+async function ratedToRows(rated: RatedMovie[]): Promise<RowMovie[]> {
+  const avgMap = await getBulkMovieRatingAverages(rated.map((r) => r.cd));
+  return rated.map(({ cd, meta }) => {
+    const avgs = avgMap.get(cd);
+    return {
       id: `kobis-${cd}`,
       title: meta.movieTitle,
       posterUrl: meta.posterUrl,
       gradient: FALLBACK_GRADIENT,
-      isNowShowing: isRecentlyOpened(meta.releaseDate ?? null),
+      isNowShowing: isRecentlyOpened(meta.releaseDate),
       releaseDate: meta.releaseDate,
       ...genreFields(meta.genreAlt),
       shortAvg: avgs?.shortAvg ?? null,
       longAvg: avgs?.longAvg ?? null,
-    });
+    };
+  });
+}
+
+// 평점 영화로 자리를 다 못 채우면 KOBIS 후보로 보충한다. 이미 포스터가 캐시된 영화를
+// 먼저 쓰고, 그래도 모자라면 최대 FILL_FETCH_CAP편만 외부 조회한다(비용 상한).
+const FILL_FETCH_CAP = 10;
+
+async function fillWithUnrated(
+  pool: KobisMovieSummary[],
+  exclude: Set<string>,
+  needed: number,
+): Promise<RowMovie[]> {
+  const candidates = pool.filter((m) => !exclude.has(m.movieCd));
+  if (needed <= 0 || candidates.length === 0) return [];
+  const cached = await getCachedMovieMetas(candidates.map((m) => m.movieCd));
+  const withPoster = candidates.filter((m) => cached.get(m.movieCd)?.posterUrl).slice(0, needed);
+  const rows = withPoster.map((m) => summaryToRowMovie(m, cached.get(m.movieCd) ?? null));
+  if (rows.length >= needed) return rows;
+  const used = new Set(withPoster.map((m) => m.movieCd));
+  const rest = candidates
+    .filter((m) => !used.has(m.movieCd))
+    .slice(0, Math.min(needed - rows.length, FILL_FETCH_CAP));
+  return [...rows, ...(await toRowMovies(rest))];
+}
+
+// 날짜 범위 내 영화를 DB 평점 높은 순(동점이면 평점 수 많은 순)으로 정렬해 반환.
+// CachedMovie.releaseDate로 범위를 거르므로 KOBIS 카탈로그 풀의 순서·개수에 의존하지
+// 않는다. 평점 있는 영화를 먼저 채우고, 자리가 남으면 평점 없는 KOBIS 영화로 보충한다.
+async function getRatingSortedMovies(
+  openDateGte: string,
+  openDateLte: string,
+  limit: number,
+): Promise<RowMovie[]> {
+  const rated = await loadRatedMovies();
+  const inRange = rated
+    .filter((r) => r.meta.releaseDate && r.meta.releaseDate >= openDateGte && r.meta.releaseDate <= openDateLte)
+    .slice(0, limit);
+  const rows = await ratedToRows(inRange);
+  if (rows.length >= limit) return rows;
+
+  const needed = limit - rows.length;
+  const exclude = new Set(rated.map((r) => r.cd));
+  const pool = await fetchOpenedBetween(openDateGte, openDateLte, needed * 4 + exclude.size)
+    .catch(() => [] as KobisMovieSummary[]);
+  let fill = await fillWithUnrated(pool, exclude, needed);
+  if (fill.length === 0) {
+    const globalPool = await searchMovieCatalog({}, needed * 2).catch(() => [] as KobisMovieSummary[]);
+    fill = await fillWithUnrated(globalPool, exclude, needed);
   }
-
-  if (ratedRows.length >= limit) return ratedRows;
-
-  // 4. 자리가 남으면 KOBIS 카탈로그(평점 없는 영화)로 최신순 보충
-  const ratedCdSet = new Set(ratedCds);
-  const needed = limit - ratedRows.length;
-  const kobisPool = await fetchOpenedBetween(
-    openDateGte, openDateLte,
-    needed * 4 + ratedCdSet.size, // 평점 있는 영화를 걸러낸 뒤에도 needed개 이상 남도록 넉넉히
-  ).catch(() => [] as KobisMovieSummary[]);
-  const kobisUnrated = kobisPool.filter((m) => !ratingMap.has(m.movieCd));
-  const kobisRows = await toRowMovies(kobisUnrated.slice(0, needed * 2));
-
-  if (kobisRows.length > 0) return [...ratedRows, ...kobisRows.slice(0, needed)];
-
-  // 그라디언트 카드로 폴백 — 날짜 필터 없이 최신 KOBIS 카탈로그 재시도
-  if (kobisUnrated.length > 0) {
-    return [...ratedRows, ...kobisUnrated.slice(0, needed).map((s) => summaryToRowMovie(s, null))];
-  }
-  const globalPool = await searchMovieCatalog({}, needed * 2).catch(() => [] as KobisMovieSummary[]);
-  const globalFiltered = globalPool.filter((m) => !ratingMap.has(m.movieCd));
-  const globalRows = await toRowMovies(globalFiltered.slice(0, needed * 2));
-  if (globalRows.length > 0) return [...ratedRows, ...globalRows.slice(0, needed)];
-  return [...ratedRows, ...globalFiltered.slice(0, needed).map((s) => summaryToRowMovie(s, null))];
+  return [...rows, ...fill.slice(0, needed)];
 }
 
 // 올해의 Best: 올해 개봉작 중 DB 평점 높은 순 10편.
@@ -664,69 +664,13 @@ export const getBestOf5YearsRow = unstable_cache(
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
 );
 
-// 역대 Best: 연도 제한 없이 DB 평점 높은 순 20편.
-// 기존 searchMovieCatalog({}, 30) 방식(KOBIS 기본 정렬)을 DB 평점 기반으로 교체한다.
+// 역대 Best: 연도 제한 없이 DB 평점 높은 순 20편. 평점이 하나도 없으면 KOBIS 목록으로 대체.
 export const getAllTimeBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const allRatings = await db.categoryRating.groupBy({
-      by: ["movieCd"],
-      where: { category: "전체" },
-      _avg: { score: true },
-      _count: { _all: true },
-    });
-    const ratingMap = new Map(
-      allRatings.map((r) => [r.movieCd, { avg: r._avg.score ?? 0, count: r._count._all }])
-    );
-    const ratedCds = allRatings
-      .map((r) => r.movieCd)
-      .filter((cd) => /^\d+$/.test(cd));
-
-    if (ratedCds.length === 0) {
-      // 평점이 전혀 없으면 KOBIS 최신순으로 폴백.
-      // toRowMovies는 포스터 없는 영화를 걸러내므로, DB 콜드 스타트 시 모두 걸러질 수 있다.
-      // 그 경우 포스터 없이 그라디언트만 보여주는 로우로 한 번 더 폴백.
-      const results = await searchMovieCatalog({}, 20).catch(() => [] as KobisMovieSummary[]);
-      if (results.length > 0) {
-        const rows = await toRowMovies(results);
-        if (rows.length > 0) return rows;
-        return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
-      }
-      return [];
-    }
-
-    const [metas, avgMap] = await Promise.all([
-      getMovieMetas(ratedCds),
-      getBulkMovieRatingAverages(ratedCds),
-    ]);
-
-    // 포스터 없는 영화도 그래디언트 카드로 포함 — posterUrl 필터 제거
-    const sorted = ratedCds
-      .sort((a, b) => {
-        const ra = ratingMap.get(a)!;
-        const rb = ratingMap.get(b)!;
-        if (ra.avg !== rb.avg) return rb.avg - ra.avg;
-        return rb.count - ra.count;
-      });
-
-    const rows: RowMovie[] = [];
-    for (const cd of sorted) {
-      if (rows.length >= 20) break;
-      const meta = metas.get(cd);
-      if (!meta) continue;
-      const avgs = avgMap.get(cd);
-      rows.push({
-        id: `kobis-${cd}`,
-        title: meta.movieTitle,
-        posterUrl: meta.posterUrl,
-        gradient: FALLBACK_GRADIENT,
-        isNowShowing: isRecentlyOpened(meta.releaseDate ?? null),
-        releaseDate: meta.releaseDate,
-        ...genreFields(meta.genreAlt),
-        shortAvg: avgs?.shortAvg ?? null,
-        longAvg: avgs?.longAvg ?? null,
-      });
-    }
-    return rows;
+    const rated = await loadRatedMovies();
+    if (rated.length > 0) return ratedToRows(rated.slice(0, 20));
+    const results = await searchMovieCatalog({}, 20).catch(() => [] as KobisMovieSummary[]);
+    return fillWithUnrated(results, new Set(), 10);
   },
   ["all-time-best-row-v2"],
   { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
