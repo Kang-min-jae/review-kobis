@@ -7,10 +7,12 @@ function RatingRow({
   label,
   rating,
   scale,
+  count,
 }: {
   label: string;
   rating: number | null;
   scale: number;
+  count?: number | null;
 }) {
   if (rating === null) return null;
   const display = (rating / scale * 10).toFixed(1);
@@ -18,6 +20,7 @@ function RatingRow({
     <div className="flex min-w-0 items-center gap-1.5">
       <span className="shrink-0 text-[10px] text-muted">{label}</span>
       <span className="truncate text-[10px] font-bold text-star">★ {display}</span>
+      {count != null && count > 0 && <span className="shrink-0 text-[10px] text-muted">{count}명</span>}
     </div>
   );
 }
@@ -26,10 +29,12 @@ export default function RatingSummary({
   movieId,
   shortAvg,
   longAvg,
+  shortCount,
 }: {
   movieId: string;
   shortAvg?: number | null;
   longAvg?: number | null;
+  shortCount?: number | null;
 }) {
   const shortFromStore = useSyncExternalStore(
     subscribe,
@@ -48,7 +53,7 @@ export default function RatingSummary({
 
   return (
     <div className="space-y-1">
-      <RatingRow label="한줄평" rating={shortRating} scale={10} />
+      <RatingRow label="한줄평" rating={shortRating} scale={10} count={shortAvg != null ? shortCount : null} />
       <RatingRow label="장문평" rating={longRating} scale={100} />
     </div>
   );

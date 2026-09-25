@@ -40,6 +40,8 @@ export type RowMovie = {
   // 서버에서 집계한 플랫폼 평균 — 한줄평(0~10), 장문평(0~100). 없으면 null.
   shortAvg?: number | null;
   longAvg?: number | null;
+  // 한줄평(전체)에 평점을 남긴 사람 수
+  shortCount?: number | null;
 };
 
 export type FestivalAward = { festival: string; categoryLabel: string; year: number };
@@ -201,6 +203,7 @@ async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> 
       ...summaryToRowMovie(s, metas.get(s.movieCd) ?? null),
       ...(awards ? { awardBadge: true as const, festivalAwards: awards } : {}),
       shortAvg: avgs?.shortAvg ?? null,
+      shortCount: avgs?.shortCount ?? null,
       longAvg: avgs?.longAvg ?? null,
     };
   });
@@ -295,6 +298,7 @@ async function classificationsToRows(
         ...genreFields(meta.genreAlt),
         ...(awardCds.has(r.movieCd) ? { awardBadge: true as const } : {}),
         shortAvg: avgs?.shortAvg ?? null,
+        shortCount: avgs?.shortCount ?? null,
         longAvg: avgs?.longAvg ?? null,
       },
     });
@@ -418,6 +422,7 @@ async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingE
       ...genreFields(meta?.genreAlt),
       ...(awardCds.has(entry.movieCd) ? { awardBadge: true as const } : {}),
       shortAvg: avgs?.shortAvg ?? null,
+      shortCount: avgs?.shortCount ?? null,
       longAvg: avgs?.longAvg ?? null,
     };
   });
@@ -589,6 +594,7 @@ async function ratedToRows(rated: RatedMovie[]): Promise<RowMovie[]> {
       releaseDate: meta.releaseDate,
       ...genreFields(meta.genreAlt),
       shortAvg: avgs?.shortAvg ?? null,
+      shortCount: avgs?.shortCount ?? null,
       longAvg: avgs?.longAvg ?? null,
     };
   });
@@ -867,7 +873,7 @@ async function _getGenreRow(
   const avgMap = await getBulkMovieRatingAverages(page.map((r) => r.id.replace(/^kobis-/, "")));
   return page.map((r) => {
     const avgs = avgMap.get(r.id.replace(/^kobis-/, ""));
-    return { ...r, shortAvg: avgs?.shortAvg ?? null, longAvg: avgs?.longAvg ?? null };
+    return { ...r, shortAvg: avgs?.shortAvg ?? null, shortCount: avgs?.shortCount ?? null, longAvg: avgs?.longAvg ?? null };
   });
 }
 export const getGenreRow = unstable_cache(
@@ -926,6 +932,7 @@ async function _getUserPopularMoviesRow(
       isNowShowing: false,
       ...genreFields(meta.genreAlt),
       shortAvg: avgs?.shortAvg ?? null,
+      shortCount: avgs?.shortCount ?? null,
       longAvg: avgs?.longAvg ?? null,
     });
 

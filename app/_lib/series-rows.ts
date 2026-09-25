@@ -101,7 +101,7 @@ export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
   const avgMap = await getBulkMovieRatingAverages(rows.map((r) => r.id));
   return rows.map((r) => {
     const avgs = avgMap.get(r.id);
-    return { ...r, shortAvg: avgs?.shortAvg ?? null, longAvg: avgs?.longAvg ?? null };
+    return { ...r, shortAvg: avgs?.shortAvg ?? null, shortCount: avgs?.shortCount ?? null, longAvg: avgs?.longAvg ?? null };
   });
 }
 
@@ -148,6 +148,7 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
         genre: all.length > 0 ? all.slice(0, 2).join(" · ") : null,
         allGenres: all,
         shortAvg: avgs?.shortAvg ?? null,
+        shortCount: avgs?.shortCount ?? null,
         longAvg: avgs?.longAvg ?? null,
       });
     }
@@ -214,6 +215,7 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
         genre: null,
         allGenres: [],
         shortAvg: avgs?.shortAvg ?? null,
+        shortCount: avgs?.shortCount ?? null,
         longAvg: avgs?.longAvg ?? null,
       });
     }

@@ -85,18 +85,21 @@ export async function getReviewsForCategoryType(
 // 홈 화면 영화 카드 평균 평점 — 여러 영화의 SHORT/LONG "전체" 평점 평균을 한 번에 조회.
 export async function getBulkMovieRatingAverages(
   movieCds: string[]
-): Promise<Map<string, { shortAvg: number | null; longAvg: number | null }>> {
+): Promise<Map<string, { shortAvg: number | null; longAvg: number | null; shortCount: number }>> {
   if (movieCds.length === 0) return new Map();
   const rows = await db.review.groupBy({
     by: ["movieCd", "type"],
     where: { movieCd: { in: movieCds }, category: "전체" },
     _avg: { rating: true },
+    _count: { _all: true },
   });
-  const result = new Map<string, { shortAvg: number | null; longAvg: number | null }>();
+  const result = new Map<string, { shortAvg: number | null; longAvg: number | null; shortCount: number }>();
   for (const row of rows) {
-    const entry = result.get(row.movieCd) ?? { shortAvg: null, longAvg: null };
-    if (row.type === "SHORT") entry.shortAvg = row._avg.rating ?? null;
-    else if (row.type === "LONG") entry.longAvg = row._avg.rating ?? null;
+    const entry = result.get(row.movieCd) ?? { shortAvg: null, longAvg: null, shortCount: 0 };
+    if (row.type === "SHORT") {
+      entry.shortAvg = row._avg.rating ?? null;
+      entry.shortCount = row._count._all; // 한줄평(평점만 남긴 것 포함)을 남긴 사람 수 — 1인 1개
+    } else if (row.type === "LONG") entry.longAvg = row._avg.rating ?? null;
     result.set(row.movieCd, entry);
   }
   return result;

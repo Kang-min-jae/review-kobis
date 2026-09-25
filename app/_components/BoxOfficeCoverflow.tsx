@@ -291,7 +291,7 @@ export default function BoxOfficeCoverflow({
             </p>
           )}
           <div className="mt-2 flex justify-center">
-            <RatingSummary movieId={current.id} shortAvg={current.shortAvg} longAvg={current.longAvg} />
+            <RatingSummary movieId={current.id} shortAvg={current.shortAvg} longAvg={current.longAvg} shortCount={current.shortCount} />
           </div>
         </div>
 
