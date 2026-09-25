@@ -20,7 +20,7 @@ function RatingRow({
     <div className="flex min-w-0 items-center gap-1.5">
       <span className="shrink-0 text-[10px] text-muted">{label}</span>
       <span className="truncate text-[10px] font-bold text-star">★ {display}</span>
-      {count != null && count > 0 && <span className="shrink-0 text-[10px] text-muted">{count}명</span>}
+      {count != null && count > 0 && <span className="shrink-0 text-[10px] text-muted">({count})</span>}
     </div>
   );
 }
