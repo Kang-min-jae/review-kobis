@@ -3,6 +3,16 @@ import { db } from "../../../_lib/db";
 import { getTmdbPopularSeries } from "../../../_lib/tmdb";
 import { splitGenres } from "../../../_lib/movie-rows";
 import type { RowMovie } from "../../../_lib/movie-rows";
+import { getBulkMovieRatingAverages } from "../../../_lib/review-data";
+
+// 다른 행의 카드처럼 사이트 평점(한줄평·장문평 평균과 평가 인원)을 붙인다.
+async function withRatings(results: RowMovie[]): Promise<RowMovie[]> {
+  const avgMap = await getBulkMovieRatingAverages(results.map((r) => r.id));
+  return results.map((r) => {
+    const avgs = avgMap.get(r.id);
+    return { ...r, shortAvg: avgs?.shortAvg ?? null, shortCount: avgs?.shortCount ?? null, longAvg: avgs?.longAvg ?? null };
+  });
+}
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -141,7 +151,7 @@ export async function POST(request: Request) {
           genre: null,
           allGenres: [],
         }));
-      return NextResponse.json({ results });
+      return NextResponse.json({ results: await withRatings(results) });
     } catch {
       return NextResponse.json({ results: [] });
     }
@@ -229,7 +239,7 @@ export async function POST(request: Request) {
     };
   });
 
-  return NextResponse.json({ results: results.filter((r) => r.posterUrl !== null) });
+  return NextResponse.json({ results: await withRatings(results.filter((r) => r.posterUrl !== null)) });
 }
 
 export async function GET() {

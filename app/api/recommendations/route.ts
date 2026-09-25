@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { db } from "../../_lib/db";
+import { getBulkMovieRatingAverages } from "../../_lib/review-data";
 import { getCachedMovieMetas, WIKIDATA_VERIFIED } from "../../_lib/movie-rate-info";
 import { genreFields, splitGenres, GENRE_KEYWORDS } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
@@ -912,7 +913,14 @@ export async function POST(request: Request) {
     }
   }
 
-  const payload = { results };
+  // 다른 행의 카드처럼 사이트 평점(한줄평·장문평 평균과 평가 인원)을 붙인다.
+  const avgMap = await getBulkMovieRatingAverages(results.map((r) => r.id.replace(/^kobis-/, "")));
+  const payload = {
+    results: results.map((r) => {
+      const avgs = avgMap.get(r.id.replace(/^kobis-/, ""));
+      return { ...r, shortAvg: avgs?.shortAvg ?? null, shortCount: avgs?.shortCount ?? null, longAvg: avgs?.longAvg ?? null };
+    }),
+  };
 
   // 결과 캐싱 (FIFO 방식으로 최대 200개 유지)
   if (recServerCache.size >= REC_CACHE_MAX) {
