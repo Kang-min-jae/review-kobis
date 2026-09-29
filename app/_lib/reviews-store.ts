@@ -1,6 +1,7 @@
 import { seedReviews, type Review, type ReviewType } from "./mock-reviews";
 import { getGuestIdentity } from "./guest-identity";
 import type { RatingCategory } from "./category-ratings-store";
+import { safeSetItem } from "./safe-storage";
 
 // 리뷰에 category 필드가 생기기 전에 저장된 데이터는 이 값이 없을 수 있다 — 그때는
 // 전체 평가로 간주한다.
@@ -84,13 +85,13 @@ function readAllReviews(): Review[] {
 }
 
 function writeUserReviews(reviews: Review[]) {
-  window.localStorage.setItem(currentStorageKey, JSON.stringify(reviews));
+  safeSetItem(currentStorageKey, JSON.stringify(reviews));
   // 사용자별 키에 쓸 때 공유 키도 동기화해 플랫폼 평균에 반영한다.
   if (currentStorageKey !== BASE_STORAGE_KEY) {
     const identity = getGuestIdentity();
     const shared = readAllReviews();
     const others = shared.filter((r) => r.authorId !== identity.id);
-    window.localStorage.setItem(BASE_STORAGE_KEY, JSON.stringify([...others, ...reviews]));
+    safeSetItem(BASE_STORAGE_KEY, JSON.stringify([...others, ...reviews]));
   }
 }
 

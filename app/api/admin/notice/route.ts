@@ -28,26 +28,30 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
 
+  // 문자열이 아닌 값이 오면 .trim()에서 500으로 끝나지 않게 형식부터 확인한다.
   const { type, title, content, isNew } = body as {
-    type: string;
-    title: string;
-    content?: string;
-    isNew?: boolean;
+    type?: unknown;
+    title?: unknown;
+    content?: unknown;
+    isNew?: unknown;
   };
 
-  if (!NOTICE_TYPES.includes(type as (typeof NOTICE_TYPES)[number])) {
+  if (typeof type !== "string" || !NOTICE_TYPES.includes(type as (typeof NOTICE_TYPES)[number])) {
     return NextResponse.json({ error: "유효하지 않은 타입입니다." }, { status: 400 });
   }
-  if (!title?.trim() || title.trim().length > 200) {
+  if (typeof title !== "string" || !title.trim() || title.trim().length > 200) {
     return NextResponse.json({ error: "제목을 1~200자로 입력해 주세요." }, { status: 400 });
+  }
+  if (content !== undefined && content !== null && (typeof content !== "string" || content.length > 10000)) {
+    return NextResponse.json({ error: "내용은 10000자 이내 문자열이어야 합니다." }, { status: 400 });
   }
 
   const notice = await db.notice.create({
     data: {
       type,
       title: title.trim(),
-      content: content?.trim() || null,
-      isNew: isNew ?? true,
+      content: typeof content === "string" ? content.trim() || null : null,
+      isNew: typeof isNew === "boolean" ? isNew : true,
     },
     select: { id: true },
   });
@@ -63,6 +67,8 @@ export async function DELETE(request: Request) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
 
-  await db.notice.delete({ where: { id } });
+  // 이미 지워진 공지를 다시 지우면 delete가 예외를 던지므로 deleteMany로 처리한다.
+  const { count } = await db.notice.deleteMany({ where: { id } });
+  if (count === 0) return NextResponse.json({ error: "공지를 찾을 수 없습니다." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

@@ -7,6 +7,7 @@ import { getPersonFilmography, getPersonTmdbId } from "../../_lib/person-filmogr
 import { findNamesakeCandidates } from "../../_lib/kmdb";
 import { getTmdbPersonBirthday } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
+import { safeDecode } from "../../_lib/safe-decode";
 
 // 처음 보는 인물은 필모그래피 계산이 응답 뒤(after)까지 이어질 수 있어 넉넉히 잡는다.
 export const maxDuration = 60;
@@ -24,7 +25,7 @@ function candidateHref(name: string, role: Role, kmdbId: string): string {
 export default async function PersonPage({ params, searchParams }: PageProps<"/people/[id]">) {
   const { id } = await params;
   const { pid, role: roleParam, tmdbId: tmdbIdParam } = await searchParams;
-  const name = decodeURIComponent(id);
+  const name = safeDecode(id);
   const role: Role | null = roleParam === "감독" || roleParam === "배우" ? roleParam : null;
 
   // URL에 pid가 없어도(예: 예전에 만들어진 링크), 이 이름이 사람이 직접 확인해둔

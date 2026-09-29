@@ -37,7 +37,10 @@ export async function incrementProfileView(targetUserId: string): Promise<void> 
   }
 }
 
+// 프로필 조회수는 본인만 볼 수 있다 — 서버 액션은 밖에서 직접 호출할 수 있어 세션으로 확인한다.
 export async function getProfileViews(userId: string): Promise<{ today: number; total: number }> {
+  const session = await auth();
+  if (!session?.user?.id || session.user.id !== userId) return { today: 0, total: 0 };
   try {
     const user = await db.user.findUnique({
       where: { id: userId },

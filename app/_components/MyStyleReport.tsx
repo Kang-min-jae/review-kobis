@@ -66,7 +66,7 @@ export default function MyStyleReport() {
       {topLiked && topLiked.likes > 0 && (
         <div className="mt-4 border-t border-neutral-700 pt-3">
           <p className="text-[11px] text-muted">가장 많은 좋아요를 받은 내 평론</p>
-          <p className="mt-1 line-clamp-2 text-sm text-text">"{topLiked.review.content}"</p>
+          <p className="mt-1 line-clamp-2 text-sm text-text">&ldquo;{topLiked.review.content}&rdquo;</p>
           <p className="mt-1 text-[11px] font-semibold text-star">👍 {topLiked.likes}</p>
         </div>
       )}

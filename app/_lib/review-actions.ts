@@ -5,6 +5,28 @@ import { db } from "./db";
 import { auth } from "../../auth";
 import { containsSpoilerKeyword } from "./spoiler";
 
+// ── 입력 검증 ─────────────────────────────────────────────────────────────
+// 서버 액션은 밖에서 직접 호출할 수 있다 — 화면을 거치지 않고 점수 1000점, 없는 항목 이름,
+// 아주 긴 글을 저장하면 사이트 전체의 평균·Best 순위·추천이 오염된다. 화면이 허용하는 범위만 받는다.
+const REVIEW_CATEGORIES = ["전체", "연출", "연기", "각본", "음악", "편집"];
+const MOVIE_CD_PATTERN = /^(\d{1,20}|tmdb-(tv-)?\d{1,12}|kmdb-[A-Za-z0-9_-]{1,40}|wikidata-Q\d{1,12})$/;
+const SHORT_CONTENT_MAX = 500; // 화면 입력 제한 200자 + 여유
+const LONG_CONTENT_MAX = 20000;
+
+function assertMovieCd(movieCd: unknown): asserts movieCd is string {
+  if (typeof movieCd !== "string" || !MOVIE_CD_PATTERN.test(movieCd)) throw new Error("잘못된 영화입니다.");
+}
+
+function assertCategory(category: unknown): asserts category is string {
+  if (typeof category !== "string" || !REVIEW_CATEGORIES.includes(category)) throw new Error("잘못된 평가 항목입니다.");
+}
+
+function assertScore(score: unknown, max: number): asserts score is number {
+  if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > max) {
+    throw new Error(`평점은 0~${max} 사이여야 합니다.`);
+  }
+}
+
 function categoryPath(movieId: string, category: string): string {
   return `/movies/${movieId}/rate/category/${encodeURIComponent(category)}`;
 }
@@ -20,6 +42,9 @@ export async function submitCategoryRatingAction(
   const session = await auth();
   if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
   const userId = session.user.id;
+  assertMovieCd(movieCd);
+  assertCategory(category);
+  assertScore(score, 10);
 
   await db.categoryRating.upsert({
     where: { userId_movieCd_category: { userId, movieCd, category } },
@@ -77,6 +102,13 @@ export async function submitReviewAction(input: {
   const session = await auth();
   if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
   const userId = session.user.id;
+  assertMovieCd(input.movieCd);
+  assertCategory(input.category);
+  if (input.type !== "SHORT" && input.type !== "LONG") throw new Error("잘못된 리뷰 종류입니다.");
+  assertScore(input.rating, input.type === "SHORT" ? 10 : 100);
+  if (typeof input.content !== "string" || input.content.length > (input.type === "SHORT" ? SHORT_CONTENT_MAX : LONG_CONTENT_MAX)) {
+    throw new Error("리뷰 내용이 너무 길어요.");
+  }
   const hasSpoiler = containsSpoilerKeyword(input.content);
   const key = { userId, movieCd: input.movieCd, category: input.category, type: input.type };
 

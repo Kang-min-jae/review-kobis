@@ -204,8 +204,9 @@ async function fetchTitleCandidates(query: string, key: string): Promise<RawMovi
     console.warn(`[kobis] "${query}" 검색 실패: HTTP ${res.status}`);
     return [];
   }
-  const data: { movieListResult?: { movieList?: RawMovieListItem[] } } = await res.json();
-  return data.movieListResult?.movieList ?? [];
+  // KOBIS는 한도 초과·점검 때 200으로 HTML/오류 JSON을 돌려주기도 해서 파싱 실패도 빈 결과로 처리한다.
+  const data = (await res.json().catch(() => null)) as { movieListResult?: { movieList?: RawMovieListItem[] } } | null;
+  return data?.movieListResult?.movieList ?? [];
 }
 
 function exactTitleMatches(items: RawMovieListItem[], query: string): RawMovieListItem[] {
@@ -553,14 +554,20 @@ async function fetchDailyBoxOffice(targetDt: string, key: string): Promise<Daily
   url.searchParams.set("key", key);
   url.searchParams.set("targetDt", targetDt);
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) }).catch(
+    (error) => {
+      console.warn(`[kobis] 일별 박스오피스(${targetDt}) 요청 오류:`, error);
+      return null;
+    }
+  );
+  if (!res) return [];
   if (!res.ok) {
     console.warn(`[kobis] 일별 박스오피스(${targetDt}) 조회 실패: HTTP ${res.status}`);
     return [];
   }
 
-  const data: { boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[] } } = await res.json();
-  return data.boxOfficeResult?.dailyBoxOfficeList ?? [];
+  const data = (await res.json().catch(() => null)) as { boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[] } } | null;
+  return data?.boxOfficeResult?.dailyBoxOfficeList ?? [];
 }
 
 export type KoficWeeklyEntry = {

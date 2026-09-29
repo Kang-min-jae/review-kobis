@@ -40,7 +40,7 @@ export default function TopLikedReview({ movieId }: { movieId: string }) {
     return (
       <button type="button" onClick={() => setRevealed(true)} className="block w-full text-left">
         <p className="line-clamp-2 select-none text-[11px] text-muted blur-sm">
-          👍 {top.likes} "{top.review.content}"
+          👍 {top.likes} &ldquo;{top.review.content}&rdquo;
         </p>
         <span className="text-[10px] font-semibold text-brand">스포일러 포함 · 클릭해서 보기</span>
       </button>
@@ -57,7 +57,7 @@ export default function TopLikedReview({ movieId }: { movieId: string }) {
 
   return (
     <p className="line-clamp-2 text-[11px] text-muted">
-      👍 {top.likes} "{top.review.content}"
+      👍 {top.likes} &ldquo;{top.review.content}&rdquo;
     </p>
   );
 }

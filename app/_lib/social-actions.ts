@@ -29,6 +29,8 @@ function computeDeltas(from: MyVote, to: MyVote) {
 export async function toggleReviewVote(reviewId: string, type: VoteType) {
   const session = await auth();
   const userId = requireUserId(session);
+  // 서버 액션은 밖에서 직접 호출할 수 있어 투표 종류를 확인한다(다른 값이면 집계가 어긋난다).
+  if (type !== "LIKE" && type !== "DISLIKE") throw new Error("잘못된 투표입니다.");
 
   const review = await db.review.findUniqueOrThrow({ where: { id: reviewId } });
   const existing = await db.reviewLike.findUnique({
@@ -87,6 +89,9 @@ export async function toggleFollow(followingId: string) {
     return { following: false };
   }
 
+  // 없는 사용자 ID면 외래키 오류로 예외가 나므로 먼저 확인한다.
+  const target = await db.user.findUnique({ where: { id: followingId }, select: { id: true } });
+  if (!target) throw new Error("사용자를 찾을 수 없습니다.");
   await db.follow.create({ data: { followerId, followingId } });
   revalidatePath("/my-list");
   revalidatePath(`/users/${followingId}`);

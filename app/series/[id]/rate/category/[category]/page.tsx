@@ -12,6 +12,7 @@ import BackBar from "../../../../../_components/BackBar";
 import MovieInfoHeader from "../../../../../_components/MovieInfoHeader";
 import CategoryRatings from "../../../../../_components/CategoryRatings";
 import CategoryRateForm from "../../../../../_components/CategoryRateForm";
+import { safeDecode } from "../../../../../_lib/safe-decode";
 
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
@@ -23,7 +24,7 @@ export default async function SeriesCategoryRatePage({
   params: Promise<{ id: string; category: string }>;
 }) {
   const { id, category: categoryParam } = await params;
-  const category = decodeURIComponent(categoryParam);
+  const category = safeDecode(categoryParam);
 
   if (!isRatingCategory(category)) {
     notFound();

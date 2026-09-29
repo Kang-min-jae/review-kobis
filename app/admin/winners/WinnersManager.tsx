@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useTransition } from "react";
 import { saveOfficialWinnerAction, deleteOfficialWinnerAction, listOfficialWinnersAction } from "../../_lib/admin-winner-actions";
 
-type FestivalId = "academy" | "cannes" | "berlin" | "venice";
+import { FESTIVAL_AWARDS, type FestivalId } from "../../_lib/festival-awards";
 
 const FESTIVALS: { id: FestivalId; name: string }[] = [
   { id: "academy", name: "아카데미" },
@@ -11,13 +11,6 @@ const FESTIVALS: { id: FestivalId; name: string }[] = [
   { id: "berlin",  name: "베를린" },
   { id: "venice",  name: "베니스" },
 ];
-
-const FESTIVAL_AWARDS: Record<FestivalId, string[]> = {
-  academy: ["작품상", "감독상", "남우주연상", "여우주연상", "남우조연상", "여우조연상", "각본상", "각색상", "국제영화상", "촬영상", "편집상", "음악상"],
-  cannes:  ["황금종려상", "심사위원대상", "감독상", "남우주연상", "여우주연상", "각본상", "심사위원특별상"],
-  berlin:  ["황금곰상", "심사위원대상", "감독상", "남우주연상", "여우주연상", "각본상", "특별심사위원상"],
-  venice:  ["황금사자상", "심사위원대상", "감독상", "각본상", "볼피컵 남우주연상", "볼피컵 여우주연상", "특별심사위원상", "마르첼로 마스트로이안니상"],
-};
 
 type MovieHit = { movieCd: string; title: string; posterUrl: string | null };
 type WinnerRow = { id: string; year: number; festival: string; awardCategory: string; movieId: string; movieTitle: string; posterUrl: string | null };
@@ -54,18 +47,26 @@ export default function WinnersManager() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) { setHits([]); return; }
+    // 입력이 바뀐 뒤 도착한 이전 검색 결과는 버린다(늦은 응답이 새 결과를 덮어쓰지 않게).
+    let cancelled = false;
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
         const res = await fetch(`/api/search-movies?q=${encodeURIComponent(query)}`);
         if (res.ok) {
           const data = await res.json();
-          setHits((data.movies ?? []).slice(0, 8));
+          if (!cancelled) setHits((data.movies ?? []).slice(0, 8));
         }
+      } catch {
+        // 네트워크 오류 — 이전 결과를 그대로 둔다
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 400);
+    return () => {
+      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [query]);
 
   async function loadWinners() {

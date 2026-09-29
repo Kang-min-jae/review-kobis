@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { TopReview } from "../api/reviews/top/route";
 
 export type { TopReview };
@@ -9,14 +9,20 @@ export type { TopReview };
 const cache = new Map<string, TopReview[]>();
 const inflight = new Map<string, Promise<TopReview[]>>();
 
+const EMPTY: TopReview[] = [];
+
 async function fetchTopReviews(movieCd: string): Promise<TopReview[]> {
   const existing = inflight.get(movieCd);
   if (existing) return existing;
-  const promise = fetch(`/api/reviews/top?movieCd=${movieCd}`)
-    .then((r) => r.json() as Promise<{ reviews: TopReview[] }>)
+  const promise = fetch(`/api/reviews/top?movieCd=${encodeURIComponent(movieCd)}`)
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json() as Promise<{ reviews?: TopReview[] }>;
+    })
     .then(({ reviews }) => {
-      cache.set(movieCd, reviews);
-      return reviews;
+      const list = Array.isArray(reviews) ? reviews : [];
+      cache.set(movieCd, list); // 실패 응답은 캐시하지 않는다(다음에 다시 시도)
+      return list;
     })
     .finally(() => inflight.delete(movieCd));
   inflight.set(movieCd, promise);
@@ -25,27 +31,28 @@ async function fetchTopReviews(movieCd: string): Promise<TopReview[]> {
 
 // BoxOfficeCoverflow 뒤집기 카드와 TopReviewsPanel(호버 팝업)이 공유하는 훅.
 // movieCd가 null이면 아무것도 하지 않는다 (KOBIS 영화가 아닌 경우).
+//
+// 결과를 "어느 영화의 결과인지"와 함께 저장하고 화면 값은 렌더링 때 계산한다. 예전엔 마지막
+// 요청 영화를 ref로만 기억해서 ① A → (영화 아님) → A로 돌아오면 한줄평이 빈 채로 남고
+// ② 로딩 중에 캐시된 영화로 넘어가면 로딩 표시가 끝나지 않았으며 ③ 오류 응답이면
+// reviews가 undefined가 되어 목록 렌더링이 깨졌다.
 export function useTopReviews(movieCd: string | null): { reviews: TopReview[]; loading: boolean } {
-  // SSR과 클라이언트 초기 렌더링이 항상 []로 일치하도록 cache를 useState 초기값에 쓰지 않는다.
-  // 서버 프로세스에 남아 있는 모듈 캐시 때문에 서버는 reviews가 있고 클라이언트는
-  // 빈 배열인 상태가 생겨 Hydration Mismatch가 발생할 수 있다.
-  const [reviews, setReviews] = useState<TopReview[]>([]);
-  const [loading, setLoading] = useState(false);
-  const currentCd = useRef<string | null>(null);
+  // SSR과 클라이언트 초기 렌더링이 항상 []로 일치하도록 초기값엔 캐시를 쓰지 않는다
+  // (모듈 캐시는 브라우저에서만 채워진다 — fetch는 effect 안에서만 일어난다).
+  const [result, setResult] = useState<{ movieCd: string; reviews: TopReview[] } | null>(null);
 
   useEffect(() => {
-    if (!movieCd) { setReviews([]); return; }
-    if (currentCd.current === movieCd) return;
-    currentCd.current = movieCd;
-
-    const cached = cache.get(movieCd);
-    if (cached) { setReviews(cached); return; }
-
-    setLoading(true);
+    if (!movieCd || cache.has(movieCd)) return;
+    let cancelled = false;
     fetchTopReviews(movieCd)
-      .then((data) => { if (currentCd.current === movieCd) setReviews(data); })
-      .finally(() => { if (currentCd.current === movieCd) setLoading(false); });
+      .then((reviews) => { if (!cancelled) setResult({ movieCd, reviews }); })
+      .catch(() => { if (!cancelled) setResult({ movieCd, reviews: EMPTY }); });
+    return () => { cancelled = true; };
   }, [movieCd]);
 
-  return { reviews, loading };
+  if (!movieCd) return { reviews: EMPTY, loading: false };
+  const cached = cache.get(movieCd);
+  if (cached) return { reviews: cached, loading: false };
+  if (result?.movieCd === movieCd) return { reviews: result.reviews, loading: false };
+  return { reviews: EMPTY, loading: true };
 }

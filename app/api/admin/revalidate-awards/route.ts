@@ -12,13 +12,14 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { db } from "../../../_lib/db";
+import { isValidAdminSecret } from "../../../_lib/admin-secret";
 
 export async function POST(request: Request) {
   const secret = process.env.ADMIN_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "ADMIN_SECRET not configured" }, { status: 500 });
   }
-  if (request.headers.get("x-admin-secret") !== secret) {
+  if (!isValidAdminSecret(request.headers.get("x-admin-secret"), secret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

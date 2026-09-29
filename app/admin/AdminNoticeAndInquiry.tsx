@@ -31,9 +31,14 @@ function NoticeTab() {
 
   const fetchNotices = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/admin/notice");
-    if (res.ok) setNotices(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch("/api/admin/notice");
+      if (res.ok) setNotices(await res.json());
+    } catch {
+      // 네트워크 오류 — 목록은 그대로 두고 로딩만 끝낸다
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchNotices(); }, [fetchNotices]);

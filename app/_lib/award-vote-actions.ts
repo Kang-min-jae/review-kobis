@@ -4,6 +4,7 @@ import { updateTag } from "next/cache";
 import { unstable_cache } from "next/cache";
 import { db } from "./db";
 import { auth } from "../../auth";
+import { isValidAward, sanitizePosterUrl } from "./festival-awards";
 import type { FestivalWinner } from "./wikidata";
 
 export type OfficialWinner = {
@@ -134,6 +135,13 @@ export async function submitAwardVoteAction(input: {
   const session = await auth();
   if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
   const userId = session.user.id;
+
+  // 서버 액션은 밖에서 직접 호출할 수 있다 — 없는 영화제·부문, 비정상 값, 등록되지 않은
+  // 이미지 주소(렌더링 오류로 부문 화면 전체가 깨짐)는 받지 않는다.
+  if (!isValidAward(input.festival, input.awardCategory)) throw new Error("잘못된 영화제·부문입니다.");
+  if (typeof input.movieId !== "string" || !input.movieId || input.movieId.length > 120) throw new Error("잘못된 영화입니다.");
+  if (typeof input.movieTitle !== "string" || !input.movieTitle.trim() || input.movieTitle.length > 200) throw new Error("잘못된 영화 제목입니다.");
+  input = { ...input, movieTitle: input.movieTitle.trim(), posterUrl: sanitizePosterUrl(input.posterUrl) };
 
   const key = { userId, festival: input.festival, awardCategory: input.awardCategory };
 

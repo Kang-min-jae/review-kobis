@@ -169,11 +169,12 @@ async function UserPopularMoviesRowData({ genre }: { genre?: string }) {
 }
 
 async function AwardWinnersData() {
+  // 영화제 하나의 조회(Wikidata 등)가 실패해도 홈 전체가 오류 화면이 되지 않게, 그 영화제만 빈 탭으로 둔다.
   const [academyRows, cannesRows, berlinRows, veniceRows] = await Promise.all([
-    getLatestAcademyWinnerRows(),
-    getLatestCannesWinnerRows(),
-    getLatestBerlinWinnerRows(),
-    getLatestVeniceWinnerRows(),
+    safeRows("getLatestAcademyWinnerRows", getLatestAcademyWinnerRows),
+    safeRows("getLatestCannesWinnerRows", getLatestCannesWinnerRows),
+    safeRows("getLatestBerlinWinnerRows", getLatestBerlinWinnerRows),
+    safeRows("getLatestVeniceWinnerRows", getLatestVeniceWinnerRows),
   ]);
 
   const tabs: AwardTab[] = [

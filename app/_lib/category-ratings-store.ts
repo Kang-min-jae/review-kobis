@@ -1,4 +1,5 @@
 import { getGuestIdentity } from "./guest-identity";
+import { safeSetItem } from "./safe-storage";
 
 export const RATING_CATEGORIES = ["전체", "연출", "연기", "각본", "음악", "편집"] as const;
 export type RatingCategory = (typeof RATING_CATEGORIES)[number];
@@ -42,7 +43,7 @@ function load(): Store {
 
 function persist(next: Store) {
   cached = next;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(STORAGE_KEY, JSON.stringify(next));
   version += 1;
   listeners.forEach((listener) => listener());
 }

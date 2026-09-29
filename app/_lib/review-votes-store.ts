@@ -1,3 +1,4 @@
+import { safeSetItem } from "./safe-storage";
 // 리뷰별 좋아요/싫어요. 계정 시스템이 없으니 my-list의 팔로우/좋아요와 같은 방식으로,
 // 기본 수치에 이 브라우저에서의 내 투표(+1/-1)를 얹어 흉내낸다.
 
@@ -41,7 +42,7 @@ function load(): VotesState {
 
 function persist(next: VotesState) {
   cached = next;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(STORAGE_KEY, JSON.stringify(next));
   emitChange();
 }
 

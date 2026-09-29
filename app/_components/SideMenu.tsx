@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import type { Session } from "next-auth";
 import { signOutAction } from "../_lib/auth-actions";
@@ -46,30 +46,6 @@ import {
   LogoutIcon,
 } from "./MenuIcons";
 import NotificationPanel from "./NotificationPanel";
-
-// 실제 기능이 아직 없는 항목(컬렉션/팔로잉 목록/계정 설정/알림/고객센터)은 엉뚱한
-// 페이지로 보내는 링크 대신, 메뉴만 닫히는 버튼으로 둔다 — 없는 기능을 있는 것처럼
-// 보이게 링크를 만드는 것보다 이쪽이 정직하다.
-function PlaceholderItem({
-  icon,
-  label,
-  onClose,
-}: {
-  icon: ReactNode;
-  label: string;
-  onClose: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClose}
-      className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-muted transition-colors hover:bg-black/30 hover:text-text"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
 
 export default function SideMenu({
   session,

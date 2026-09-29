@@ -35,16 +35,23 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
 
-  const { id, adminReply } = body as { id: string; adminReply: string };
+  // 문자열이 아닌 값이 오면 .trim()에서 500으로 끝나지 않게 형식부터 확인한다.
+  const { id, adminReply } = body as { id?: unknown; adminReply?: unknown };
 
-  if (!id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
-  if (!adminReply?.trim()) return NextResponse.json({ error: "답변 내용을 입력해 주세요." }, { status: 400 });
+  if (typeof id !== "string" || !id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
+  if (typeof adminReply !== "string" || !adminReply.trim()) {
+    return NextResponse.json({ error: "답변 내용을 입력해 주세요." }, { status: 400 });
+  }
+  if (adminReply.trim().length > 5000) {
+    return NextResponse.json({ error: "답변은 5000자 이내로 입력해 주세요." }, { status: 400 });
+  }
 
-  const updated = await db.inquiry.update({
+  // 없는 문의(이미 삭제됨 등)면 update가 예외를 던지므로 updateMany로 확인한다.
+  const { count } = await db.inquiry.updateMany({
     where: { id },
     data: { adminReply: adminReply.trim(), status: "처리 완료" },
-    select: { id: true, status: true },
   });
+  if (count === 0) return NextResponse.json({ error: "문의를 찾을 수 없습니다." }, { status: 404 });
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ id, status: "처리 완료" });
 }

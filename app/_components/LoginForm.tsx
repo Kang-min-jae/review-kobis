@@ -49,7 +49,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
     } catch {}
   }
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit() {
     try {
       if (remember) {
         localStorage.setItem(STORAGE_KEY, email);

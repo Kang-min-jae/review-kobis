@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "../../../_lib/db";
+import { isValidAdminSecret } from "../../../_lib/admin-secret";
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 3; // movie-rate-info.ts와 동일
 
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   if (!secret) {
     return NextResponse.json({ error: "ADMIN_SECRET not configured" }, { status: 500 });
   }
-  if (request.headers.get("x-admin-secret") !== secret) {
+  if (!isValidAdminSecret(request.headers.get("x-admin-secret"), secret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

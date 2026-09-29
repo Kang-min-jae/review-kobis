@@ -60,16 +60,23 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
     if (trimmed.length < 2) { setNicknameStatus("too_short"); return; }
     if (trimmed.length > 20) { setNicknameStatus("too_long"); return; }
     setNicknameStatus("checking");
+    // 입력이 바뀐 뒤 도착한 이전 값의 중복 확인 결과는 버린다 — 늦게 온 응답이 새 값의 상태를
+    // 덮어써 이미 쓰는 이름이 "사용 가능"으로 보일 수 있었다.
+    let cancelled = false;
     nicknameDebounce.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/check-nickname?nickname=${encodeURIComponent(trimmed)}`);
-        const data = await res.json() as { available: boolean };
-        setNicknameStatus(data.available ? "available" : "taken");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { available?: boolean };
+        if (!cancelled) setNicknameStatus(data.available === true ? "available" : data.available === false ? "taken" : "idle");
       } catch {
-        setNicknameStatus("idle");
+        if (!cancelled) setNicknameStatus("idle");
       }
     }, 400);
-    return () => { if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current); };
+    return () => {
+      cancelled = true;
+      if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current);
+    };
   }, [nickname]);
 
   useEffect(() => {
@@ -80,16 +87,23 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
     if (trimmed.length > 20) { setUsernameStatus("too_long"); return; }
     if (!USERNAME_RE.test(trimmed)) { setUsernameStatus("invalid"); return; }
     setUsernameStatus("checking");
+    // 입력이 바뀐 뒤 도착한 이전 값의 중복 확인 결과는 버린다 — 늦게 온 응답이 새 값의 상태를
+    // 덮어써 이미 쓰는 이름이 "사용 가능"으로 보일 수 있었다.
+    let cancelled = false;
     usernameDebounce.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/check-username?username=${encodeURIComponent(trimmed)}`);
-        const data = await res.json() as { available: boolean };
-        setUsernameStatus(data.available ? "available" : "taken");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { available?: boolean };
+        if (!cancelled) setUsernameStatus(data.available === true ? "available" : data.available === false ? "taken" : "idle");
       } catch {
-        setUsernameStatus("idle");
+        if (!cancelled) setUsernameStatus("idle");
       }
     }, 400);
-    return () => { if (usernameDebounce.current) clearTimeout(usernameDebounce.current); };
+    return () => {
+      cancelled = true;
+      if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
+    };
   }, [username]);
 
   const requiredAgreed = TERMS_ITEMS.filter((item) => item.required).every((item) => agreed[item.key]);

@@ -52,10 +52,13 @@ export default function NotificationPanel({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setLoading(true);
     getNotifications()
-      .then(setData)
-      .finally(() => setLoading(false));
+      .then((next) => { if (!cancelled) setData(next); })
+      .catch(() => { /* 알림을 못 불러와도 패널은 연다(빈 목록) */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [open]);
 
   if (!open) return null;

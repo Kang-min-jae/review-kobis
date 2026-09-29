@@ -1,3 +1,4 @@
+import { safeSetItem } from "./safe-storage";
 // 실제 계정/백엔드가 없는 목데이터 단계이므로, "다른 사용자들의 팔로우/좋아요"는
 // 기본 수치(base)에 이 브라우저에서의 내 토글(+1/-1)을 더해 흉내낸다.
 
@@ -50,7 +51,7 @@ function loadSocial(): SocialState {
 
 function persistSocial(next: SocialState) {
   cachedSocial = next;
-  window.localStorage.setItem(SOCIAL_KEY, JSON.stringify(next));
+  safeSetItem(SOCIAL_KEY, JSON.stringify(next));
   emitChange();
 }
 
@@ -123,6 +124,6 @@ export function recordView() {
     total: state.total + 1,
     byDate: { ...state.byDate, [key]: (state.byDate[key] ?? 0) + 1 },
   };
-  window.localStorage.setItem(VIEWS_KEY, JSON.stringify(cachedViews));
+  safeSetItem(VIEWS_KEY, JSON.stringify(cachedViews));
   emitChange();
 }

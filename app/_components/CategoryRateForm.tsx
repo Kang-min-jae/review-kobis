@@ -348,6 +348,9 @@ export default function CategoryRateForm({
       setEditingTab(null);
       // 평균 평점(사이드바) 갱신을 위해 백그라운드 새로고침
       router.refresh();
+    } catch {
+      // 서버 저장이 실패하면(네트워크·검증 오류) 저장된 것처럼 보이지 않게 알린다 — 입력 내용은 그대로 둔다.
+      window.alert("리뷰를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setSubmittingReview(false);
     }

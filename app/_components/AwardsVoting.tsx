@@ -7,7 +7,8 @@ import { submitAwardVoteAction, deleteAwardVoteAction, getAwardVotes, getOfficia
 
 // ── 영화제 / 시상 부문 정의 ────────────────────────────────────────────────────
 
-export type FestivalId = "academy" | "cannes" | "berlin" | "venice";
+import { FESTIVAL_AWARDS, type FestivalId } from "../_lib/festival-awards";
+export type { FestivalId };
 
 const FESTIVALS: { id: FestivalId; name: string; emoji: string; color: string }[] = [
   { id: "academy", name: "아카데미", emoji: "🏆", color: "from-yellow-600 to-yellow-400" },
@@ -15,13 +16,6 @@ const FESTIVALS: { id: FestivalId; name: string; emoji: string; color: string }[
   { id: "berlin",  name: "베를린",   emoji: "🐻", color: "from-red-700 to-red-400" },
   { id: "venice",  name: "베니스",   emoji: "🦁", color: "from-orange-600 to-amber-400" },
 ];
-
-const FESTIVAL_AWARDS: Record<FestivalId, string[]> = {
-  academy: ["작품상", "감독상", "남우주연상", "여우주연상", "남우조연상", "여우조연상", "각본상", "각색상", "국제영화상", "촬영상", "편집상", "음악상"],
-  cannes:  ["황금종려상", "심사위원대상", "감독상", "남우주연상", "여우주연상", "각본상", "심사위원특별상"],
-  berlin:  ["황금곰상", "심사위원대상", "감독상", "남우주연상", "여우주연상", "각본상", "특별심사위원상"],
-  venice:  ["황금사자상", "심사위원대상", "감독상", "각본상", "볼피컵 남우주연상", "볼피컵 여우주연상", "특별심사위원상", "마르첼로 마스트로이안니상"],
-};
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -82,14 +76,18 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
   // 부문 선택 시 투표 현황 + 공식 수상작 로드
   useEffect(() => {
     if (!festival || !award) { setVotes([]); setOfficialWinner(null); return; }
+    // 부문을 빠르게 바꾸면 이전 부문의 응답이 늦게 도착해 새 부문 화면을 덮어쓸 수 있다 —
+    // 이 effect가 정리(다른 부문 선택)된 뒤 도착한 응답은 버린다.
+    let cancelled = false;
     setLoadingVotes(true);
     Promise.all([
       getAwardVotes(festival, award),
       getOfficialWinner(festival, award),
     ])
-      .then(([v, w]) => { setVotes(v); setOfficialWinner(w); })
-      .catch(() => { setVotes([]); setOfficialWinner(null); })
-      .finally(() => setLoadingVotes(false));
+      .then(([v, w]) => { if (!cancelled) { setVotes(v); setOfficialWinner(w); } })
+      .catch(() => { if (!cancelled) { setVotes([]); setOfficialWinner(null); } })
+      .finally(() => { if (!cancelled) setLoadingVotes(false); });
+    return () => { cancelled = true; };
   }, [festival, award]);
 
   const handleFestivalSelect = (id: FestivalId) => {

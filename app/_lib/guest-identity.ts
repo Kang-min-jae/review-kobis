@@ -1,3 +1,4 @@
+import { safeSetItem } from "./safe-storage";
 // 로그인 시스템이 아직 없어서, 이 브라우저를 위한 익명 게스트 정체성을 하나 만들어
 // 로컬에 고정해 둔다. 실제 계정 시스템이 생기면 이 자리를 로그인 사용자 정보로
 // 바꾸면 되고, "작성자 프로필 보기" 같은 UI는 그대로 재사용할 수 있다.
@@ -34,7 +35,7 @@ export function getGuestIdentity(): GuestIdentity {
   }
 
   const fresh = generateGuestIdentity();
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+  safeSetItem(STORAGE_KEY, JSON.stringify(fresh));
   cached = fresh;
   return fresh;
 }

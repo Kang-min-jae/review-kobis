@@ -29,9 +29,14 @@ export default function InquiryManager() {
 
   const fetchInquiries = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/admin/inquiry");
-    if (res.ok) setInquiries(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch("/api/admin/inquiry");
+      if (res.ok) setInquiries(await res.json());
+    } catch {
+      // 네트워크 오류 — 목록은 그대로 두고 로딩만 끝낸다
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchInquiries(); }, [fetchInquiries]);

@@ -16,6 +16,7 @@ import CategoryRatings from "../../../../../_components/CategoryRatings";
 import CategoryRateForm from "../../../../../_components/CategoryRateForm";
 import AwardsBanner from "../../../../../_components/AwardsBanner";
 import { getMovieAwardWins } from "../../../../../_lib/award-winners";
+import { safeDecode } from "../../../../../_lib/safe-decode";
 
 export async function generateMetadata({
   params,
@@ -50,7 +51,7 @@ export default async function CategoryRatePage({
   params,
 }: PageProps<"/movies/[id]/rate/category/[category]">) {
   const { id, category: categoryParam } = await params;
-  const category = decodeURIComponent(categoryParam);
+  const category = safeDecode(categoryParam);
 
   if (!isRatingCategory(category)) {
     notFound();

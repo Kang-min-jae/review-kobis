@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { getAllUsersForAdmin } from "../../_lib/review-actions";
 import { getBadge, TIER_STYLES } from "../../_lib/tier";
@@ -18,13 +18,19 @@ export default function UserList() {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
 
+  // 검색어를 빠르게 바꾸면 이전 검색 결과가 늦게 도착해 새 결과를 덮어쓸 수 있어, 가장 최근
+  // 요청의 응답만 반영한다. 조회 실패도 잡아서 로딩 표시가 멈추지 않게 한다.
+  const latestRequest = useRef(0);
   const fetchUsers = useCallback(async (q: string) => {
+    const requestId = ++latestRequest.current;
     setLoading(true);
     try {
       const data = await getAllUsersForAdmin({ search: q || undefined });
-      setUsers(data);
+      if (requestId === latestRequest.current) setUsers(data);
+    } catch (error) {
+      console.warn("[admin] 목록 조회 실패:", error);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
   }, []);
 

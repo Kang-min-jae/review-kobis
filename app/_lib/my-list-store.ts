@@ -1,3 +1,4 @@
+import { safeSetItem } from "./safe-storage";
 const STORAGE_KEY = "review-site:my-list:v1";
 const EMPTY: string[] = [];
 
@@ -23,7 +24,7 @@ function load(): string[] {
 
 function persist(next: string[]) {
   cachedIds = next;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(STORAGE_KEY, JSON.stringify(next));
   listeners.forEach((listener) => listener());
 }
 

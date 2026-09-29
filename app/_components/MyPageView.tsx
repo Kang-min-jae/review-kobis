@@ -100,11 +100,8 @@ function NicknameModal({ current, onClose }: { current: string; onClose: () => v
 // ── 비밀번호 변경 모달 ───────────────────────────────────────────────────────
 function PasswordModal({ onClose }: { onClose: () => void }) {
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(updatePasswordAction, null);
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    if (state && "ok" in state) setDone(true);
-  }, [state]);
+  // 성공 여부는 액션 결과에서 바로 계산한다(effect로 상태를 한 번 더 옮길 필요가 없다).
+  const done = !!state && "ok" in state;
 
   if (done) {
     return (

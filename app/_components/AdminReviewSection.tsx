@@ -7,7 +7,6 @@ import type { UserReview } from "../_lib/review-data";
 
 export default function AdminReviewSection({
   reviews,
-  profileUserId,
 }: {
   reviews: UserReview[];
   profileUserId: string;

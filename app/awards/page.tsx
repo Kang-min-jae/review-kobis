@@ -26,7 +26,7 @@ function RowSkeleton() {
 }
 
 async function AcademySection() {
-  const rows = await getLatestAcademyWinnerRows();
+  const rows = await getLatestAcademyWinnerRows().catch(() => []); // 실패하면 이 영화제 구역만 숨긴다
   if (rows.length === 0) return null;
   return (
     <BoxOfficeCoverflow
@@ -38,7 +38,7 @@ async function AcademySection() {
 }
 
 async function CannesSection() {
-  const rows = await getLatestCannesWinnerRows();
+  const rows = await getLatestCannesWinnerRows().catch(() => []); // 실패하면 이 영화제 구역만 숨긴다
   if (rows.length === 0) return null;
   return (
     <BoxOfficeCoverflow
@@ -50,7 +50,7 @@ async function CannesSection() {
 }
 
 async function BerlinSection() {
-  const rows = await getLatestBerlinWinnerRows();
+  const rows = await getLatestBerlinWinnerRows().catch(() => []); // 실패하면 이 영화제 구역만 숨긴다
   if (rows.length === 0) return null;
   return (
     <BoxOfficeCoverflow
@@ -62,7 +62,7 @@ async function BerlinSection() {
 }
 
 async function VeniceSection() {
-  const rows = await getLatestVeniceWinnerRows();
+  const rows = await getLatestVeniceWinnerRows().catch(() => []); // 실패하면 이 영화제 구역만 숨긴다
   if (rows.length === 0) return null;
   return (
     <BoxOfficeCoverflow

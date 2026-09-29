@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState, useEffect, useCallback, useRef, useTransition } from "react";
 import { adminDeleteReviewAction, getAllReviewsForAdmin } from "../../_lib/review-actions";
 
 type AdminReview = Awaited<ReturnType<typeof getAllReviewsForAdmin>>[number];
@@ -17,13 +17,19 @@ export default function ReviewModerator() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // 검색어를 빠르게 바꾸면 이전 검색 결과가 늦게 도착해 새 결과를 덮어쓸 수 있어, 가장 최근
+  // 요청의 응답만 반영한다. 조회 실패도 잡아서 로딩 표시가 멈추지 않게 한다.
+  const latestRequest = useRef(0);
   const fetchReviews = useCallback(async (q: string) => {
+    const requestId = ++latestRequest.current;
     setLoading(true);
     try {
       const data = await getAllReviewsForAdmin({ search: q || undefined });
-      setReviews(data);
+      if (requestId === latestRequest.current) setReviews(data);
+    } catch (error) {
+      console.warn("[admin] 목록 조회 실패:", error);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
   }, []);
 

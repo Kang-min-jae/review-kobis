@@ -1,3 +1,4 @@
+import { safeSetItem } from "./safe-storage";
 export type FavoriteTheater = {
   chain: string;
   name: string;
@@ -29,7 +30,7 @@ function load(): FavoriteTheater[] {
 
 function persist(next: FavoriteTheater[]) {
   cached = next;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  safeSetItem(STORAGE_KEY, JSON.stringify(next));
   listeners.forEach((listener) => listener());
 }
 
