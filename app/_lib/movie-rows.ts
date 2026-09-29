@@ -385,16 +385,25 @@ type RankingEntry = { rank: number; movieCd: string; movieTitle: string; audiAcc
 async function readRankingSnapshot(listType: string): Promise<RankingEntry[] | null> {
   const rows = await db.rankingSnapshot.findMany({ where: { listType }, orderBy: { rank: "asc" } });
   if (rows.length === 0) return null;
-  const isFresh = Date.now() - rows[0].syncedAt.getTime() < RANKING_SYNC_INTERVAL_MS;
-  if (!isFresh) return null;
-  return rows;
+  // 스냅샷이 만료된 순간 여러 요청이 동시에 "지우고 새로 쓰기"를 하면, 서로의 새 행을 못 본
+  // 채 둘 다 저장돼 같은 순위가 두 벌(10위까지 20편) 남는다. 가장 최근에 저장된 한 벌만
+  // 쓰고(한 번의 저장은 syncedAt이 모두 같다), 그래도 겹치는 영화는 한 번만 남긴다.
+  const latest = Math.max(...rows.map((r) => r.syncedAt.getTime()));
+  if (Date.now() - latest >= RANKING_SYNC_INTERVAL_MS) return null;
+  return dedupeRanking(rows.filter((r) => r.syncedAt.getTime() === latest));
+}
+
+function dedupeRanking<T extends { movieCd: string }>(entries: T[]): T[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => (seen.has(e.movieCd) ? false : (seen.add(e.movieCd), true)));
 }
 
 async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): Promise<void> {
+  const syncedAt = new Date();
   await db.$transaction([
     db.rankingSnapshot.deleteMany({ where: { listType } }),
     db.rankingSnapshot.createMany({
-      data: entries.map((e) => ({ ...e, listType })),
+      data: dedupeRanking(entries).map((e) => ({ ...e, listType, syncedAt })),
     }),
   ]);
 }
@@ -402,7 +411,8 @@ async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): 
 // 순위(랭킹 스냅샷)만으로 화면 카드를 만든다. 포스터는 movie-rate-info.ts의
 // 영화 상세정보 캐시를 그대로 재사용한다 — 인기작이라 어차피 평점 페이지에서도
 // 자주 조회돼 캐시가 겹친다.
-async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingEntry) => string) {
+async function rankingRowsToCards(rankingEntries: RankingEntry[], badgeOf: (e: RankingEntry) => string) {
+  const entries = dedupeRanking(rankingEntries);
   const movieCds = entries.map((e) => e.movieCd);
   const [metas, awardCds, avgMap] = await Promise.all([
     getMovieMetas(movieCds),
@@ -451,7 +461,7 @@ async function _getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
 // 왕복했다. 결과 카드를 30분 캐시해 홈 화면 방문마다 DB에 가는 일을 없앤다.
 export const getWeeklyBoxOfficeRow = unstable_cache(
   _getWeeklyBoxOfficeRow,
-  ["weekly-box-office-row"],
+  ["weekly-box-office-row-v2"],
   { revalidate: 60 * 30, tags: ["movie-rows"] },
 );
 
@@ -510,7 +520,7 @@ async function _getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
 }
 export const getMonthlyBestRow = unstable_cache(
   _getMonthlyBestRow,
-  ["monthly-best-row"],
+  ["monthly-best-row-v2"],
   { revalidate: 60 * 30, tags: ["movie-rows"] },
 );
 
