@@ -95,7 +95,7 @@ async function main() {
   for (const mapping of mappings) {
     if (!mapping.kmdbId) continue;
     const role = mapping.role as "감독" | "배우";
-    const movies = await getPersonFilmography(mapping.personName, mapping.kmdbId, role);
+    const { movies } = await getPersonFilmography(mapping.personName, mapping.kmdbId, role);
     console.log(`\n${mapping.personName} (${role}, ${mapping.kmdbId}): ${movies.length}편`);
     console.log(movies.map((m) => m.title).join(", "));
     if (mapping.personName === "안재홍") {

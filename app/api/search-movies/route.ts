@@ -6,6 +6,7 @@ import { formatPosterUrl } from "../../_lib/formatPosterUrl";
 import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
+import { FILMOGRAPHY_VALID_SINCE } from "../../_lib/person-filmography";
 
 // ── 결과 타입 ─────────────────────────────────────────────────────────────────
 
@@ -318,41 +319,54 @@ Output: {"isValid":true,"isCorrected":false,"originalQuery":"봉준호","correct
 // ── 외부 API 결과 → CachedPerson 비동기 저장 ─────────────────────────────────
 // KMDb/TMDB 검색 결과를 DB에 저장해두면 다음 동일 검색은 외부 API 없이 DB-fast path로 처리된다.
 // await하지 않아 응답을 블로킹하지 않는다.
+// 새로 본 인물만 추가하고, 이미 있는 행은 건드리지 않는다. 예전엔 있는 행도 update로 다시 써서
+// 검색할 때마다 updatedAt이 새로 찍혔다 — 그러면 필모그래피 캐시가 만료되지 않아(특히 빈 행은
+// "방금 계산한 빈 필모그래피"로 읽혀) 인물 페이지에 사이트에 캐시된 몇 편만 나왔다.
+// 여기서 만드는 행은 filmography가 비어 있어 인물 페이지가 캐시로 쓰지 않는다(검색용 이름 색인).
 async function asyncSavePeopleToDb(
   kmdbPeople: KmdbPersonHit[],
   tmdbPeople: Array<{ tmdbId: string; name: string }>
 ): Promise<void> {
-  const upserts: Promise<unknown>[] = [];
+  const rows = [
+    // KMDb 인물: kmdbId가 있는 경우만
+    ...kmdbPeople
+      .slice(0, 5)
+      .filter((p) => p.kmdbId)
+      .map((p) => ({ kmdbId: p.kmdbId, name: p.name, role: p.role, filmography: [] })),
+    // TMDB-only 외국 인물: synthetic id "tmdb-{tmdbId}" 로 저장
+    ...tmdbPeople
+      .slice(0, 3)
+      .map((p) => ({ kmdbId: `tmdb-${p.tmdbId}`, name: p.name, role: "배우", filmography: [], tmdbId: p.tmdbId })),
+  ];
+  if (rows.length === 0) return;
+  await upsertLimiter.run(() => db.cachedPerson.createMany({ data: rows, skipDuplicates: true })).catch(() => {});
+}
 
-  // KMDb 인물: kmdbId가 있는 경우만 (이미 CachedPerson에 있을 가능성 높음)
-  for (const p of kmdbPeople.slice(0, 5)) {
-    if (!p.kmdbId) continue;
-    upserts.push(
-      upsertLimiter.run(() =>
-        db.cachedPerson.upsert({
-          where: { kmdbId: p.kmdbId },
-          create: { kmdbId: p.kmdbId, name: p.name, role: p.role, filmography: [] },
-          update: { name: p.name },
-        })
-      ).catch(() => {})
-    );
+// 검색 목록의 "참여작 N편 · YYYY년 최근작"을 실제 필모그래피 캐시가 있으면 그 값으로 맞춘다 —
+// KMDb 검색 결과만으로 세면 KMDb에 아직 없는 최신작(예: 2026년 작품)이 빠져, 인물 페이지와
+// 편수·최근작 연도가 달랐다.
+async function withFilmographyStats<T extends KmdbPersonHit>(people: T[]): Promise<T[]> {
+  const ids = people.map((p) => p.kmdbId).filter(Boolean);
+  if (ids.length === 0) return people;
+  const rows = await db.cachedPerson
+    .findMany({ where: { kmdbId: { in: ids } }, select: { kmdbId: true, filmography: true, updatedAt: true } })
+    .catch(() => []);
+  const stats = new Map<string, { count: number; latestYear: string | null }>();
+  for (const row of rows) {
+    if (!Array.isArray(row.filmography) || row.filmography.length === 0) continue;
+    if (row.updatedAt.getTime() < FILMOGRAPHY_VALID_SINCE) continue;
+    const films = row.filmography as { releaseDate?: string | null }[];
+    const years = films.map((f) => f.releaseDate?.slice(0, 4)).filter((y): y is string => !!y && /^\d{4}$/.test(y));
+    stats.set(row.kmdbId, {
+      count: films.length,
+      latestYear: years.length > 0 ? years.reduce((a, b) => (a > b ? a : b)) : null,
+    });
   }
-
-  // TMDB-only 외국 인물: synthetic id "tmdb-{tmdbId}" 로 저장
-  for (const p of tmdbPeople.slice(0, 3)) {
-    const syntheticId = `tmdb-${p.tmdbId}`;
-    upserts.push(
-      upsertLimiter.run(() =>
-        db.cachedPerson.upsert({
-          where: { kmdbId: syntheticId },
-          create: { kmdbId: syntheticId, name: p.name, role: "배우", filmography: [], tmdbId: p.tmdbId },
-          update: { name: p.name, tmdbId: p.tmdbId },
-        })
-      ).catch(() => {})
-    );
-  }
-
-  await Promise.allSettled(upserts);
+  return people.map((p) => {
+    const s = stats.get(p.kmdbId);
+    if (!s) return p;
+    return { ...p, creditCount: s.count, latestYear: s.latestYear && (!p.latestYear || s.latestYear > p.latestYear) ? s.latestYear : p.latestYear };
+  });
 }
 
 // ── 결과 조립 헬퍼 ────────────────────────────────────────────────────────────
@@ -498,7 +512,7 @@ export async function GET(request: Request) {
     const result = {
       movies: dbMovies,
       series: [],
-      people: dbPeople.map((p) => ({ ...p, representativeWorks: [] })),
+      people: await withFilmographyStats(dbPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))),
       correctedQuery: null,
     };
     setCache(cacheKey, result);
@@ -542,7 +556,7 @@ export async function GET(request: Request) {
 
     const kmdbNames = new Set(kmdbPeople.map((p) => p.name.toLowerCase()));
     const extraPeople = mergedPeople.filter((p) => !kmdbNames.has(p.name.toLowerCase()));
-    const people = [...peopleWithWorks, ...extraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
+    const people = await withFilmographyStats([...peopleWithWorks, ...extraPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))]);
 
     // 외부 API 결과를 DB에 비동기 저장 (응답을 블로킹하지 않음)
     asyncSavePeopleToDb(kmdbPeople, tmdbPersonHits).catch(console.error);
@@ -562,7 +576,7 @@ export async function GET(request: Request) {
     const result = {
       movies: fuzzyDb.movies,
       series: [],
-      people: fuzzyDb.people.map((p) => ({ ...p, representativeWorks: [] })),
+      people: await withFilmographyStats(fuzzyDb.people.map((p) => ({ ...p, representativeWorks: [] as string[] }))),
       correctedQuery: null,
     };
     setCache(cacheKey, result);
@@ -617,7 +631,7 @@ export async function GET(request: Request) {
       const result = {
         movies: dbCorrected,
         series: [],
-        people: dbCorrectedPeople.map((p) => ({ ...p, representativeWorks: [] })),
+        people: await withFilmographyStats(dbCorrectedPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))),
         correctedQuery: didYouMean ?? keyword,
       };
       setCache(cacheKey, result);
@@ -662,7 +676,7 @@ export async function GET(request: Request) {
     ]);
     const correctedKmdbNames = new Set(correctedKmdbPeople.map((p) => p.name.toLowerCase()));
     const correctedExtraPeople = correctedMergedPeople.filter((p) => !correctedKmdbNames.has(p.name.toLowerCase()));
-    const correctedPeople = [...correctedPeopleWithWorks, ...correctedExtraPeople.map((p) => ({ ...p, representativeWorks: [] }))];
+    const correctedPeople = await withFilmographyStats([...correctedPeopleWithWorks, ...correctedExtraPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))]);
 
     asyncSavePeopleToDb(correctedKmdbPeople, correctedTmdbPersonHits).catch(console.error);
 

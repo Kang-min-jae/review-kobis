@@ -88,7 +88,7 @@ async function main() {
 
   console.log(`\n========== 5) 캐시를 지우고 getPersonFilmography로 강제 재계산 ==========`);
   await db.cachedPerson.deleteMany({ where: { kmdbId: KMDB_ID } });
-  const finalMovies = await getPersonFilmography(NAME, KMDB_ID, ROLE);
+  const { movies: finalMovies } = await getPersonFilmography(NAME, KMDB_ID, ROLE);
   console.log(`최종 병합 결과: ${finalMovies.length}편`);
   console.log(finalMovies.map((m) => m.title).join(", "));
 }

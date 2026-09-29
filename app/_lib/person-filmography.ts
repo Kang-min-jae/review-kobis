@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { db } from "./db";
 import {
   searchMovieCatalog,
@@ -7,9 +8,10 @@ import {
   type KobisMovieSummary,
 } from "./kobis";
 import { searchKmdbFilmography } from "./kmdb";
-import { getTmdbPersonMovieCredits, resolveTmdbPersonIdByName } from "./tmdb";
+import { getTmdbPersonMovieCredits, resolveTmdbPersonIdByName, searchTmdbPerson } from "./tmdb";
 import { isRecentlyOpened, genreFields, summaryToRowMovie, type RowMovie } from "./movie-rows";
-import { getMovieMeta, getMovieMetas } from "./movie-rate-info";
+import { getMovieMeta, getCachedMovieMetas } from "./movie-rate-info";
+import { cdToMovieId } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
@@ -23,6 +25,17 @@ function toFullTmdbImageUrl(url: string | null): string | null {
 // 영화 상세정보와 동일하게 3일 — 필모그래피는 신작이 나올 때만 바뀌는 정보라 자주
 // 갱신할 필요가 없다.
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 3;
+
+// 이 시각 이전에 저장된 필모그래피 캐시는 믿지 않고 한 번 다시 계산한다. 예전엔 검색 API가
+// 인물을 "필모그래피 [] "로 미리 저장해두고, 그 빈 기록을 인물 페이지가 신선한 캐시로 믿어
+// 사이트에 캐시된 몇 편(역방향 조회)만 보여줬다(예: 황정민 4편). 동명이인이라 TMDB 조회를
+// 포기해 최신작이 빠진 채 저장된 캐시도 이때 함께 다시 계산된다.
+export const FILMOGRAPHY_VALID_SINCE = Date.parse("2026-09-29T00:00:00Z");
+
+// 처음 보는 인물은 외부 API(KMDb·KOFIC·KOBIS·TMDB)를 여러 번 거쳐야 해서, 이 시간 안에 끝나지
+// 않으면 지금까지 찾은 결과로 먼저 보여주고 나머지 계산은 응답 뒤(after)에서 마쳐 캐시한다.
+// (예전엔 전부 끝날 때까지 페이지가 멈춰, 출연진 이름을 눌러도 이동하지 않는 것처럼 보였다.)
+const FIRST_VIEW_BUDGET_MS = 9000;
 
 // KMDb에서 이름(+가능하면 인물 코드, 역할)으로 감독/배우 참여작을 찾는다. role을
 // 주면 "배우 톰 홀랜드"에 이름만 같은 "감독 톰 홀랜드"의 작품이 섞이는 것을 막을
@@ -117,7 +130,9 @@ async function filmographyFromKmdb(
 // KOBIS의 정확한 감독명 필터가 KMDb에서 누락된 작품을 채워준다.
 async function filmographyFromKobisDirector(name: string): Promise<RowMovie[]> {
   const candidates = await searchMovieCatalog({ directorNm: name }, 30);
-  const metas = await getMovieMetas(candidates.map((c) => c.movieCd));
+  // 메타(포스터·장르)는 DB 캐시만 읽는다 — 작품마다 외부 API로 영화 정보를 새로 채우면
+  // 필모그래피 한 번에 수백 건의 요청이 생겨 페이지가 수십 초씩 멈췄다.
+  const metas = await getCachedMovieMetas(candidates.map((c) => c.movieCd));
   return candidates.map((c) => summaryToRowMovie(c, metas.get(c.movieCd) ?? null));
 }
 
@@ -165,7 +180,7 @@ async function filmographyFromKofic(name: string, knownTitles: Set<string>): Pro
     })
   );
   const found = exactMatches.filter((m): m is KobisMovieSummary => m !== null);
-  const metas = await getMovieMetas(found.map((m) => m.movieCd));
+  const metas = await getCachedMovieMetas(found.map((m) => m.movieCd));
   return found.map((m) => summaryToRowMovie(m, metas.get(m.movieCd) ?? null));
 }
 
@@ -180,13 +195,51 @@ async function filmographyFromKofic(name: string, knownTitles: Set<string>): Pro
 // 고르느니 그냥 포기한다(이 코드베이스의 다른 동명이인 처리와 같은 원칙).
 // PersonIdentityMapping.tmdbId나 CachedPerson.tmdbId로 이미 확정/캐시된 값이
 // 있으면 그건 항상 신뢰한다(사람이 확인했거나 과거에 이미 이 로직을 통과한 값).
+// TMDB에 같은 이름이 여럿이면(예: "황정민"은 남자 배우와 여자 배우가 둘 다 있다) 예전엔
+// 그냥 포기해서, KMDb에 아직 없는 최신작(2025~2026년 작품)이 필모그래피에서 통째로 빠졌다.
+// 이제 후보마다 TMDB 참여작을 받아, 이미 KMDb·KOBIS로 확인된 이 사람의 작품(knownTitles)과
+// 겹치는 편수로 고른다 — 공유하는 실제 작품이 있다는 건 같은 사람이라는 확실한 근거다
+// (filmographyFromKofic과 같은 원칙). 겹침이 가장 많은 후보가 확실히 앞설 때만 채택한다.
+const TMDB_NAMESAKE_LIMIT = 5;
+
+async function resolveTmdbPersonId(
+  name: string,
+  nameEn: string | null,
+  role: "감독" | "배우" | null,
+  knownTitles: Set<string>
+): Promise<string | null> {
+  const unique = await resolveTmdbPersonIdByName(name, nameEn);
+  if (unique || knownTitles.size === 0) return unique;
+
+  const sameName = (await searchTmdbPerson(name)).filter((c) => c.name === name).slice(0, TMDB_NAMESAKE_LIMIT);
+  if (sameName.length < 2) return null;
+  const scored = await Promise.all(
+    sameName.map(async (c) => {
+      const credits = await getTmdbPersonMovieCredits(c.tmdbId, role);
+      const overlap = credits.filter(
+        (m) =>
+          knownTitles.has(normalizeTitleForOverlap(m.title)) ||
+          (m.originalTitle !== null && knownTitles.has(normalizeTitleForOverlap(m.originalTitle)))
+      ).length;
+      return { tmdbId: c.tmdbId, overlap };
+    })
+  );
+  scored.sort((a, b) => b.overlap - a.overlap);
+  const [best, second] = scored;
+  const runnerUp = second?.overlap ?? 0;
+  if (best.overlap >= 2 && best.overlap > runnerUp) return best.tmdbId;
+  if (best.overlap === 1 && runnerUp === 0) return best.tmdbId;
+  return null;
+}
+
 async function filmographyFromTmdb(
   name: string,
   role: "감독" | "배우" | null,
   knownTmdbId: string | null,
-  nameEn: string | null
+  nameEn: string | null,
+  knownTitles: Set<string>
 ): Promise<{ rows: RowMovie[]; tmdbId: string | null }> {
-  const tmdbId = knownTmdbId ?? (await resolveTmdbPersonIdByName(name, nameEn));
+  const tmdbId = knownTmdbId ?? (await resolveTmdbPersonId(name, nameEn, role, knownTitles));
   if (!tmdbId) return { rows: [], tmdbId: null };
 
   const credits = await getTmdbPersonMovieCredits(tmdbId, role);
@@ -198,7 +251,7 @@ async function filmographyFromTmdb(
     credits.map((c) => findMovieCdByTitleAndPerson(c.title, name, c.originalTitle, role, c.releaseDate?.slice(0, 4)))
   );
   const foundCds = movieCds.filter((cd): cd is string => cd !== null);
-  const metas = await getMovieMetas(foundCds);
+  const metas = await getCachedMovieMetas(foundCds);
 
   const rows = credits.map((c, i) => {
     const movieCd = movieCds[i];
@@ -236,21 +289,30 @@ export async function findMoviesByCastKmdbId(
   kmdbId: string,
   role: "감독" | "배우" | null
 ): Promise<RowMovie[]> {
+  return findMoviesByPersonCode("kmdb", kmdbId, role);
+}
+
+// 예전엔 CachedMovie 전체(수천 행, 출연진 JSON·줄거리 포함)를 매번 통째로 읽어 와 메모리에서
+// 걸렀다 — 인물 페이지를 열 때마다 이 전체 스캔이 두 번씩 일어나 느려졌다. 이제 DB 안에서
+// jsonb 포함 연산(@>)으로 이 코드가 있는 행만 가져온다.
+async function findMoviesByPersonCode(
+  kind: "kmdb" | "tmdb",
+  code: string,
+  role: "감독" | "배우" | null
+): Promise<RowMovie[]> {
   const checkCast = role !== "감독";
   const checkDirector = role !== "배우";
+  const castKey = kind === "kmdb" ? "kmdbId" : "tmdbId";
+  const rows = await db.$queryRaw<{ movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null }[]>`
+    SELECT "movieCd", "title", "posterUrl", "releaseDate", "genreAlt"
+    FROM "CachedMovie"
+    WHERE (${checkDirector} AND (CASE WHEN ${kind} = 'kmdb' THEN "directorKmdbId" ELSE "directorTmdbId" END) = ${code})
+       OR (${checkCast} AND "cast" @> jsonb_build_array(jsonb_build_object(${castKey}::text, ${code}::text)))
+  `;
 
-  const rows = await db.cachedMovie.findMany();
-  const matched = rows.filter((row) => {
-    if (checkDirector && row.directorKmdbId === kmdbId) return true;
-    if (checkCast) {
-      const cast = row.cast as { name: string; kmdbId: string | null }[];
-      return cast.some((c) => c.kmdbId === kmdbId);
-    }
-    return false;
-  });
-
-  return matched.map((row) => ({
-    id: `kobis-${row.movieCd}`,
+  return rows.map((row) => ({
+    // 숫자 KOBIS 코드만 "kobis-"를 붙인다(tmdb-*·kmdb-* 영화에 붙이면 평점 페이지가 깨진다).
+    id: cdToMovieId(row.movieCd),
     title: row.title,
     posterUrl: row.posterUrl,
     gradient: FALLBACK_GRADIENT,
@@ -264,34 +326,11 @@ export async function findMoviesByCastKmdbId(
 // 기준으로도 한다 — movie-rate-info.ts가 영화를 캐싱할 때 감독/출연진의 TMDB
 // person_id도 같이 찾아 CachedMovie.directorTmdbId/cast[].tmdbId에 저장해두므로,
 // 이름 매칭이 아니라 코드 값 자체를 비교해 동명이인 오염 위험 없이 찾을 수 있다.
-// tmdbId를 아직 못 찾은 경우(동명이인이라 포기했거나 이 인물이 처음 조회되는
-// 경우)엔 호출하는 쪽에서 아예 부르지 않는다.
 export async function findMoviesByCastTmdbId(
   tmdbId: string,
   role: "감독" | "배우" | null
 ): Promise<RowMovie[]> {
-  const checkCast = role !== "감독";
-  const checkDirector = role !== "배우";
-
-  const rows = await db.cachedMovie.findMany();
-  const matched = rows.filter((row) => {
-    if (checkDirector && row.directorTmdbId === tmdbId) return true;
-    if (checkCast) {
-      const cast = row.cast as { name: string; kmdbId: string | null; tmdbId?: string | null }[];
-      return cast.some((c) => c.tmdbId === tmdbId);
-    }
-    return false;
-  });
-
-  return matched.map((row) => ({
-    id: `kobis-${row.movieCd}`,
-    title: row.title,
-    posterUrl: row.posterUrl,
-    gradient: FALLBACK_GRADIENT,
-    isNowShowing: isRecentlyOpened(row.releaseDate),
-    releaseDate: row.releaseDate,
-    ...genreFields(row.genreAlt),
-  }));
+  return findMoviesByPersonCode("tmdb", tmdbId, role);
 }
 
 async function fetchAndCacheFilmography(
@@ -324,30 +363,41 @@ async function fetchAndCacheFilmography(
   // KOFIC 쪽 동명이인을 구분하려면(filmographyFromKofic 참고) KMDb로 이미 확인된
   // 제목이 먼저 있어야 해서, KMDb/KOBIS 감독 검색을 먼저 끝내고 그 결과로 KOFIC을 돈다.
   // 이전 캐시에 저장된 nameEn을 힌트로 넘겨 KMDb도 영문 이름으로 재검색하게 한다.
-  const cachedNameEn = personId
-    ? (await db.cachedPerson.findUnique({ where: { kmdbId: personId }, select: { nameEn: true } }))?.nameEn ?? null
-    : null;
-  const [kmdbResult, kobisDirectorRows] = await Promise.all([
-    filmographyFromKmdb(name, personId, role, cachedNameEn),
-    shouldSearchKobisDirector ? filmographyFromKobisDirector(name) : Promise.resolve([]),
+  const previous = personId ? await db.cachedPerson.findUnique({ where: { kmdbId: personId } }) : null;
+  const cachedNameEn = previous?.nameEn ?? null;
+
+  // 외부 API 하나가 실패해도(시간 초과·일시 오류) 페이지 전체가 오류로 끝나지 않게, 소스마다
+  // 따로 실패를 받아 빈 결과로 대신하고 실패 여부만 기록한다(아래 캐시 저장 판단에 쓴다).
+  let sourceFailed = false;
+  const safe = <T,>(label: string, promise: Promise<T>, fallback: T): Promise<T> =>
+    promise.catch((error) => {
+      sourceFailed = true;
+      console.warn(`[filmography] ${name} ${label} 조회 실패:`, error);
+      return fallback;
+    });
+
+  const [kmdbResult, kobisDirectorRows, reverseRows] = await Promise.all([
+    safe("KMDb", filmographyFromKmdb(name, personId, role, cachedNameEn), { rows: [] as RowMovie[], nameEn: null }),
+    shouldSearchKobisDirector ? safe("KOBIS 감독", filmographyFromKobisDirector(name), [] as RowMovie[]) : Promise.resolve([] as RowMovie[]),
+    // kmdbId가 확정돼 있을 때만 가능하다 — 이름 검색이 아니라 kmdbId 값 자체를
+    // 비교하는 방식이라, 애초에 비교할 kmdbId가 없으면 쓸 수 없다.
+    personId ? safe("역방향(KMDb)", findMoviesByCastKmdbId(personId, role), [] as RowMovie[]) : Promise.resolve([] as RowMovie[]),
   ]);
   const kmdbRows = kmdbResult.rows;
+  // 이 사람의 것으로 확인된 작품 제목 — KOFIC·TMDB 동명이인 구분의 근거가 된다.
   const knownTitles = new Set(
-    [...kmdbRows, ...kobisDirectorRows].map((r) => normalizeTitleForOverlap(r.title))
+    [...kmdbRows, ...kobisDirectorRows, ...reverseRows].map((r) => normalizeTitleForOverlap(r.title))
   );
   // KMDb에서 추출했거나 이전 캐시에 저장된 영문 이름 중 더 확실한 쪽을 쓴다.
   const nameEn = kmdbResult.nameEn ?? cachedNameEn;
-  const [koficRows, reverseRows, tmdbReverseRows, tmdbResult] = await Promise.all([
-    filmographyFromKofic(name, knownTitles),
-    // kmdbId가 확정돼 있을 때만 가능하다 — 이름 검색이 아니라 kmdbId 값 자체를
-    // 비교하는 방식이라, 애초에 비교할 kmdbId가 없으면 쓸 수 없다.
-    personId ? findMoviesByCastKmdbId(personId, role) : Promise.resolve([]),
+  const [koficRows, tmdbReverseRows, tmdbResult] = await Promise.all([
+    safe("KOFIC", filmographyFromKofic(name, knownTitles), [] as RowMovie[]),
     // tmdbIdHint가 확정돼 있을 때만 가능하다 — findMoviesByCastKmdbId와 같은 원리를
     // TMDB person_id 기준으로도 한다.
-    tmdbIdHint ? findMoviesByCastTmdbId(tmdbIdHint, role) : Promise.resolve([]),
+    tmdbIdHint ? safe("역방향(TMDB)", findMoviesByCastTmdbId(tmdbIdHint, role), [] as RowMovie[]) : Promise.resolve([] as RowMovie[]),
     // nameEn: 톰 홀랜드·맷 데이먼 같은 외국 인물은 TMDB에 영문 본명으로만
     // 등록돼 있어서, 한글 이름 검색이 실패하면 이 영문 이름으로 재시도한다.
-    filmographyFromTmdb(name, role, tmdbIdHint, nameEn),
+    safe("TMDB", filmographyFromTmdb(name, role, tmdbIdHint, nameEn, knownTitles), { rows: [] as RowMovie[], tmdbId: null }),
   ]);
 
   // 모든 소스를 통합할 때 제목 기준 중복을 제거한다. 같은 영화가 소스마다 다른
@@ -427,14 +477,27 @@ async function fetchAndCacheFilmography(
     }
   }
 
+  // 일부 소스가 실패했으면 이번 결과는 불완전하다 — 예전에 제대로 계산해 둔 작품이 이번에
+  // 빠졌다고 캐시에서 지워지지 않게, 이전 필모그래피 중 이번에 없는 작품을 이어 붙인다.
+  const previousRows = isValidFilmographyCache(previous) ? (previous!.filmography as RowMovie[]) : [];
+  if (sourceFailed && previousRows.length > 0) {
+    const ids = new Set(movies.map((m) => m.id));
+    const titles = new Set(movies.map((m) => normalizeTitleForOverlap(m.title)));
+    for (const row of previousRows) {
+      if (!ids.has(row.id) && !titles.has(normalizeTitleForOverlap(row.title))) movies.push(row);
+    }
+  }
+
   // personId(KMDb 인물 코드)가 있을 때만 캐시할 수 있다 — 이름만으로는 동명이인과
   // 캐시 키가 겹쳐서 저장할 수 없다. tmdbId도 한 번 찾으면 같이 저장해서, 캐시가
   // 만료돼 다시 계산할 때 TMDB를 이름으로 재검색하지 않고 바로 재사용한다.
-  if (personId) {
+  // 찾은 작품이 하나도 없으면 저장하지 않는다(빈 결과가 "신선한 캐시"로 굳지 않게).
+  const tmdbId = tmdbResult.tmdbId ?? tmdbIdHint ?? previous?.tmdbId ?? null;
+  if (personId && movies.length > 0) {
     await db.cachedPerson.upsert({
       where: { kmdbId: personId },
-      create: { kmdbId: personId, name, role: role ?? "배우", filmography: movies, tmdbId: tmdbResult.tmdbId, nameEn },
-      update: { name, role: role ?? "배우", filmography: movies, tmdbId: tmdbResult.tmdbId, nameEn },
+      create: { kmdbId: personId, name, role: role ?? "배우", filmography: movies, tmdbId, nameEn },
+      update: { name, role: role ?? "배우", filmography: movies, tmdbId, nameEn },
     });
   }
 
@@ -451,42 +514,109 @@ export async function getPersonTmdbId(personId: string | null): Promise<string |
   return cached?.tmdbId ?? null;
 }
 
-// 캐시에 신선한(TTL 이내) 데이터가 있으면 그대로 쓰고, 없거나 오래됐으면 새로 받아
-// 캐시에 채워 넣는다(lazy cache).
+// 응답 뒤에 이어서 할 작업 — 요청 밖(관리 스크립트 등)에서 불리면 after()를 쓸 수 없으니
+// 그냥 백그라운드로 돌린다.
+function runAfterResponse(task: () => Promise<unknown>) {
+  try {
+    after(task);
+  } catch {
+    void task().catch(() => undefined);
+  }
+}
+
+type CachedPersonRow = Awaited<ReturnType<typeof db.cachedPerson.findUnique>>;
+
+// 실제로 계산해서 저장한 필모그래피인가 — 검색 API가 미리 만들어 둔 빈 행([])이나
+// FILMOGRAPHY_VALID_SINCE 이전(불완전할 수 있는 예전 로직)의 결과는 캐시로 보지 않는다.
+function isValidFilmographyCache(cached: CachedPersonRow): boolean {
+  return (
+    !!cached &&
+    Array.isArray(cached.filmography) &&
+    cached.filmography.length > 0 &&
+    cached.updatedAt.getTime() >= FILMOGRAPHY_VALID_SINCE
+  );
+}
+
+// 캐시가 신선해도, "영화 상세페이지의 캐스트에서 이 사람 이름을 클릭하면 그 영화는
+// 반드시 필모그래피에 있어야 한다"는 요구사항은 캐시 TTL과 무관하게 항상 보장돼야
+// 한다. 캐시가 만들어진 뒤에 다른 영화 페이지를 봐서 CachedMovie가 새로 채워질
+// 수도 있기 때문이다(실제로 이렇게 "족구왕"이 안재홍 필모그래피에서 3일간 누락된
+// 사례가 있었다). 이 역방향 조회는 DB만 보는 저렴한 조회라 매번 다시 확인해서 합친다.
+async function withLiveReverseRows(
+  base: RowMovie[],
+  personId: string,
+  tmdbId: string | null,
+  role: "감독" | "배우" | null
+): Promise<RowMovie[]> {
+  const [liveReverseRows, liveTmdbReverseRows] = await Promise.all([
+    findMoviesByCastKmdbId(personId, role).catch(() => [] as RowMovie[]),
+    tmdbId ? findMoviesByCastTmdbId(tmdbId, role).catch(() => [] as RowMovie[]) : Promise.resolve([] as RowMovie[]),
+  ]);
+  const byId = new Map(base.map((m) => [m.id, m]));
+  const titles = new Set(base.map((m) => normalizeTitleForOverlap(m.title)));
+  for (const row of [...liveReverseRows, ...liveTmdbReverseRows]) {
+    const title = normalizeTitleForOverlap(row.title);
+    if (byId.has(row.id) || titles.has(title)) continue;
+    byId.set(row.id, row);
+    titles.add(title);
+  }
+  return Array.from(byId.values());
+}
+
+export type PersonFilmographyResult = {
+  movies: RowMovie[];
+  // 처음 보는 인물이라 계산이 시간 안에 안 끝나 일부만 보여주는 중인지 — 페이지가 안내 문구를 띄운다.
+  partial: boolean;
+};
+
+// 캐시에 신선한(TTL 이내) 데이터가 있으면 그대로 쓰고, 오래됐으면 일단 이전 결과를 보여주면서
+// 응답 뒤(after)에 새로 계산해 캐시를 갱신한다(stale-while-revalidate). 캐시가 없으면 새로
+// 계산하되, FIRST_VIEW_BUDGET_MS 안에 안 끝나면 지금까지 확인된 작품으로 먼저 보여주고
+// 계산은 응답 뒤에 마저 끝내 캐시에 채운다.
 export async function getPersonFilmography(
   name: string,
   personId: string | null,
   role: "감독" | "배우" | null,
   tmdbIdHint: string | null = null
-): Promise<RowMovie[]> {
-  if (!personId) return fetchAndCacheFilmography(name, personId, role, tmdbIdHint);
+): Promise<PersonFilmographyResult> {
+  const cached = personId ? await db.cachedPerson.findUnique({ where: { kmdbId: personId } }) : null;
+  const usable = isValidFilmographyCache(cached);
 
-  const cached = await db.cachedPerson.findUnique({ where: { kmdbId: personId } });
-  // tmdbId가 아직 없는 캐시는 nameEn이 새로 생겨 TMDB 재시도가 가능할 수 있으므로
-  // TTL을 짧게(1시간) 해서 빠르게 갱신되게 한다. tmdbId가 있으면 3일로 충분하다.
-  const ttl = cached?.tmdbId ? CACHE_TTL_MS : 1000 * 60 * 60;
-  const isFresh = !!cached && Date.now() - cached.updatedAt.getTime() < ttl;
-  const base = isFresh
-    ? (cached!.filmography as RowMovie[])
-    : await fetchAndCacheFilmography(name, personId, role, cached?.tmdbId ?? null);
-
-  // 방금 새로 계산한 결과(!isFresh)엔 findMoviesByCastKmdbId/findMoviesByCastTmdbId가
-  // 이미 포함돼 있다.
-  if (!isFresh) return base;
-
-  // 캐시가 신선해도, "영화 상세페이지의 캐스트에서 이 사람 이름을 클릭하면 그 영화는
-  // 반드시 필모그래피에 있어야 한다"는 요구사항은 캐시 TTL과 무관하게 항상 보장돼야
-  // 한다. 캐시가 만들어진 뒤에 다른 영화 페이지를 봐서 CachedMovie가 새로 채워질
-  // 수도 있기 때문이다(실제로 이렇게 "족구왕"이 안재홍 필모그래피에서 3일간 누락된
-  // 사례가 있었다). 이 역방향 조회는 DB만 스캔하는 저렴한 조회라 캐시 여부와 무관하게
-  // 매번 다시 확인해서 합친다.
-  const [liveReverseRows, liveTmdbReverseRows] = await Promise.all([
-    findMoviesByCastKmdbId(personId, role),
-    cached?.tmdbId ? findMoviesByCastTmdbId(cached.tmdbId, role) : Promise.resolve([]),
-  ]);
-  const byId = new Map(base.map((m) => [m.id, m]));
-  for (const row of [...liveReverseRows, ...liveTmdbReverseRows]) {
-    if (!byId.has(row.id)) byId.set(row.id, row);
+  if (personId && usable) {
+    // tmdbId가 아직 없는 캐시는 TMDB 재시도가 가능할 수 있으므로 1시간, 있으면 3일.
+    const ttl = cached!.tmdbId ? CACHE_TTL_MS : 1000 * 60 * 60;
+    const isFresh = Date.now() - cached!.updatedAt.getTime() < ttl;
+    if (!isFresh) {
+      runAfterResponse(() =>
+        fetchAndCacheFilmography(name, personId, role, cached!.tmdbId ?? tmdbIdHint).catch((error) =>
+          console.warn(`[filmography] ${name} 백그라운드 갱신 실패:`, error)
+        )
+      );
+    }
+    const movies = await withLiveReverseRows(cached!.filmography as RowMovie[], personId, cached!.tmdbId, role);
+    return { movies, partial: false };
   }
-  return Array.from(byId.values());
+
+  const computing = fetchAndCacheFilmography(name, personId, role, cached?.tmdbId ?? tmdbIdHint);
+  const TIMED_OUT = Symbol("timeout");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    computing.catch((error) => {
+      console.warn(`[filmography] ${name} 필모그래피 계산 실패:`, error);
+      return [] as RowMovie[];
+    }),
+    new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), FIRST_VIEW_BUDGET_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (result !== TIMED_OUT) {
+    return { movies: personId ? await withLiveReverseRows(result, personId, null, role) : result, partial: false };
+  }
+
+  // 시간 안에 못 끝났다 — 계산은 응답 뒤에 마저 끝내 캐시에 저장하고, 지금은 DB에서 바로
+  // 확인되는 작품(사이트에 캐시된 영화 중 이 인물 코드가 있는 것)만 먼저 보여준다.
+  runAfterResponse(() => computing.catch(() => undefined));
+  const quick = personId ? await withLiveReverseRows([], personId, cached?.tmdbId ?? tmdbIdHint, role) : [];
+  return { movies: quick, partial: true };
 }

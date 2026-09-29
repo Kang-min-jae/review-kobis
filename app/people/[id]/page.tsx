@@ -7,6 +7,9 @@ import { findNamesakeCandidates } from "../../_lib/kmdb";
 import { getTmdbPersonBirthday } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 
+// 처음 보는 인물은 필모그래피 계산이 응답 뒤(after)까지 이어질 수 있어 넉넉히 잡는다.
+export const maxDuration = 60;
+
 function candidateHref(name: string, role: "감독" | "배우", kmdbId: string): string {
   const params = new URLSearchParams({ role, pid: kmdbId });
   return `/people/${encodeURIComponent(name)}?${params.toString()}`;
@@ -33,16 +36,16 @@ export default async function PersonPage({ params, searchParams }: PageProps<"/p
   // KMDb ID가 없는 외국 인물도 TMDB ID로 바로 필모그래피를 조회할 수 있게 한다.
   const tmdbIdHint = typeof tmdbIdParam === "string" ? tmdbIdParam : null;
 
-  const [movies, candidates] = await Promise.all([
+  const [{ movies, partial }, candidates] = await Promise.all([
     getPersonFilmography(name, personId, role, tmdbIdHint),
-    role ? findNamesakeCandidates(name, role) : Promise.resolve([]),
+    role ? findNamesakeCandidates(name, role).catch(() => []) : Promise.resolve([]),
   ]);
 
   // getPersonFilmography가 방금 TMDB에서 person_id를 찾았다면(또는 이전에 찾아
   // 캐시해뒀다면) 그대로 재사용해서 생년월일을 참고 정보로 보여준다 — KMDb엔 없는
   // 정보라 TMDB로만 보완 가능하다. 동명이인 확정 근거는 아니고 어디까지나 참고용.
   const tmdbId = await getPersonTmdbId(personId);
-  const birthday = tmdbId ? await getTmdbPersonBirthday(tmdbId) : null;
+  const birthday = tmdbId ? await getTmdbPersonBirthday(tmdbId).catch(() => null) : null;
   const birthYear = birthday?.slice(0, 4) || null;
 
   // 후보가 하나뿐이면 애초에 동명이인이 아니니 안내가 필요 없다. 여럿이면, 지금 personId가
@@ -80,6 +83,12 @@ export default async function PersonPage({ params, searchParams }: PageProps<"/p
               ))}
             </p>
           </div>
+        )}
+
+        {partial && (
+          <p className="mt-3 rounded-lg border border-neutral-700 bg-surface p-3 text-xs text-muted">
+            전체 참여작을 불러오는 중이에요 — 지금은 확인된 작품만 보여드려요. 잠시 후 새로고침하면 전체 필모그래피가 보여요.
+          </p>
         )}
 
         <section className="mt-6">
