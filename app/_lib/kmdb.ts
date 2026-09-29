@@ -241,10 +241,7 @@ async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbR
         cache: "no-store",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        console.warn(`[kmdb] "${query}" 검색 실패: HTTP ${res.status}`);
-        return [];
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: { Data?: { Result?: RawKmdbResult[] }[] } = await res.json();
       return (data.Data?.[0]?.Result ?? []).map(pruneResult);
     } catch (error) {
@@ -252,8 +249,10 @@ async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbR
         await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
         continue;
       }
-      console.warn(`[kmdb] "${query}" 요청 중 오류(재시도 ${RAW_SEARCH_MAX_ATTEMPTS}회 실패):`, error);
-      return [];
+      // 실패를 빈 결과로 돌려주면 unstable_cache가 그 빈 결과를 24시간 저장해, 일시적인 오류
+      // 한 번으로 하루 동안 그 검색(예: 인물 필모그래피)이 비어 버렸다. 예외로 올려 캐시하지 않고
+      // rawSearch에서 빈 결과로 바꾼다.
+      throw new Error(`[kmdb] "${query}" 요청 실패(재시도 ${RAW_SEARCH_MAX_ATTEMPTS}회): ${String(error)}`);
     }
   }
   return [];
@@ -261,9 +260,20 @@ async function fetchFromKmdb(query: string, listCount: number): Promise<RawKmdbR
 
 // 정제된 결과를 24시간 캐시 — 용량이 수십 KB여서 2MB 한도 내에서 안전하게 저장된다.
 // 캐시 키는 fetchFromKmdb와 동일한 sanitizedQuery 기준으로 맞춘다.
+// 동시 요청 제한은 실제로 KMDb에 나가는 요청에만 건다 — 예전엔 캐시에서 바로 나올 결과도
+// 4칸짜리 대기열에 줄을 서서, 느린 요청 몇 개 뒤에서 캐시 결과까지 기다렸다.
+async function fetchFromKmdbLimited(query: string, listCount: number): Promise<RawKmdbResult[]> {
+  await acquireKmdbSlot();
+  try {
+    return await fetchFromKmdb(query, listCount);
+  } finally {
+    releaseKmdbSlot();
+  }
+}
+
 function makeCachedSearch(sanitizedQuery: string, listCount: number) {
   return unstable_cache(
-    () => fetchFromKmdb(sanitizedQuery, listCount),
+    () => fetchFromKmdbLimited(sanitizedQuery, listCount),
     [`kmdb-search:${sanitizedQuery}:${listCount}`],
     { revalidate: 60 * 60 * 24, tags: ["kmdb"] }
   );
@@ -272,11 +282,11 @@ function makeCachedSearch(sanitizedQuery: string, listCount: number) {
 async function rawSearch(query: string, listCount: number): Promise<RawKmdbResult[]> {
   if (!apiKey()) return [];
   const sanitizedQuery = query.replace(/[:&]/g, " ").replace(/\s{2,}/g, " ").trim();
-  await acquireKmdbSlot();
   try {
     return await makeCachedSearch(sanitizedQuery, listCount)();
-  } finally {
-    releaseKmdbSlot();
+  } catch (error) {
+    console.warn(String(error instanceof Error ? error.message : error));
+    return [];
   }
 }
 

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } from "../../_lib/kobis";
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMetas } from "../../_lib/movie-rate-info";
@@ -6,7 +6,7 @@ import { formatPosterUrl } from "../../_lib/formatPosterUrl";
 import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
-import { FILMOGRAPHY_VALID_SINCE } from "../../_lib/person-filmography";
+import { FILMOGRAPHY_VALID_SINCE, warmPersonFilmography } from "../../_lib/person-filmography";
 
 // ── 결과 타입 ─────────────────────────────────────────────────────────────────
 
@@ -342,6 +342,20 @@ async function asyncSavePeopleToDb(
   await upsertLimiter.run(() => db.cachedPerson.createMany({ data: rows, skipDuplicates: true })).catch(() => {});
 }
 
+// 검색어와 이름이 정확히 같은 인물(최대 2명 — 동명이인 후보)의 필모그래피를 응답 뒤에 미리
+// 계산해 둔다. 외부 API 호출이 많아 검색 응답은 기다리게 하지 않는다.
+function warmTopPeople(people: KmdbPersonHit[], query: string) {
+  const targets = people.filter((p) => p.kmdbId && !p.kmdbId.startsWith("tmdb-") && p.name === query.trim()).slice(0, 2);
+  if (targets.length === 0) return;
+  after(async () => {
+    for (const p of targets) {
+      await warmPersonFilmography(p.name, p.kmdbId, p.role).catch((error) =>
+        console.warn(`[search] ${p.name} 필모그래피 미리 계산 실패:`, error)
+      );
+    }
+  });
+}
+
 // 검색 목록의 "참여작 N편 · YYYY년 최근작"을 실제 필모그래피 캐시가 있으면 그 값으로 맞춘다 —
 // KMDb 검색 결과만으로 세면 KMDb에 아직 없는 최신작(예: 2026년 작품)이 빠져, 인물 페이지와
 // 편수·최근작 연도가 달랐다.
@@ -515,6 +529,7 @@ export async function GET(request: Request) {
       people: await withFilmographyStats(dbPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))),
       correctedQuery: null,
     };
+    warmTopPeople(result.people, query);
     setCache(cacheKey, result);
     return NextResponse.json(result);
   }
@@ -560,6 +575,7 @@ export async function GET(request: Request) {
 
     // 외부 API 결과를 DB에 비동기 저장 (응답을 블로킹하지 않음)
     asyncSavePeopleToDb(kmdbPeople, tmdbPersonHits).catch(console.error);
+    warmTopPeople(people, query);
 
     const mergedMovies = mergeMovieHits(movies, dbMovies);
     const result = { movies: mergedMovies, series: seriesHits, people, correctedQuery: null };
