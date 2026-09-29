@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { db } from "../../_lib/db";
 import { getBulkMovieRatingAverages } from "../../_lib/review-data";
 import { getCachedMovieMetas, WIKIDATA_VERIFIED } from "../../_lib/movie-rate-info";
+import { isAdultContent, NOT_ADULT_GENRE_WHERE } from "../../_lib/adult-content";
 import { genreFields, splitGenres, GENRE_KEYWORDS } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 import {
@@ -18,6 +19,7 @@ const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 // 있을 수 있어 추천 후보에서 뺀다(평점 페이지 조회 시 검증되면 다시 포함된다).
 const EXCLUDE_UNVERIFIED_AWARD = {
   NOT: { movieCd: { startsWith: "wikidata-" }, source: { not: WIKIDATA_VERIFIED } },
+  AND: [NOT_ADULT_GENRE_WHERE], // 에로·성인 장르는 추천하지 않는다
 };
 
 // 동일 입력(평점 데이터)에 대한 반복 요청을 2분간 캐싱 — React StrictMode 이중 호출,
@@ -546,6 +548,7 @@ async function fetchGenrePool(keywords: string[], ratedMovieIds: Set<string>): P
       posterUrl: { not: null },
       NOT: { movieCd: { startsWith: "wikidata-" } },
       OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })),
+      AND: [NOT_ADULT_GENRE_WHERE],
     },
     orderBy: { updatedAt: "desc" },
     take: 200,
@@ -893,7 +896,7 @@ export async function POST(request: Request) {
       const meta = metas.get(c.movieCd);
       return buildRowMovie(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, reason ?? undefined);
     })
-    .filter((r) => r.posterUrl !== null);
+    .filter((r) => r.posterUrl !== null && !isAdultContent({ title: r.title, genreAlt: r.allGenres }));
 
   // Fallback fill: MMR 다양성 제약 또는 포스터 없는 영화 제거로 10편 미만이 되면
   // 후보 풀 밖의 최신 영화로 채운다.
@@ -907,7 +910,9 @@ export async function POST(request: Request) {
         const meta = fallbackMetas.get(c.movieCd);
         const posterUrl = meta?.posterUrl ?? c.posterUrl;
         if (!posterUrl) continue;
-        results.push(buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt));
+        const row = buildRowMovie(c, posterUrl, meta?.genreAlt ?? c.genreAlt);
+        if (isAdultContent({ title: row.title, genreAlt: row.allGenres })) continue;
+        results.push(row);
         if (results.length >= TARGET) break;
       }
     }

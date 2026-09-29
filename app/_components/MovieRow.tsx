@@ -2,11 +2,12 @@ import MovieCard from "./MovieCard";
 import ScrollRow from "./ScrollRow";
 import AffinityRegistrar from "./AffinityRegistrar";
 import type { RowMovie } from "../_lib/movie-rows";
+import { isAdultContent } from "../_lib/adult-content";
 
 export default function MovieRow({
   title,
   subtitle,
-  movies,
+  movies: rawMovies,
   priorityCount = 0,
 }: {
   title: string;
@@ -14,6 +15,9 @@ export default function MovieRow({
   movies: RowMovie[];
   priorityCount?: number;
 }) {
+  // 에로·성인 장르는 어느 행에서도 보여주지 않는다 — 행 데이터 단계에서 이미 거르지만,
+  // 캐시된 행이나 새 경로로 섞여 들어오는 경우를 막는 마지막 안전망.
+  const movies = rawMovies.filter((m) => !isAdultContent({ title: m.title, genreAlt: m.allGenres }));
   if (movies.length === 0) return null;
 
   return (

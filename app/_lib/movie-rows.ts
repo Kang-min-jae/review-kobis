@@ -12,6 +12,7 @@ import { db } from "./db";
 import { getMovieMetas, getCachedMovieMetas, type MovieMeta } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
+import { isAdultContent, isAdultGenre, NOT_ADULT_GENRE_WHERE } from "./adult-content";
 
 export type RowMovie = {
   id: string;
@@ -196,7 +197,7 @@ async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> 
     findAwardWinnerMovieCds(movieCds),
     getBulkMovieRatingAverages(movieCds),
   ]);
-  const rows = summaries.map((s) => {
+  const rows = summaries.filter((s) => !isAdultContent({ title: s.title, genreAlt: metas.get(s.movieCd)?.genreAlt })).map((s) => {
     const awards = awardMap.get(s.movieCd);
     const avgs = avgMap.get(s.movieCd);
     return {
@@ -279,7 +280,7 @@ async function classificationsToRows(
   const result: { row: RereleaseClassificationRow; movie: RowMovie }[] = [];
   rows.forEach((r) => {
     const meta = metas.get(r.movieCd) ?? null;
-    if (!meta?.posterUrl) return;
+    if (!meta?.posterUrl || isAdultGenre(meta.genreAlt)) return;
     const badge = r.originalYear && r.rereleaseDate
       ? `원작 ${r.originalYear} · 재개봉 ${monthDay(r.rereleaseDate)}`
       : r.rereleaseDate
@@ -409,7 +410,7 @@ async function rankingRowsToCards(entries: RankingEntry[], badgeOf: (e: RankingE
     findAwardWinnerMovieCds(movieCds),
     getBulkMovieRatingAverages(movieCds),
   ]);
-  return entries.map((entry) => {
+  return entries.filter((e) => !isAdultGenre(metas.get(e.movieCd)?.genreAlt)).map((entry) => {
     const meta = metas.get(entry.movieCd) ?? null;
     const avgs = avgMap.get(entry.movieCd);
     return {
@@ -510,7 +511,7 @@ export const getRecentMoviesRow = unstable_cache(
     const rows = await toRowMovies(results);
     return rows.slice(0, 15);
   },
-  ["recent-movies-row-v2"],
+  ["recent-movies-row-v3"],
   { revalidate: 60 * 60, tags: ["movie-rows"] },
 );
 
@@ -576,7 +577,8 @@ async function loadRatedMovies(): Promise<RatedMovie[]> {
   return ratings
     .flatMap((r) => {
       const meta = metas.get(r.movieCd);
-      return meta ? [{ cd: r.movieCd, meta, avg: r._avg.score ?? 0, count: r._count._all }] : [];
+      if (!meta || isAdultContent({ title: meta.movieTitle, genreAlt: meta.genreAlt })) return [];
+      return [{ cd: r.movieCd, meta, avg: r._avg.score ?? 0, count: r._count._all }];
     })
     .sort((a, b) => (a.avg !== b.avg ? b.avg - a.avg : b.count - a.count));
 }
@@ -609,9 +611,10 @@ async function fillWithUnrated(
   exclude: Set<string>,
   needed: number,
 ): Promise<RowMovie[]> {
-  const candidates = pool.filter((m) => !exclude.has(m.movieCd));
-  if (needed <= 0 || candidates.length === 0) return [];
-  const cached = await getCachedMovieMetas(candidates.map((m) => m.movieCd));
+  const unseen = pool.filter((m) => !exclude.has(m.movieCd));
+  if (needed <= 0 || unseen.length === 0) return [];
+  const cached = await getCachedMovieMetas(unseen.map((m) => m.movieCd));
+  const candidates = unseen.filter((m) => !isAdultGenre(cached.get(m.movieCd)?.genreAlt));
   const withPoster = candidates.filter((m) => cached.get(m.movieCd)?.posterUrl).slice(0, needed);
   const rows = withPoster.map((m) => summaryToRowMovie(m, cached.get(m.movieCd) ?? null));
   if (rows.length >= needed) return rows;
@@ -641,6 +644,7 @@ async function fillFromCachedGenre(
       NOT: { movieCd: { startsWith: "wikidata-" } },
       AND: [
         { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
+        NOT_ADULT_GENRE_WHERE,
         range
           ? { releaseDate: { gte: range.gte, lte: range.lte } }
           : { OR: [{ releaseDate: null }, { releaseDate: { lte: isoDate(new Date()) } }] },
@@ -840,6 +844,7 @@ async function _getGenreRow(
       NOT: { movieCd: { startsWith: "wikidata-" } }, // 수상작 전용 사본 — KOBIS 영화와 중복된다
       AND: [
         { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
+        NOT_ADULT_GENRE_WHERE,
         { OR: [{ releaseDate: null }, { releaseDate: { lte: today } }] },
       ],
     },
@@ -866,7 +871,9 @@ async function _getGenreRow(
       .filter((m) => !seen.has(m.movieCd) && keywords.some((kw) => m.genreAlt?.includes(kw)))
       .slice(0, want - rows.length);
     const metas = await getCachedMovieMetas(extra.map((m) => m.movieCd));
-    rows.push(...extra.map((m) => summaryToRowMovie(m, metas.get(m.movieCd) ?? null)));
+    rows.push(...extra
+      .filter((m) => !isAdultGenre(metas.get(m.movieCd)?.genreAlt))
+      .map((m) => summaryToRowMovie(m, metas.get(m.movieCd) ?? null)));
   }
 
   const page = rows.slice(offset, offset + pageSize);
@@ -878,7 +885,7 @@ async function _getGenreRow(
 }
 export const getGenreRow = unstable_cache(
   _getGenreRow,
-  ["genre-row-v2"],
+  ["genre-row-v3"],
   { revalidate: 60 * 60, tags: ["movie-rows"] },
 );
 
@@ -915,6 +922,7 @@ async function _getUserPopularMoviesRow(
   for (const cd of movieCds) {
     const meta = metas.get(cd) ?? null;
     if (!meta?.posterUrl) continue;
+    if (isAdultGenre(meta.genreAlt)) continue;
 
     // 장르 필터: genreFilter가 있으면 GENRE_KEYWORDS 기준으로 걸러낸다
     if (genreFilter) {
