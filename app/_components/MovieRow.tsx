@@ -26,7 +26,8 @@ export default function MovieRow({
       <h2 className="text-lg font-bold text-text">{title}</h2>
       {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
 
-      <AffinityRegistrar movieIds={movies.map((m) => m.id)} />
+      {/* 추천 행 카드는 서버가 추천도(recommendScore)를 실어 보내므로 따로 조회하지 않는다. */}
+      <AffinityRegistrar movieIds={movies.filter((m) => m.recommendScore == null).map((m) => m.id)} />
       <ScrollRow className="row-scrollbar mt-4 flex gap-3 overflow-x-auto pb-3 scroll-smooth sm:gap-4">
         {movies.map((movie, index) => (
           <MovieCard key={movie.id} movie={movie} popoverSide={index === movies.length - 1 ? "left" : "right"} priority={index < priorityCount} />

@@ -296,30 +296,6 @@ export function getServerReviewsByAuthorSnapshot(): Review[] {
   return EMPTY_REVIEWS;
 }
 
-// 내가 평가한 영화 중 KOBIS movieCd가 있는 것만, 높게 평가한 순으로 최대 5개.
-// "사용자 추천 영화"가 장르 기반 추천 후보를 찾을 때 시드로 사용 (클라이언트 전용 —
-// 서버 컴포넌트는 이 브라우저의 localStorage에 접근할 수 없어서 API 라우트를 거쳐 호출한다).
-export function getUserRatedMovieCdsSnapshot(): string[] {
-  if (typeof window === "undefined") return [];
-
-  const bestByMovie = new Map<string, { movieCd: string; normalizedRating: number }>();
-  for (const review of readUserReviews()) {
-    if (review.movieCd == null) continue;
-    if (categoryOf(review) !== "전체") continue;
-    const scale = review.type === "short" ? 10 : 100;
-    const normalizedRating = review.rating / scale;
-    const existing = bestByMovie.get(review.movieId);
-    if (!existing || normalizedRating > existing.normalizedRating) {
-      bestByMovie.set(review.movieId, { movieCd: review.movieCd, normalizedRating });
-    }
-  }
-
-  return Array.from(bestByMovie.values())
-    .sort((a, b) => b.normalizedRating - a.normalizedRating)
-    .slice(0, 10)
-    .map((entry) => entry.movieCd);
-}
-
 // 로그인한 사용자의 "내 리뷰"를 서버(DB) 기준으로 통째로 맞춘다. 예전엔 서버에 있고
 // 로컬에 없는 평점만 추가하는 단방향 동기화라, 다른 기기에서 지운 평점이 이 기기의
 // localStorage엔 영원히 남아 다이어리·리스트에 계속 보였다.

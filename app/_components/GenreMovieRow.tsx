@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MovieCard from "./MovieCard";
 import ScrollRow from "./ScrollRow";
 import { registerMovieIds } from "../_lib/affinity-store";
 import type { RowMovie } from "../_lib/movie-rows";
+import { isAdultContent } from "../_lib/adult-content";
 
 const PAGE_SIZE = 20;
 
@@ -15,7 +16,12 @@ export default function GenreMovieRow({
   genre: string;
   initialMovies: RowMovie[];
 }) {
-  const [movies, setMovies] = useState<RowMovie[]>(initialMovies);
+  const [loadedMovies, setMovies] = useState<RowMovie[]>(initialMovies);
+  // 에로·성인 장르는 어느 행에서도 보여주지 않는다(MovieRow와 같은 마지막 안전망).
+  const movies = useMemo(
+    () => loadedMovies.filter((m) => !isAdultContent({ title: m.title, genreAlt: m.allGenres })),
+    [loadedMovies],
+  );
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialMovies.length >= PAGE_SIZE);
   const registeredIds = useRef(new Set<string>());
@@ -34,7 +40,7 @@ export default function GenreMovieRow({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/genre-movies?genre=${encodeURIComponent(genre)}&offset=${movies.length}&pageSize=${PAGE_SIZE}`
+        `/api/genre-movies?genre=${encodeURIComponent(genre)}&offset=${loadedMovies.length}&pageSize=${PAGE_SIZE}`
       );
       if (!res.ok) throw new Error("fetch failed");
       const next: RowMovie[] = await res.json();

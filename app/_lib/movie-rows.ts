@@ -1,7 +1,6 @@
 import { unstable_cache } from "next/cache";
 import {
   searchMovieCatalog,
-  getMovieDetailsByCd,
   getWeeklyBoxOffice,
   getDailyBoxOfficeList,
   getMondaysInMonth,
@@ -455,51 +454,6 @@ export const getWeeklyBoxOfficeRow = unstable_cache(
   ["weekly-box-office-row"],
   { revalidate: 60 * 30, tags: ["movie-rows"] },
 );
-
-// 평가한 영화들의 장르를 모은 집합 — "추천 N%" 배지(이 영화의 장르 중 몇 %가 내가
-// 남긴 평점의 장르와 겹치는지)는 사용자의 평점(localStorage, 브라우저에만 있음)이
-// 있어야 계산할 수 있어서, 서버는 재료(각 영화의 allGenres)만 실어 보내고 실제 겹침
-// 계산은 클라이언트(MovieCard, /api/seed-genres로 이 함수를 불러 얻은 값 사용)가 한다.
-export async function computeSeedGenres(seedMovieCds: string[]): Promise<string[]> {
-  const seedDetails = await Promise.all(seedMovieCds.map((cd) => getMovieDetailsByCd(cd)));
-  const seedGenres = new Set<string>();
-  for (const detail of seedDetails) {
-    for (const g of splitGenres(detail?.genreAlt)) seedGenres.add(g);
-  }
-  return Array.from(seedGenres);
-}
-
-// "사용자 추천 영화" — KOBIS엔 추천 API가 없어서, 내가 높게 평가한 영화들의 장르를 모아
-// 같은 장르를 가진 최근 개봉작을 추천으로 보여준다 (평가한 영화 자체는 제외).
-// 평가한 영화가 아직 없으면 최근 두 달 개봉작으로 대체. "추천 N%" 배지는 여기서 안
-// 붙인다 — toRowMovie가 채운 allGenres를 갖고 MovieCard가 클라이언트에서 계산한다.
-export async function getRecommendedForRatedRow(seedMovieCds: string[]): Promise<RowMovie[]> {
-  const today = isoDate(new Date());
-
-  if (seedMovieCds.length === 0) {
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setDate(twoMonthsAgo.getDate() - 60);
-    const recent = await fetchOpenedBetween(isoDate(twoMonthsAgo), today, 8);
-    return toRowMovies(recent);
-  }
-
-  const seedGenreList = await computeSeedGenres(seedMovieCds);
-  if (seedGenreList.length === 0) return [];
-  const seedGenres = new Set(seedGenreList);
-
-  const seedSet = new Set(seedMovieCds);
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const candidates = await fetchOpenedBetween(isoDate(twoYearsAgo), today, 300);
-
-  const matched = candidates.filter((movie) => {
-    if (seedSet.has(movie.movieCd)) return false;
-    const genres = splitGenres(movie.genreAlt);
-    return genres.some((g) => seedGenres.has(g));
-  });
-
-  return toRowMovies(matched.slice(0, 8));
-}
 
 // 최근 영화: 최근 3달(90일) 개봉작 최신순 15편.
 export const getRecentMoviesRow = unstable_cache(

@@ -3,31 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import RowSkeleton from "./RowSkeleton";
-import { subscribe as subscribeReviews, getMyMovieRatingsSnapshot, getMyReviewsSnapshot } from "../_lib/reviews-store";
-import { registerMovieIds } from "../_lib/affinity-store";
+import { subscribe as subscribeReviews } from "../_lib/reviews-store";
+import { buildRatingsPayload, type RatingsPayload } from "../_lib/rating-payload";
 import type { RowMovie } from "../_lib/movie-rows";
-
-function buildRatingsPayload() {
-  const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
-    movieId: r.id,
-    rating: r.rating,
-    ratedAt: r.ratedAt,
-  }));
-  // 항목별(연출·연기·각본·음악·편집) 평점은 항목 리뷰로 저장된다 — 한줄평 점수(0~10)를
-  // 우선 쓰고, 장문평만 있으면 0~100을 0~10으로 환산한다.
-  const byKey = new Map<string, { movieId: string; category: string; value: number; short: boolean }>();
-  for (const r of getMyReviewsSnapshot()) {
-    const category = r.category ?? "전체";
-    if (category === "전체") continue;
-    const key = `${r.movieId}|${category}`;
-    const short = r.type === "short";
-    const prev = byKey.get(key);
-    if (prev?.short && !short) continue;
-    byKey.set(key, { movieId: r.movieId, category, value: short ? r.rating : r.rating / 10, short });
-  }
-  const myCategoryRatings = [...byKey.values()].map(({ movieId, category, value }) => ({ movieId, category, value }));
-  return { myRatings, myCategoryRatings };
-}
 
 // 같은 요청(평점·장르·편수)이 동시에 여러 번 나가지 않도록 진행 중인 요청을 공유하고,
 // 홈으로 다시 돌아왔을 때 같은 입력이면 성공 결과를 잠시 재사용한다(평점이 바뀌면
@@ -36,9 +14,7 @@ const CLIENT_REC_TTL_MS = 5 * 60 * 1000;
 const inFlight = new Map<string, Promise<RowMovie[]>>();
 const resultCache = new Map<string, { results: RowMovie[]; at: number }>();
 
-type Payload = ReturnType<typeof buildRatingsPayload>;
-
-function fetchRecommendations(payload: Payload, genre: string | undefined, limit: number): Promise<RowMovie[]> {
+function fetchRecommendations(payload: RatingsPayload, genre: string | undefined, limit: number): Promise<RowMovie[]> {
   const body = JSON.stringify({ ...payload, genre, limit });
   const cached = resultCache.get(body);
   if (cached && Date.now() - cached.at < CLIENT_REC_TTL_MS) return Promise.resolve(cached.results);
@@ -49,7 +25,10 @@ function fetchRecommendations(payload: Payload, genre: string | undefined, limit
     headers: { "Content-Type": "application/json" },
     body,
   })
-    .then((res) => res.json())
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`); // 실패 응답을 빈 추천으로 캐시하지 않는다
+      return res.json();
+    })
     .then((data: { results?: RowMovie[] }) => {
       const results = data.results ?? [];
       resultCache.set(body, { results, at: Date.now() });
@@ -80,9 +59,7 @@ export default function RecommendedSection({
   useEffect(() => {
     mounted.current = true;
     const show = (results: RowMovie[]) => {
-      if (!mounted.current) return;
-      if (results.length > 0) registerMovieIds(results.map((m) => m.id));
-      setMovies(results);
+      if (mounted.current) setMovies(results);
     };
 
     const payload = buildRatingsPayload();

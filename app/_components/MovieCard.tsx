@@ -9,12 +9,6 @@ import TopLikedReview from "./TopLikedReview";
 import TopReviewsPanel from "./TopReviewsPanel";
 import type { RowMovie } from "../_lib/movie-rows";
 import {
-  subscribe as subscribeSeedGenres,
-  getSeedGenresSnapshot,
-  getServerSeedGenresSnapshot,
-  ensureSeedGenresLoaded,
-} from "../_lib/seed-genres-store";
-import {
   subscribe as subscribeAffinity,
   getAffinitySnapshot,
   getServerAffinitySnapshot,
@@ -23,7 +17,6 @@ import {
   subscribe as subscribeReviews,
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
-  getCombinedRatingSnapshot,
 } from "../_lib/reviews-store";
 
 const FESTIVAL_KO: Record<string, string> = {
@@ -88,14 +81,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const isRatable = movie.id.startsWith("kobis-") || isSeries || isTmdbMovie || movie.id.startsWith("kmdb-");
   const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
-  // "추천 N%"는 내가 남긴 평점의 장르와 이 영화의 장르가 겹치는 비율 — 평점은
-  // 브라우저에만 있어서 서버가 계산해줄 수 없으니 여기서 직접 계산한다.
-  const seedGenres = useSyncExternalStore(subscribeSeedGenres, getSeedGenresSnapshot, getServerSeedGenresSnapshot);
   const affinityScores = useSyncExternalStore(subscribeAffinity, getAffinitySnapshot, getServerAffinitySnapshot);
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
-  useEffect(() => {
-    ensureSeedGenresLoaded();
-  }, []);
 
   // 내가 이 영화에 남긴 "전체" 한줄평 평점 (있으면)
   const myMovieRating = useMemo(() => {
@@ -120,33 +107,14 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
     return Array.from(map.values());
   }, [movie.festivalAwards]);
 
-  // 우선순위: 서버 추천 점수 → affinity store → Simpson 장르 근사 + 작품 평점 가중합
-  // 수식: 0.6 × Simpson유사도 + 0.4 × (평점/10)
-  // Simpson 계수: overlapCount / min(|userGenres|, |movieGenres|)
-  //   → 분모를 둘 중 작은 집합으로 삼아 "단일 장르 드라마" 20% 동결 방지
-  // 시리즈는 장르 데이터가 있으면 같은 수식을 적용하고, 평점 기반 차별화가 작동한다.
-  const matchBadge = useMemo(() => {
-    if (movie.recommendScore != null && movie.recommendScore > 0) return `추천 ${movie.recommendScore}%`;
-    const affinityScore = affinityScores[movie.id];
-    if (affinityScore != null && affinityScore > 0) return `추천 ${affinityScore}%`;
-    if (seedGenres.length === 0 || !movie.allGenres || movie.allGenres.length === 0) return null;
-    const seedSet = new Set(seedGenres);
-    const overlapCount = movie.allGenres.filter((g) => seedSet.has(g)).length;
-    // Simpson 오버랩 계수 — 분모를 두 집합 중 작은 쪽으로
-    // overlapCount === 0이면 genreSimilarity = 0 → 품질 점수만 반영된다
-    const minLen = Math.min(seedGenres.length, movie.allGenres.length);
-    const genreSimilarity = minLen > 0 ? overlapCount / minLen : 0;
-    // 작품 평점 보정 (플랫폼 평점 우선, 없으면 중립 0.65)
-    const combined = getCombinedRatingSnapshot(movie.id);
-    // 베이지안 스무딩: 리뷰 수가 적은 영화가 우연히 높은 평점을 갖더라도 과대평가되지 않게
-    const qualityScore =
-      combined.count >= 1 && combined.average !== null
-        ? (combined.count * combined.average + 20 * 6.5) / (combined.count + 20) / 10
-        : 6.5 / 10;
-    const percent = Math.round((0.6 * genreSimilarity + 0.4 * qualityScore) * 100);
-    if (percent <= 0) return null;
-    return `추천 ${Math.min(99, Math.max(1, percent))}%`;
-  }, [seedGenres, affinityScores, movie.allGenres, movie.recommendScore, movie.id]);
+  // "추천 N%" — 서버가 calculateAffinity.ts의 같은 공식으로 계산한 추천도. 추천 행은 응답에
+  // recommendScore가 실려 오고, 나머지 행은 affinity-store가 /api/affinity로 받아온다.
+  // 예전엔 점수가 오기 전까지 브라우저에서 다른 공식(장르 겹침 비율)으로 임시 숫자를 띄웠다가
+  // 서버 점수로 바뀌어 숫자가 튀었다 — 이제 근거 있는 점수가 있을 때만 보여준다.
+  // 이미 평점을 남긴 영화는 추천 대상이 아니라 배지 대신 내 별점만 보인다.
+  const recommendPercent = movie.recommendScore ?? affinityScores[movie.id] ?? null;
+  const matchBadge =
+    myMovieRating === null && recommendPercent !== null && recommendPercent > 0 ? `추천 ${recommendPercent}%` : null;
 
   return (
     <div

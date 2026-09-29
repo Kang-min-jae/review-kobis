@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import MovieRow from "./MovieRow";
 import RowSkeleton from "./RowSkeleton";
-import { getMyMovieRatingsSnapshot } from "../_lib/reviews-store";
-import { registerMovieIds } from "../_lib/affinity-store";
+import { buildRatingsPayload } from "../_lib/rating-payload";
 import type { RowMovie } from "../_lib/movie-rows";
 
 let inFlightSeriesRec: Promise<RowMovie[]> | null = null;
@@ -19,13 +18,9 @@ export default function RecommendedSeriesSection() {
   useEffect(() => {
     mounted.current = true;
 
-    const myRatings = getMyMovieRatingsSnapshot().map((r) => ({
-      movieId: r.id,
-      rating: r.rating,
-      ratedAt: r.ratedAt,
-    }));
-
-    const body = JSON.stringify({ myRatings, myCategoryRatings: [] });
+    // 영화 추천과 같은 평점 데이터(전체 평점 + 항목 평점)를 보낸다 — 추천도 배지를 모든
+    // 행과 같은 공식으로 계산하려면 영화 평점까지 포함한 전체 취향이 필요하다.
+    const body = JSON.stringify(buildRatingsPayload());
     const cached = lastSeriesRec && lastSeriesRec.body === body && Date.now() - lastSeriesRec.at < CLIENT_REC_TTL_MS
       ? Promise.resolve(lastSeriesRec.results)
       : null;
@@ -35,7 +30,10 @@ export default function RecommendedSeriesSection() {
         headers: { "Content-Type": "application/json" },
         body,
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`); // 실패 응답을 빈 추천으로 캐시하지 않는다
+          return res.json();
+        })
         .then((data: { results?: RowMovie[] }) => {
           const results = data.results ?? [];
           lastSeriesRec = { body, results, at: Date.now() };
@@ -46,10 +44,7 @@ export default function RecommendedSeriesSection() {
     }
 
     (cached ?? inFlightSeriesRec)?.then((results) => {
-      if (mounted.current) {
-        if (results.length > 0) registerMovieIds(results.map((m) => m.id));
-        setSeries(results);
-      }
+      if (mounted.current) setSeries(results);
     });
 
     return () => { mounted.current = false; };

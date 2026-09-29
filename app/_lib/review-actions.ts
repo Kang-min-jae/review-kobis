@@ -95,12 +95,9 @@ export async function submitReviewAction(input: {
       update: { score: input.rating },
     });
   } else if (input.type === "LONG" && input.category === "전체") {
-    const score = Math.round((input.rating / 100) * 10 * 10) / 10;
-    await db.categoryRating.upsert({
-      where: { userId_movieCd_category: { userId, movieCd: input.movieCd, category: "전체" } },
-      create: { userId, movieCd: input.movieCd, category: "전체", score },
-      update: { score },
-    });
+    // 한줄평이 이미 있으면 한줄평 점수를 유지한다(resyncCategoryRating과 같은 규칙) — 예전엔
+    // 장문평을 쓸 때마다 덮어써서, 같은 평점도 한줄평·장문평을 쓴 순서에 따라 값이 달라졌다.
+    await resyncCategoryRating(userId, input.movieCd, "전체");
   }
 
   revalidatePath(categoryPath(input.movieId, input.category));
