@@ -12,6 +12,7 @@ import {
 
 // ── 소셜 로그인 연결 서버 액션 ──────────────────────────────────────────────
 import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth-actions";
+import { updateMarketingConsentAction } from "../_lib/consent-actions";
 
 type User = {
   id: string;
@@ -26,6 +27,7 @@ type Props = {
   user: User;
   linkedProviders: string[];
   ratingCount: number;
+  marketingConsent: boolean; // 서버에 기록된 마케팅 정보 수신 동의 여부
 };
 
 // 이메일을 일부 마스킹: "example@gmail.com" → "exa***@gmail.com"
@@ -297,14 +299,15 @@ function ChangeButton({ onClick }: { onClick: () => void }) {
 // ── 마이페이지 메인 ───────────────────────────────────────────────────────────
 type ModalType = "nickname" | "password" | "deleteAccount" | null;
 
-export default function MyPageView({ user, linkedProviders, ratingCount }: Props) {
+export default function MyPageView({ user, linkedProviders, ratingCount, marketingConsent }: Props) {
   const [modal, setModal] = useState<ModalType>(null);
   const close = () => setModal(null);
 
   // 알림 설정은 localStorage에 저장
   const [notifEmail, setNotifEmail] = useState(false);
   const [notifFollow, setNotifFollow] = useState(false);
-  const [notifMarketing, setNotifMarketing] = useState(false);
+  // 마케팅 수신 동의는 법적 동의 기록이라 브라우저가 아니라 서버(TermsConsent)에 저장한다.
+  const [notifMarketing, setNotifMarketing] = useState(marketingConsent);
   const notifLoaded = useRef(false);
 
   useEffect(() => {
@@ -314,7 +317,6 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
       const saved = JSON.parse(localStorage.getItem("notif_settings") ?? "{}");
       if (typeof saved.email === "boolean") setNotifEmail(saved.email);
       if (typeof saved.follow === "boolean") setNotifFollow(saved.follow);
-      if (typeof saved.marketing === "boolean") setNotifMarketing(saved.marketing);
     } catch {}
   }, []);
 
@@ -481,7 +483,14 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
               onToggle={() => {
                 const next = !notifMarketing;
                 setNotifMarketing(next);
-                saveNotif("marketing", next);
+                updateMarketingConsentAction(next)
+                  .then(({ ok }) => {
+                    if (!ok) throw new Error("save failed");
+                  })
+                  .catch(() => {
+                    setNotifMarketing(!next);
+                    window.alert("수신 동의 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+                  });
               }}
             />
           }

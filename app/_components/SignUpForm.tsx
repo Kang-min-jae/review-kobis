@@ -6,7 +6,7 @@ import TermsAgreement from "./TermsAgreement";
 import ProviderButton from "./ProviderButton";
 import { signUpAction, type ActionResult } from "../_lib/credentials-actions";
 import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth-actions";
-import { TERMS_OF_SERVICE, PRIVACY_CONSENT, MARKETING_CONSENT } from "../_lib/legal-content";
+import { TERMS_OF_SERVICE, PRIVACY_CONSENT, AGE_CONSENT, MARKETING_CONSENT } from "../_lib/legal-content";
 
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-neutral-700 bg-bg px-4 py-3 text-sm text-text placeholder:text-muted focus:border-brand focus:outline-none";
@@ -14,6 +14,7 @@ const inputClass =
 const TERMS_ITEMS = [
   { key: "terms", label: "이용약관 동의", required: true, content: TERMS_OF_SERVICE },
   { key: "privacy", label: "개인정보 수집·이용 동의", required: true, content: PRIVACY_CONSENT },
+  { key: "age", label: "만 14세 이상입니다", required: true, content: AGE_CONSENT },
   { key: "marketing", label: "마케팅 정보 수신 동의", required: false, content: MARKETING_CONSENT },
 ];
 
@@ -107,6 +108,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   }, [username]);
 
   const requiredAgreed = TERMS_ITEMS.filter((item) => item.required).every((item) => agreed[item.key]);
+  const socialConsent = { marketing: !!agreed.marketing };
   const passwordMismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
 
   return (
@@ -254,9 +256,11 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
       </p>
 
       <div className="my-6 flex items-center gap-3">
-        <span className="shrink-0 text-xs text-muted">간편 로그인</span>
+        <span className="shrink-0 text-xs text-muted">간편 가입</span>
         <div className="h-px flex-1 bg-neutral-700" />
       </div>
+      {/* 소셜 계정으로 가입해도 위의 필수 약관 동의가 먼저다 — 동의 내용은 서버로 넘겨 계정이 만들어질 때 기록한다. */}
+      {!requiredAgreed && <p className="-mt-3 mb-3 text-[11px] text-muted">위의 필수 약관에 동의하면 소셜 계정으로 가입할 수 있어요.</p>}
 
       <div className="space-y-2">
         <ProviderButton
@@ -264,21 +268,24 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
           bg="#FFFFFF"
           fg="#4285F4"
           letter="G"
-          onClick={() => signInWithGoogle(callbackUrl)}
+          disabled={!requiredAgreed}
+          onClick={() => signInWithGoogle(callbackUrl, socialConsent)}
         />
         <ProviderButton
           label="Kakao로 계속하기"
           bg="#FEE500"
           fg="#3C1E1E"
           letter="K"
-          onClick={() => signInWithKakao(callbackUrl)}
+          disabled={!requiredAgreed}
+          onClick={() => signInWithKakao(callbackUrl, socialConsent)}
         />
         <ProviderButton
           label="Naver로 계속하기"
           bg="#03C75A"
           fg="#FFFFFF"
           letter="N"
-          onClick={() => signInWithNaver(callbackUrl)}
+          disabled={!requiredAgreed}
+          onClick={() => signInWithNaver(callbackUrl, socialConsent)}
         />
       </div>
     </div>

@@ -5,7 +5,9 @@ import Naver from "next-auth/providers/naver";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { PrismaAdapter } from "@auth/prisma-adapter";
+import { cookies } from "next/headers";
 import { db } from "./app/_lib/db";
+import { hasCurrentConsent, recordConsent, PENDING_CONSENT_COOKIE } from "./app/_lib/terms-consent";
 
 // Google/Kakao/Naver 클라이언트 ID·시크릿은 .env의 AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET,
 // AUTH_KAKAO_ID/AUTH_KAKAO_SECRET, AUTH_NAVER_ID/AUTH_NAVER_SECRET에서 Auth.js가
@@ -33,7 +35,23 @@ function recordFailure(key: string) {
   loginFailures.set(key, [...recentFailures(key), Date.now()]);
 }
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+// 소셜 가입 화면에서 약관에 동의하고 버튼을 눌렀으면(auth-actions.ts가 쿠키에 담아 둠) 새로 만들어진
+// 계정에 그 동의를 기록한다. 쿠키가 없으면(로그인 화면에서 바로 소셜 가입) 기록하지 않고, 그 계정은
+// 동의 화면(/consent)을 거치게 된다.
+async function recordPendingConsent(userId: string) {
+  try {
+    const store = await cookies();
+    const raw = store.get(PENDING_CONSENT_COOKIE)?.value;
+    if (!raw) return;
+    store.delete(PENDING_CONSENT_COOKIE);
+    const parsed = JSON.parse(raw) as { marketing?: unknown };
+    await recordConsent(userId, parsed.marketing === true);
+  } catch (error) {
+    console.warn("[auth] 소셜 가입 약관 동의 기록 실패:", error);
+  }
+}
+
+export const { handlers, signIn, signOut, auth, unstable_update } = NextAuth({
   adapter: PrismaAdapter(db),
   providers: [
     Google,
@@ -77,12 +95,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   session: { strategy: "jwt" },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         // role은 DB에서 읽어야 하므로 로그인 시점에 한 번 조회한다
         const dbUser = await db.user.findUnique({ where: { id: user.id as string }, select: { role: true } });
         token.role = dbUser?.role ?? "USER";
+        if (trigger === "signUp" && user.id) await recordPendingConsent(user.id);
+        // 현재 약관에 동의한 기록이 없으면 proxy.ts가 동의 화면으로 보낸다.
+        token.needsConsent = user.id ? !(await hasCurrentConsent(user.id)) : false;
+      } else if (token.needsConsent && typeof token.id === "string") {
+        // 동의 화면에서 동의를 마치면(unstable_update로 이 콜백이 다시 불려 쿠키가 갱신됨) 표시를 지운다.
+        token.needsConsent = !(await hasCurrentConsent(token.id));
       }
       return token;
     },

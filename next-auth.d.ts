@@ -15,5 +15,7 @@ declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
     role?: string;
+    // 현재 버전 약관에 동의한 기록이 없는 계정 — proxy.ts가 동의 화면으로 보낸다.
+    needsConsent?: boolean;
   }
 }

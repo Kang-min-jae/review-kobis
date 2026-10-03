@@ -317,7 +317,15 @@ export default function SideMenu({
               )}
             </nav>
 
-            <p className="mt-8 text-center text-[11px] text-muted">이용약관 · 개인정보처리방침</p>
+            <p className="mt-8 text-center text-[11px] text-muted">
+              <Link href="/legal#terms" onClick={close} className="hover:text-text hover:underline">
+                이용약관
+              </Link>
+              {" · "}
+              <Link href="/legal#privacy" onClick={close} className="font-semibold hover:text-text hover:underline">
+                개인정보 처리방침
+              </Link>
+            </p>
           </div>
         </>
       )}

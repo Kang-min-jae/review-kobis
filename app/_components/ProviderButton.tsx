@@ -8,18 +8,21 @@ export default function ProviderButton({
   fg,
   letter,
   onClick,
+  disabled = false,
 }: {
   label: string;
   bg: string;
   fg: string;
   letter: string;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-lg border border-neutral-700 px-3 py-2.5 text-xs font-semibold text-text transition-colors hover:border-brand"
+      disabled={disabled}
+      className="flex w-full items-center gap-2.5 rounded-lg border border-neutral-700 px-3 py-2.5 text-xs font-semibold text-text transition-colors hover:border-brand disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
     >
       <span
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
