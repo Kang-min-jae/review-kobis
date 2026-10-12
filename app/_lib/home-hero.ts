@@ -1,9 +1,10 @@
-// 홈 상단 히어로의 "최근 인기 영화" / "최근 BEST 영화" 패널 데이터(각 최대 5편).
+// 홈 상단 히어로의 "최근 인기 영화" / "오늘의 한줄평" 패널 데이터(각 최대 5개).
 //
-// 기준은 이 사이트 회원이 최근 30일 동안 남긴 "전체" 평점(CategoryRating, 0~10, 1인 1편 1개)이다.
-//  · 최근 인기 영화: 최근 30일 평점 개수가 많은 순 → 같으면 더 최근에 평점이 달린 순
-//  · 최근 BEST 영화: 최근 30일 평점이 BEST_MIN_RATINGS개 이상인 영화 중 그 기간 평균이 높은 순 → 같으면 평점 개수 순
-// 시리즈(tmdb-tv-*)·성인물·DB에 없는(삭제된) 영화는 뺀다. 10분 캐시.
+//  · 최근 인기 영화: 이 사이트 회원이 최근 30일 동안 남긴 "전체" 평점(CategoryRating, 1인 1편 1개) 개수가
+//    많은 순 → 같으면 더 최근에 평점이 달린 순.
+//  · 오늘의 한줄평: 최근 7일 동안 받은 좋아요가 많은 한줄평 순 → 모자라면 최근 7일에 쓰인 한줄평 중
+//    좋아요 많은 순으로 채운다. 스포일러·빈 글·시리즈는 뺀다.
+// 성인물·DB에 없는(삭제된) 영화는 뺀다. 10분 캐시.
 
 import { unstable_cache } from "next/cache";
 import { db } from "./db";
@@ -16,7 +17,7 @@ import { getBadge } from "./tier";
 
 export const HERO_WINDOW_DAYS = 30;
 export const HERO_MOVIE_COUNT = 5;
-const BEST_MIN_RATINGS = 2;
+export const TODAY_REVIEW_DAYS = 7;
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 export type HeroReview = {
@@ -43,7 +44,22 @@ export type HeroMovie = {
   reviews: HeroReview[]; // 좋아요 많은 한줄평 최대 2개(스포일러 제외)
 };
 
-export type HeroLists = { popular: HeroMovie[]; best: HeroMovie[] };
+export type HeroTodayReview = {
+  id: string;
+  content: string;
+  rating: number; // 0~10
+  likeCount: number;
+  createdAt: string; // ISO
+  authorId: string;
+  authorName: string;
+  authorTier: string;
+  movieId: string;
+  movieTitle: string;
+  posterUrl: string | null;
+  genre: string | null;
+};
+
+export type HeroLists = { popular: HeroMovie[]; today: HeroTodayReview[] };
 
 type RecentStat = { movieCd: string; count: number; average: number; lastAt: number };
 
@@ -131,14 +147,68 @@ async function toHeroMovies(sorted: RecentStat[]): Promise<HeroMovie[]> {
   });
 }
 
+async function loadTodayReviews(): Promise<HeroTodayReview[]> {
+  const since = new Date(Date.now() - TODAY_REVIEW_DAYS * 24 * 60 * 60 * 1000);
+  const eligible = { type: "SHORT" as const, hasSpoiler: false, NOT: [{ content: "" }, { movieCd: { startsWith: "tmdb-tv-" } }] };
+
+  // 최근 7일에 받은 좋아요 수 순
+  const liked = await db.reviewLike.groupBy({
+    by: ["reviewId"],
+    where: { type: "LIKE", createdAt: { gte: since }, review: eligible },
+    _count: { _all: true },
+    orderBy: { _count: { reviewId: "desc" } },
+    take: 20,
+  });
+  // 모자라면 최근 7일에 쓰인 한줄평 중 좋아요 많은 순
+  const recent = await db.review.findMany({
+    where: { ...eligible, createdAt: { gte: since } },
+    orderBy: [{ likeCount: "desc" }, { createdAt: "desc" }],
+    select: { id: true },
+    take: 20,
+  });
+  const orderedIds = [...new Set([...liked.map((l) => l.reviewId), ...recent.map((r) => r.id)])];
+  if (orderedIds.length === 0) return [];
+
+  const rows = await db.review.findMany({
+    where: { id: { in: orderedIds } },
+    include: { user: { select: { nickname: true, name: true, totalLikes: true } } },
+  });
+  const movies = await db.cachedMovie.findMany({
+    where: { movieCd: { in: [...new Set(rows.map((r) => r.movieCd))] } },
+    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true },
+  });
+  const movieByCd = new Map(movies.map((m) => [m.movieCd, m]));
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+
+  const result: HeroTodayReview[] = [];
+  for (const id of orderedIds) {
+    if (result.length >= HERO_MOVIE_COUNT) break;
+    const r = rowById.get(id);
+    const m = r ? movieByCd.get(r.movieCd) : undefined;
+    if (!r || !m || isAdultContent(m)) continue;
+    result.push({
+      id: r.id,
+      content: r.content,
+      rating: r.rating,
+      likeCount: r.likeCount,
+      createdAt: r.createdAt.toISOString(),
+      authorId: r.userId,
+      authorName: r.user.nickname ?? r.user.name ?? "사용자",
+      authorTier: getBadge(r.user.totalLikes),
+      movieId: cdToMovieId(r.movieCd),
+      movieTitle: m.title,
+      posterUrl: formatPosterUrl(m.posterUrl),
+      genre: m.genreAlt?.split(",")[0]?.trim() || null,
+    });
+  }
+  return result;
+}
+
 async function loadHeroLists(): Promise<HeroLists> {
   const stats = await loadRecentStats();
   const popular = [...stats].sort((a, b) => b.count - a.count || b.lastAt - a.lastAt);
-  const best = stats
-    .filter((s) => s.count >= BEST_MIN_RATINGS)
-    .sort((a, b) => b.average - a.average || b.count - a.count || b.lastAt - a.lastAt);
-  const [popularMovies, bestMovies] = await Promise.all([toHeroMovies(popular), toHeroMovies(best)]);
-  return { popular: popularMovies, best: bestMovies };
+  const [popularMovies, today] = await Promise.all([toHeroMovies(popular), loadTodayReviews()]);
+  return { popular: popularMovies, today };
 }
 
-export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v1"], { revalidate: 600 });
+export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v2"], { revalidate: 600 });

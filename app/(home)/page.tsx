@@ -36,6 +36,8 @@ import CoverflowCarousel from "../_components/CoverflowCarousel";
 import RowSkeleton from "../_components/RowSkeleton";
 import HomeHero from "../_components/HomeHero";
 import { getHeroLists } from "../_lib/home-hero";
+import { auth } from "../../auth";
+import { db } from "../_lib/db";
 
 
 // 행 하나의 데이터 조회가 throw하면 Suspense는 잡지 못하고 app/error.tsx까지 올라가
@@ -210,13 +212,24 @@ async function AwardWinnersData() {
   return <AwardWinnersSection tabs={tabs} />;
 }
 
-// 홈 상단 히어로 — 최근 30일 평점 데이터를 불러오는 동안에도 의자 화면은 바로 보인다(버튼만 잠시 비활성).
+// 홈 상단 히어로 — 최근 인기 영화·오늘의 한줄평 데이터를 불러오는 동안에도 의자 화면은 바로 보인다(버튼만 잠시 비활성).
 async function HomeHeroData() {
-  const lists = await getHeroLists().catch((error) => {
-    console.error("[home] 히어로 데이터 로드 실패", error);
-    return { popular: [], best: [] };
-  });
-  return <HomeHero lists={lists} />;
+  const [lists, session] = await Promise.all([
+    getHeroLists().catch((error) => {
+      console.error("[home] 히어로 데이터 로드 실패", error);
+      return { popular: [], today: [] };
+    }),
+    auth(),
+  ]);
+  const userId = session?.user?.id ?? null;
+  // "오늘의 한줄평" 공감 버튼의 내 공감 여부 — 목록은 모두가 같은 캐시를 쓰므로 이것만 따로 조회한다.
+  const liked =
+    userId && lists.today.length > 0
+      ? await db.reviewLike
+          .findMany({ where: { userId, type: "LIKE", reviewId: { in: lists.today.map((r) => r.id) } }, select: { reviewId: true } })
+          .catch(() => [])
+      : [];
+  return <HomeHero lists={lists} isLoggedIn={Boolean(userId)} likedReviewIds={liked.map((l) => l.reviewId)} />;
 }
 
 function MovieCategorySection() {
