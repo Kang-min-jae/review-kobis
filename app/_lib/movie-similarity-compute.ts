@@ -17,7 +17,8 @@ export const RATING_MAX = 10;
 export const LIKE_THRESHOLD_RATIO = 0.8;
 export const LIKE_MIN_SCORE = RATING_MAX * LIKE_THRESHOLD_RATIO; // 8.0
 export const MIN_CO_LIKES = 3;
-export const TOP_N_PER_MOVIE = 20;
+// 화면엔 20개를 보여주지만 내가 이미 평가한 영화는 빠지므로 여유 있게 40개까지 저장한다.
+export const TOP_N_PER_MOVIE = 40;
 
 export async function recomputeMovieSimilarity(client: PrismaClient): Promise<{ pairs: number; movies: number }> {
   // 지우고 다시 넣는 걸 한 트랜잭션으로 묶어, 계산 도중 페이지가 빈 결과를 보지 않게 한다.

@@ -482,7 +482,7 @@ model TrailerCache {
 
 // "이 영화를 좋아한 사람들이 본" — 회원 평점 기반 아이템-아이템 코사인 유사도.
 // scripts/compute-movie-similarity.mts 또는 /api/cron/movie-similarity가 매일 다시 계산해
-// 영화마다 상위 20개만 저장한다. 누가 무엇을 좋아했는지는 저장하지 않는다(집계값만).
+// 영화마다 상위 40개만 저장한다. 누가 무엇을 좋아했는지는 저장하지 않는다(집계값만).
 model MovieSimilarity {
   movieCd        String
   similarMovieCd String

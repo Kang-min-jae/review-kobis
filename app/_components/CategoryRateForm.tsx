@@ -211,7 +211,7 @@ type SortMode = "likes" | "latest" | "friends";
 const SORTS: { mode: SortMode; label: string }[] = [
   { mode: "likes", label: "공감순" },
   { mode: "latest", label: "최신순" },
-  { mode: "friends", label: "친구만" },
+  { mode: "friends", label: "팔로잉" },
 ];
 
 const tabs: { type: ReviewTab; label: string }[] = [
@@ -254,7 +254,7 @@ export default function CategoryRateForm({
   isAdmin?: boolean;
   reviews: { SHORT: ReviewWithAuthor[]; LONG: ReviewWithAuthor[] };
   myReviews: { SHORT: MyReview; LONG: MyReview };
-  followingIds?: string[]; // "친구만" 정렬용 — 내가 팔로우하는 회원
+  followingIds?: string[]; // "팔로잉" 정렬용 — 내가 팔로우하는 회원
   alwaysShowSpoilers?: boolean; // 회원 설정 "스포일러 항상 보기"
 }) {
   const router = useRouter();

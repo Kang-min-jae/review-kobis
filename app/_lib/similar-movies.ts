@@ -1,11 +1,12 @@
-// 영화 상세 페이지 오른쪽 "이 영화를 좋아한 사람들이 본" / "비슷한 영화" 카드 3개.
+// 영화 상세 페이지 오른쪽 "이 영화를 좋아한 사람들이 본" / "비슷한 영화" 카드 20개(10개씩 두 줄).
 //
 // 1순위: MovieSimilarity(회원 평점 기반 코사인 유사도, movie-similarity-compute.ts가 매일 계산).
-//        이걸로 3개가 채워질 때만 제목을 "이 영화를 좋아한 사람들이 본"으로 쓴다.
+//        이걸로 20개가 다 채워질 때만 제목을 "이 영화를 좋아한 사람들이 본"으로 쓴다.
 // 모자라면 아래 순서로 채우고 제목을 "비슷한 영화"로 바꾼다.
 //   ① TMDB /movie/{id}/recommendations 중 우리 DB(CachedMovie)에 있는 영화
 //   ② 같은 감독 또는 같은 주연 배우의 영화
 //   ③ 같은 장르 중 회원 평균 평점이 높은 영화
+//   ④ 같은 장르의 최근 영화
 // 공통 제외: 지금 영화, 내가 평점·리뷰를 남겼거나 "봤어요"를 누른 영화, DB에 없는(삭제된) 영화, 성인물.
 // 누가 무엇을 좋아했는지는 어디에도 내보내지 않는다(카드에는 영화 정보만 담는다).
 
@@ -18,7 +19,8 @@ import { getTmdbMovieRecommendationIds } from "./tmdb";
 import { isAdultContent, NOT_ADULT_GENRE_WHERE } from "./adult-content";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
-export const SIMILAR_MOVIE_COUNT = 3;
+// 화면에 10개씩 두 줄로 보여준다.
+export const SIMILAR_MOVIE_COUNT = 20;
 // ③ 장르 폴백은 회원 평균(0~10)이 이 이상인 영화만 — "평균이 높은" 영화만 채운다.
 const GENRE_FALLBACK_MIN_AVG = 7;
 
@@ -90,6 +92,18 @@ async function fromSameGenreTopRated(genreAlt: string | null): Promise<CachedRow
     .sort((a, b) => (avgs.get(b.movieCd)?.shortAvg ?? 0) - (avgs.get(a.movieCd)?.shortAvg ?? 0));
 }
 
+// ④ 그래도 모자라면 같은 장르의 최근 영화(포스터 있는 것)로 채운다 — 회원 평점이 아직 적은 영화도 20개를 채우기 위함.
+async function fromSameGenreRecent(genreAlt: string | null): Promise<CachedRow[]> {
+  const genre = splitGenres(genreAlt)[0];
+  if (!genre) return [];
+  return db.cachedMovie.findMany({
+    where: { AND: [{ genreAlt: { contains: genre } }, { posterUrl: { not: null } }, NOT_ADULT_GENRE_WHERE] },
+    select: ROW_SELECT,
+    orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
+    take: 80,
+  });
+}
+
 async function toRowMovies(rows: CachedRow[]): Promise<RowMovie[]> {
   const avgs = await getBulkMovieRatingAverages(rows.map((r) => r.movieCd));
   return rows.map((r) => {
@@ -138,11 +152,12 @@ export async function getSimilarMovies(input: {
       where: { movieCd: input.movieCd },
       orderBy: [{ score: "desc" }, { coLikes: "desc" }],
       select: { similarMovieCd: true },
-      take: 20,
+      take: 40,
     })
     .catch(() => []);
   take(await loadRows(similar.map((s) => s.similarMovieCd)));
 
+  // 카드 전부가 회원 평점 기반(협업 필터링) 결과일 때만 "이 영화를 좋아한 사람들이 본"으로 부른다.
   if (picked.length >= SIMILAR_MOVIE_COUNT) {
     return { title: CF_SECTION_TITLE, movies: await toRowMovies(picked) };
   }
@@ -151,6 +166,7 @@ export async function getSimilarMovies(input: {
     () => fromTmdbRecommendations(input.tmdbId),
     () => fromSamePeople(input.directorName, input.leadActorName),
     () => fromSameGenreTopRated(input.genreAlt),
+    () => fromSameGenreRecent(input.genreAlt),
   ];
   for (const next of fallbacks) {
     if (picked.length >= SIMILAR_MOVIE_COUNT) break;
