@@ -44,10 +44,11 @@ export default function CategoryNav({
 }) {
   return (
     <div>
+      {/* 탭들이 남는 폭을 똑같이 나눠 가져(grow) 화면 끝까지 같은 간격으로 퍼진다 — 좁은 화면에선 글자 폭을 유지하고 가로 스크롤 */}
       <nav className="no-scrollbar flex items-center overflow-x-auto border-b border-neutral-800 pt-1">
         <Link
           href="/my-list"
-          className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
+          className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "my-list"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
@@ -59,7 +60,7 @@ export default function CategoryNav({
           <Link
             key={category}
             href={`/?category=${encodeURIComponent(category)}`}
-            className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
+            className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
               active === category
                 ? "border-star font-bold text-text"
                 : "border-transparent font-medium text-text/80 hover:text-text"
@@ -70,7 +71,7 @@ export default function CategoryNav({
         ))}
         <Link
           href="/awards"
-          className={`shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
+          className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "awards"
               ? "border-star font-bold text-text"
               : "border-transparent font-medium text-text/80 hover:text-text"
