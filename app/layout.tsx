@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
 import TmdbLogo from "./_components/TmdbLogo";
+import { SITE_URL } from "./_lib/site";
 import "./globals.css";
 // 가변(Variable) 폰트의 글자 범위별 조각 버전. 굵기별 통파일은 첫 방문에 수 MB를 받고,
 // 굵기별 조각(static dynamic-subset)은 @font-face가 828개(9굵기×92조각)라 렌더링을 막는
@@ -11,7 +12,6 @@ import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
 const SITE_NAME = "무비리뷰";
 const SITE_DESCRIPTION = "한국 영화 평점과 리뷰를 남기고, 영화제 수상작을 한눈에 — 나만의 영화 리스트를 만들어 보세요.";
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://review-kobis.vercel.app";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
