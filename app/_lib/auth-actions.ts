@@ -36,6 +36,8 @@ export async function signInWithNaver(callbackUrl?: string, consent?: SocialCons
   await signIn("naver", callbackUrl ? { redirectTo: callbackUrl } : undefined);
 }
 
-export async function signOutAction() {
-  await signOut();
+// redirectTo를 주면 로그아웃 후 그 경로로 이동한다(헤더 계정 메뉴는 "/"). 안 주면 기존 동작 그대로.
+export async function signOutAction(redirectTo?: string) {
+  const safe = typeof redirectTo === "string" && redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : undefined;
+  await signOut(safe ? { redirectTo: safe } : undefined);
 }
