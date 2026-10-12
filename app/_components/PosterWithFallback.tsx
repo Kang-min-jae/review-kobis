@@ -7,17 +7,19 @@ export default function PosterWithFallback({
   posterUrl,
   gradient,
   movieTitle,
+  sizeClassName = "w-28 sm:w-28",
 }: {
   posterUrl: string | null;
   gradient: string;
   movieTitle: string;
+  sizeClassName?: string; // 포스터 너비(기본 w-28)
 }) {
   const [failed, setFailed] = useState(false);
   const showPoster = posterUrl && !failed;
 
   return (
     <div
-      className={`relative aspect-2/3 w-28 shrink-0 overflow-hidden rounded-lg sm:w-28 ${
+      className={`relative aspect-2/3 shrink-0 overflow-hidden rounded-lg ${sizeClassName} ${
         showPoster ? "bg-surface" : `bg-gradient-to-br ${gradient}`
       }`}
     >

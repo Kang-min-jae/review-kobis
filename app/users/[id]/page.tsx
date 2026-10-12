@@ -27,13 +27,15 @@ export async function generateMetadata({ params }: PageProps<"/users/[id]">): Pr
 export default async function UserProfilePage({ params }: PageProps<"/users/[id]">) {
   const { id } = await params;
 
+  // 리뷰 목록은 보는 사람이 작성자 본인인지에 따라 스포일러 본문을 가릴지가 달라 세션을 먼저 확인한다.
+  const sessionPromise = auth();
   const [session, profileUser, movies, followerCount, reviewStats, userReviews] = await Promise.all([
-    auth(),
+    sessionPromise,
     getUserProfileData(id),
     getMyRatedMovies(id, { includeCategoryOnly: true }),
     getFollowerCount(id),
     getUserReviewStats(id),
-    getReviewsByUser(id),
+    sessionPromise.then((s) => getReviewsByUser(id, s?.user?.id ?? null)),
   ]);
 
   if (!profileUser) notFound();

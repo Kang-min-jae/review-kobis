@@ -10,7 +10,7 @@ const DISPLAY_CAST_LIMIT = 6;
 // KMDb 인물 코드(kmdbId)가 있으면 쿼리로 같이 넘겨서 동명이인 필모그래피가 안 섞이게 하고,
 // 역할(감독/배우)도 같이 넘겨서 이름은 같지만 역할이 다른 별개 인물("배우 톰 홀랜드" vs
 // "감독 톰 홀랜드")의 작품이 섞이지 않게 한다.
-function personHref(person: PersonRef, role: "감독" | "배우"): string {
+export function personHref(person: PersonRef, role: "감독" | "배우"): string {
   const params = new URLSearchParams({ role });
   if (person.kmdbId) params.set("pid", person.kmdbId);
   return `/people/${encodeURIComponent(person.name)}?${params.toString()}`;

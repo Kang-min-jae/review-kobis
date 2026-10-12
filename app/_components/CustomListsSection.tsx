@@ -76,7 +76,10 @@ function ListMovieCard({
   onDragEnd: () => void;
 }) {
   const movie = list.movies[index];
-  const isRatable = movie.movieId.startsWith("kobis-");
+  // 상세 페이지의 "리스트에 추가"로 KOBIS 외 영화(tmdb-*, kmdb-* 등)도 들어올 수 있다 — 전부 평점 페이지로 연결한다.
+  const isSeries = movie.movieId.startsWith("tmdb-tv-");
+  const isRatable = /^(kobis-|tmdb-|kmdb-|wikidata-)/.test(movie.movieId);
+  const rateHref = isSeries ? `/series/${movie.movieId}/rate` : `/movies/${movie.movieId}/rate`;
 
   const poster = (
     <div
@@ -117,7 +120,7 @@ function ListMovieCard({
         ✕
       </button>
       {isRatable ? (
-        <Link href={`/movies/${movie.movieId}/rate`} draggable={false}>
+        <Link href={rateHref} draggable={false}>
           {poster}
         </Link>
       ) : (

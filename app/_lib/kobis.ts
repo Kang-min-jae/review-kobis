@@ -537,6 +537,7 @@ export async function resolveRerelease(
 // ── 박스오피스 (일별/주간) ───────────────────────────────────────────────────
 
 type DailyBoxOfficeItem = {
+  rank?: string; // "1" ~ "10"
   movieCd?: string;
   movieNm?: string;
   openDt?: string; // "YYYY-MM-DD" (KOBIS 박스오피스 응답은 이미 하이픈 포함 형식으로 준다)
@@ -547,6 +548,7 @@ type DailyBoxOfficeItem = {
 export type KoficBoxOffice = {
   audiAcc: number; // 누적 관객수
   salesAcc: number; // 누적 매출액 (원)
+  rank: number | null; // 일별 박스오피스 순위 (상세 페이지 "박스오피스 N위" 배지)
 };
 
 async function fetchDailyBoxOffice(targetDt: string, key: string): Promise<DailyBoxOfficeItem[]> {
@@ -697,6 +699,7 @@ export async function getKoficBoxOfficeByTitle(title: string): Promise<KoficBoxO
         return {
           audiAcc: Number(match.audiAcc ?? 0),
           salesAcc: Number(match.salesAcc ?? 0),
+          rank: Number.isFinite(Number(match.rank)) && Number(match.rank) > 0 ? Number(match.rank) : null,
         };
       }
     }

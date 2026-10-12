@@ -647,3 +647,37 @@ export async function getTmdbPersonMovieCredits(
     releaseDate: c.release_date?.trim() || null,
   }));
 }
+
+// ── 예고편·추천 ────────────────────────────────────────────────────────────
+
+// GET /movie/{movie_id}/videos 응답의 results 항목(TMDB v3 문서 기준 필드). 실제 응답에
+// 없는 필드가 있어도 깨지지 않게 전부 선택 필드로 두고, 쓰는 쪽(trailers.ts)에서 형식을 확인한다.
+export type RawTmdbVideo = {
+  id?: string;
+  iso_639_1?: string | null; // 영상 언어 ("ko", "en" …)
+  iso_3166_1?: string | null;
+  name?: string;
+  key?: string; // YouTube 영상 ID
+  site?: string; // "YouTube" | "Vimeo" …
+  size?: number;
+  type?: string; // "Trailer" | "Teaser" | "Clip" | "Featurette" …
+  official?: boolean;
+  published_at?: string; // ISO 시각
+};
+
+// 언어(lang)별 영상 목록. 키가 없거나 요청이 실패하면 null — "영상 없음([])"과 구분해서,
+// 실패했을 땐 마지막으로 성공한 캐시를 쓸 수 있게 한다. 캐시는 trailers.ts가 DB에 직접 둔다.
+export async function getTmdbMovieVideos(tmdbId: string, lang: "ko-KR" | "en-US"): Promise<RawTmdbVideo[] | null> {
+  if (!/^\d{1,12}$/.test(tmdbId)) return null;
+  const data = await tmdbFetch<{ results?: RawTmdbVideo[] }>(`/movie/${tmdbId}/videos`, {}, lang, true);
+  if (!data) return null;
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+// GET /movie/{movie_id}/recommendations — "비슷한 영화" 폴백에 쓰는 TMDB 추천작 ID 목록(1페이지).
+export async function getTmdbMovieRecommendationIds(tmdbId: string): Promise<string[]> {
+  if (!/^\d{1,12}$/.test(tmdbId)) return [];
+  const data = await tmdbFetch<{ results?: { id?: number }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });
+  if (!data || !Array.isArray(data.results)) return [];
+  return data.results.map((r) => (typeof r.id === "number" ? String(r.id) : null)).filter((id): id is string => id !== null);
+}

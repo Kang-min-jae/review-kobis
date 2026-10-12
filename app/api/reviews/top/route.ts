@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../_lib/db";
 import { getBadge } from "../../../_lib/tier";
+import { SPOILER_PLACEHOLDER } from "../../../_lib/spoiler";
 
 export type TopReview = {
   id: string;
@@ -9,6 +10,7 @@ export type TopReview = {
   authorTier: string;
   rating: number;
   content: string;
+  isSpoiler: boolean; // true면 content는 본문 대신 "스포일러가 포함된 한줄평" 문구다
   likeCount: number;
   dislikeCount: number;
 };
@@ -42,7 +44,9 @@ export async function GET(request: Request) {
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
     authorTier: getBadge(r.user.totalLikes),
     rating: r.rating,
-    content: r.content,
+    // 미리보기(박스오피스 뒤집기 카드·호버 팝업)엔 스포일러 본문을 싣지 않는다.
+    content: r.hasSpoiler && r.content.trim() ? SPOILER_PLACEHOLDER : r.content,
+    isSpoiler: r.hasSpoiler && r.content.trim().length > 0,
     likeCount: r.likeCount,
     dislikeCount: r.dislikeCount,
   }));

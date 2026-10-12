@@ -47,7 +47,7 @@ export default function TopReviewsList({
             </div>
           </div>
           {r.content.trim() && (
-            <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted">{r.content}</p>
+            <p className={`mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted ${r.isSpoiler ? "italic" : ""}`}>{r.content}</p>
           )}
           <p className="mt-0.5 text-[10px] text-muted">
             👍 {r.likeCount}

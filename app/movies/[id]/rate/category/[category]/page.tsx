@@ -11,12 +11,18 @@ import {
 } from "../../../../../_lib/review-data";
 import SiteHeader from "../../../../../_components/SiteHeader";
 import BackBar from "../../../../../_components/BackBar";
-import MovieInfoHeader from "../../../../../_components/MovieInfoHeader";
+import MovieHero from "../../../../../_components/MovieHero";
+import AddToListButton from "../../../../../_components/AddToListButton";
 import CategoryRatings from "../../../../../_components/CategoryRatings";
 import CategoryRateForm from "../../../../../_components/CategoryRateForm";
 import AwardsBanner from "../../../../../_components/AwardsBanner";
+import TrailerBox from "../../../../../_components/TrailerBox";
+import RatingDistribution from "../../../../../_components/RatingDistribution";
+import SimilarMoviesSection from "../../../../../_components/SimilarMoviesSection";
 import { getMovieAwardWins } from "../../../../../_lib/award-winners";
+import { getOfficialTrailers } from "../../../../../_lib/trailers";
 import { safeDecode } from "../../../../../_lib/safe-decode";
+import { db } from "../../../../../_lib/db";
 
 export async function generateMetadata({
   params,
@@ -43,6 +49,29 @@ async function AwardsBannerData(props: { movieId: string; tmdbId: string | null;
   return <AwardsBanner wins={wins} />;
 }
 
+// 예고편은 TMDB 조회(처음 보는 영화)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다.
+async function TrailerBoxData(props: { tmdbId: string | null; movieTitle: string; movieCd: string; isNowShowing: boolean; isAdmin: boolean }) {
+  const trailers = await getOfficialTrailers(props.tmdbId);
+  return (
+    <TrailerBox
+      trailers={trailers}
+      movieTitle={props.movieTitle}
+      movieCd={props.movieCd}
+      isNowShowing={props.isNowShowing}
+      isAdmin={props.isAdmin}
+    />
+  );
+}
+
+function TrailerBoxSkeleton() {
+  return (
+    <section id="watch" className="scroll-mt-20 rounded-2xl border border-neutral-800 bg-surface p-4">
+      <h2 className="text-sm font-bold text-text">공식 예고편 확인하기</h2>
+      <div className="mt-3 aspect-video min-h-[200px] w-full animate-pulse rounded-xl bg-black/40" />
+    </section>
+  );
+}
+
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
@@ -63,13 +92,28 @@ export default async function CategoryRatePage({
   }
   const userId = session?.user?.id ?? null;
 
-  const [averages, shortReviews, longReviews, myShortReview, myLongReview] = await Promise.all([
+  // "스포일러 항상 보기" 설정에 따라 스포일러 리뷰 본문을 처음부터 보낼지가 달라져 먼저 읽는다.
+  const prefsPromise = userId
+    ? db.user.findUnique({ where: { id: userId }, select: { alwaysShowSpoilers: true } }).catch(() => null)
+    : Promise.resolve(null);
+  const reviewsFor = (type: "SHORT" | "LONG") =>
+    prefsPromise.then((prefs) =>
+      getReviewsForCategoryType(info.movieCd, category, type, userId, { alwaysShowSpoilers: prefs?.alwaysShowSpoilers ?? false })
+    );
+
+  const [averages, shortReviews, longReviews, myShortReview, myLongReview, prefs, following] = await Promise.all([
     getAllCategoryAverages(info.movieCd),
-    getReviewsForCategoryType(info.movieCd, category, "SHORT", userId),
-    getReviewsForCategoryType(info.movieCd, category, "LONG", userId),
+    reviewsFor("SHORT"),
+    reviewsFor("LONG"),
     getMyReview(userId, info.movieCd, category, "SHORT"),
     getMyReview(userId, info.movieCd, category, "LONG"),
+    prefsPromise,
+    userId
+      ? db.follow.findMany({ where: { followerId: userId }, select: { followingId: true } }).catch(() => [])
+      : Promise.resolve([]),
   ]);
+  const overall = averages.find((a) => a.category === "전체");
+  const isAdmin = session?.user?.role === "ADMIN";
 
   return (
     <main>
@@ -77,7 +121,7 @@ export default async function CategoryRatePage({
       <div className="px-4 py-5 sm:px-5 sm:py-6">
         <BackBar />
 
-        <MovieInfoHeader
+        <MovieHero
           movieTitle={info.movieTitle}
           description={info.description}
           posterUrl={info.posterUrl}
@@ -85,32 +129,69 @@ export default async function CategoryRatePage({
           releaseDate={info.releaseDate}
           rereleaseDate={info.rereleaseDate}
           runtimeMinutes={info.runtimeMinutes}
+          genreAlt={info.genreAlt}
           director={info.director}
           cast={info.cast}
           boxOffice={info.boxOffice}
+          memberAverage={overall?.average ?? null}
+          memberCount={overall?.count ?? 0}
+          actions={
+            <AddToListButton movieId={info.movieId} title={info.movieTitle} posterUrl={info.posterUrl} gradient={info.gradient} />
+          }
         >
           <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
-        </MovieInfoHeader>
+        </MovieHero>
 
         <div className="mt-6">
           {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
           <Suspense fallback={null}>
             <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
           </Suspense>
-          <CategoryRateForm
-            movieId={info.movieId}
-            movieCd={info.movieCd}
-            movieTitle={info.movieTitle}
-            moviePosterUrl={info.posterUrl}
-            movieGradient={info.gradient}
-            category={category}
-            isLoggedIn={Boolean(userId)}
-            userId={userId}
-            userName={session?.user?.name ?? null}
-            isAdmin={session?.user?.role === "ADMIN"}
-            reviews={{ SHORT: shortReviews, LONG: longReviews }}
-            myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
-          />
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_480px]">
+          <div className="min-w-0">
+            <CategoryRateForm
+              movieId={info.movieId}
+              movieCd={info.movieCd}
+              movieTitle={info.movieTitle}
+              moviePosterUrl={info.posterUrl}
+              movieGradient={info.gradient}
+              category={category}
+              isLoggedIn={Boolean(userId)}
+              userId={userId}
+              userName={session?.user?.name ?? null}
+              isAdmin={isAdmin}
+              reviews={{ SHORT: shortReviews, LONG: longReviews }}
+              myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
+              followingIds={following.map((f) => f.followingId)}
+              alwaysShowSpoilers={prefs?.alwaysShowSpoilers ?? false}
+            />
+          </div>
+
+          <aside className="min-w-0 space-y-4">
+            <Suspense fallback={<TrailerBoxSkeleton />}>
+              <TrailerBoxData
+                tmdbId={info.tmdbId ?? null}
+                movieTitle={info.movieTitle}
+                movieCd={info.movieCd}
+                isNowShowing={info.boxOffice !== null}
+                isAdmin={isAdmin}
+              />
+            </Suspense>
+            <RatingDistribution ratings={shortReviews.map((r) => r.rating)} />
+            <Suspense fallback={null}>
+              <SimilarMoviesSection
+                movieCd={info.movieCd}
+                movieTitle={info.movieTitle}
+                tmdbId={info.tmdbId ?? null}
+                directorName={info.director?.name ?? null}
+                leadActorName={info.cast[0]?.name ?? null}
+                genreAlt={info.genreAlt}
+                userId={userId}
+              />
+            </Suspense>
+          </aside>
         </div>
       </div>
     </main>

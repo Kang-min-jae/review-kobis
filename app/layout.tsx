@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
+import TmdbLogo from "./_components/TmdbLogo";
 import "./globals.css";
 // 가변(Variable) 폰트의 글자 범위별 조각 버전. 굵기별 통파일은 첫 방문에 수 MB를 받고,
 // 굵기별 조각(static dynamic-subset)은 @font-face가 828개(9굵기×92조각)라 렌더링을 막는
@@ -70,7 +71,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               한국영상자료원(KMDb)
             </a>
           </p>
-          <p className="mt-1 opacity-60">
+          <p className="mt-2 flex items-center justify-center gap-1.5">
+            <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer" aria-label="TMDB">
+              <TmdbLogo />
+            </a>
+          </p>
+          <p className="mt-1">
+            이 서비스는 TMDB API를 사용하지만 TMDB의 보증이나 인증을 받지 않았습니다.
+          </p>
+          <p className="mt-0.5 opacity-60">
             This product uses the TMDB API but is not endorsed or certified by TMDB.
           </p>
           <p className="mt-1">

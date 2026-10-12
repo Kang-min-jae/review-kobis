@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getNotifications, type Notifications } from "../_lib/notification-actions";
+import { cdToMovieId } from "../_lib/rating-input";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -91,6 +92,33 @@ export default function NotificationPanel({
 
         {!loading && data && (
           <div className="space-y-6">
+            {/* 신고 누적으로 스포일러 표시된 내 리뷰 */}
+            {data.spoilerFlags.length > 0 && (
+              <section>
+                <p className="mb-2 text-xs font-semibold text-muted">스포일러 표시</p>
+                <ul className="space-y-3">
+                  {data.spoilerFlags.map((n) => (
+                    <li key={n.id} className="flex items-start gap-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-text">
+                          <Link
+                            href={`/${n.movieCd.startsWith("tmdb-tv-") ? "series" : "movies"}/${cdToMovieId(n.movieCd)}/rate/category/${encodeURIComponent(n.category)}`}
+                            onClick={onClose}
+                            className="text-brand hover:underline"
+                          >
+                            {n.movieTitle}
+                            {n.category !== "전체" ? ` (${n.category})` : ""}
+                          </Link>{" "}
+                          리뷰가 다른 회원들의 신고로 스포일러로 표시되었어요
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted">{timeAgo(n.flaggedAt)}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             {/* 하트 받은 내역 */}
             <section>
               <p className="mb-2 text-xs font-semibold text-muted">받은 하트</p>

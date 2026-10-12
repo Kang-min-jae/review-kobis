@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { db } from "./db";
 import { auth } from "../../auth";
-import { containsSpoilerKeyword } from "./spoiler";
 
 // ── 입력 검증 ─────────────────────────────────────────────────────────────
 // 서버 액션은 밖에서 직접 호출할 수 있다 — 화면을 거치지 않고 점수 1000점, 없는 항목 이름,
@@ -98,10 +97,13 @@ export async function submitReviewAction(input: {
   type: "SHORT" | "LONG";
   rating: number;
   content: string;
+  // "스포일러가 있어요" 체크 여부. 빠지면(예전 화면) 기존 리뷰의 표시를 그대로 둔다.
+  isSpoiler?: boolean;
 }) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("로그인이 필요합니다.");
   const userId = session.user.id;
+  if (input.isSpoiler !== undefined && typeof input.isSpoiler !== "boolean") throw new Error("잘못된 요청입니다.");
   assertMovieCd(input.movieCd);
   assertCategory(input.category);
   if (input.type !== "SHORT" && input.type !== "LONG") throw new Error("잘못된 리뷰 종류입니다.");
@@ -109,13 +111,25 @@ export async function submitReviewAction(input: {
   if (typeof input.content !== "string" || input.content.length > (input.type === "SHORT" ? SHORT_CONTENT_MAX : LONG_CONTENT_MAX)) {
     throw new Error("리뷰 내용이 너무 길어요.");
   }
-  const hasSpoiler = containsSpoilerKeyword(input.content);
   const key = { userId, movieCd: input.movieCd, category: input.category, type: input.type };
+
+  // 스포일러 표시는 작성자가 고른다(등록·수정 때 켜고 끌 수 있음). 글 없이 평점만 남기면 가릴 본문이 없어 끈다.
+  // 신고 누적으로 켜진 표시를 작성자가 그대로 두면 출처("reports")도 유지한다.
+  const existing = await db.review.findUnique({
+    where: { userId_movieCd_category_type: key },
+    select: { hasSpoiler: true, spoilerFlagSource: true },
+  });
+  const hasSpoiler = input.content.trim().length > 0 && (input.isSpoiler ?? existing?.hasSpoiler ?? false);
+  const spoilerFlagSource = !hasSpoiler
+    ? null
+    : existing?.hasSpoiler
+      ? (existing.spoilerFlagSource ?? "author")
+      : "author";
 
   await db.review.upsert({
     where: { userId_movieCd_category_type: key },
-    create: { ...key, rating: input.rating, content: input.content, hasSpoiler },
-    update: { rating: input.rating, content: input.content, hasSpoiler },
+    create: { ...key, rating: input.rating, content: input.content, hasSpoiler, spoilerFlagSource },
+    update: { rating: input.rating, content: input.content, hasSpoiler, spoilerFlagSource },
   });
 
   // 한줄평은 모든 카테고리를 CategoryRating에 동기화해 항목별 평균에 반영한다.

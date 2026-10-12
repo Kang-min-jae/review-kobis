@@ -34,10 +34,20 @@ export type FollowingActivityNotif = {
   createdAt: string;
 };
 
+// 내 리뷰가 다른 회원들의 신고 누적으로 스포일러 표시된 내역. 리뷰 본문은 싣지 않는다.
+export type SpoilerFlagNotif = {
+  id: string;
+  movieCd: string;
+  movieTitle: string;
+  category: string;
+  flaggedAt: string;
+};
+
 export type Notifications = {
   likes: LikeNotif[];
   followers: FollowerNotif[];
   followingActivity: FollowingActivityNotif[];
+  spoilerFlags: SpoilerFlagNotif[];
 };
 
 export async function getNotifications(): Promise<Notifications | null> {
@@ -45,7 +55,7 @@ export async function getNotifications(): Promise<Notifications | null> {
   if (!session?.user?.id) return null;
   const userId = session.user.id;
 
-  const [rawLikes, rawFollowers, rawActivity] = await Promise.all([
+  const [rawLikes, rawFollowers, rawActivity, rawSpoilerFlags] = await Promise.all([
     // 내 리뷰에 달린 하트
     db.reviewLike.findMany({
       where: { review: { userId }, type: "LIKE" },
@@ -76,6 +86,15 @@ export async function getNotifications(): Promise<Notifications | null> {
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
+    // 신고 누적으로 스포일러 표시된 내 리뷰 — 컬럼이 아직 없는 DB(마이그레이션 전)에서도 알림 전체가 깨지지 않게 한다.
+    db.review
+      .findMany({
+        where: { userId, hasSpoiler: true, spoilerFlagSource: "reports", spoilerFlaggedAt: { not: null } },
+        select: { id: true, movieCd: true, category: true, spoilerFlaggedAt: true },
+        orderBy: { spoilerFlaggedAt: "desc" },
+        take: 20,
+      })
+      .catch(() => []),
   ]);
 
   // 영화 제목 일괄 조회
@@ -83,6 +102,7 @@ export async function getNotifications(): Promise<Notifications | null> {
     new Set([
       ...rawLikes.map((l) => l.review.movieCd),
       ...rawActivity.map((r) => r.movieCd),
+      ...rawSpoilerFlags.map((r) => r.movieCd),
     ])
   );
   const cachedMovies = await db.cachedMovie.findMany({
@@ -129,5 +149,13 @@ export async function getNotifications(): Promise<Notifications | null> {
     createdAt: r.createdAt.toISOString(),
   }));
 
-  return { likes, followers, followingActivity };
+  const spoilerFlags: SpoilerFlagNotif[] = rawSpoilerFlags.map((r) => ({
+    id: r.id,
+    movieCd: r.movieCd,
+    movieTitle: getTitle(r.movieCd),
+    category: r.category,
+    flaggedAt: (r.spoilerFlaggedAt ?? new Date()).toISOString(),
+  }));
+
+  return { likes, followers, followingActivity, spoilerFlags };
 }

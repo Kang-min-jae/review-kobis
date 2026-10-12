@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { RATING_CATEGORIES, type RatingCategory } from "./category-ratings-store";
 import { getBadge } from "./tier";
+import { SPOILER_PLACEHOLDER } from "./spoiler";
 
 export type CategoryAverage = { category: RatingCategory; average: number | null; count: number };
 
@@ -40,8 +41,12 @@ export async function getMyCategoryScore(
 export type ReviewWithAuthor = {
   id: string;
   rating: number;
+  // 스포일러 리뷰는 contentHidden=true로 본문을 비워서 내려보내고, 사용자가 "눌러서 보기"를
+  // 누를 때 /api/reviews/[id]/content에서 불러온다(작성자 본인·"스포일러 항상 보기"는 그대로 보낸다).
   content: string;
   hasSpoiler: boolean;
+  contentHidden: boolean;
+  spoilerReportedByMe: boolean;
   authorId: string;
   authorName: string;
   authorTier: string; // 관객 / 씨네필 / 평론가 / 거장
@@ -57,7 +62,8 @@ export async function getReviewsForCategoryType(
   movieCd: string,
   category: string,
   type: "SHORT" | "LONG",
-  userId: string | null
+  userId: string | null,
+  options: { alwaysShowSpoilers?: boolean } = {}
 ): Promise<ReviewWithAuthor[]> {
   const rows = await db.review.findMany({
     where: { movieCd, category, type },
@@ -65,13 +71,19 @@ export async function getReviewsForCategoryType(
     include: {
       user: { select: { nickname: true, name: true, totalLikes: true } },
       likes: userId ? { where: { userId }, select: { type: true } } : false,
+      spoilerReports: userId ? { where: { userId }, select: { id: true } } : false,
     },
   });
-  return rows.map((r) => ({
+  return rows.map((r) => {
+    const contentHidden =
+      r.hasSpoiler && r.content.trim().length > 0 && r.userId !== userId && !options.alwaysShowSpoilers;
+    return {
     id: r.id,
     rating: r.rating,
-    content: r.content,
+    content: contentHidden ? "" : r.content,
     hasSpoiler: r.hasSpoiler,
+    contentHidden,
+    spoilerReportedByMe: (r.spoilerReports?.length ?? 0) > 0,
     authorId: r.userId,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
     authorTier: getBadge(r.user.totalLikes),
@@ -79,7 +91,8 @@ export async function getReviewsForCategoryType(
     likeCount: r.likeCount,
     dislikeCount: r.dislikeCount,
     myVote: r.likes?.[0]?.type ?? null,
-  }));
+    };
+  });
 }
 
 // 홈 화면 영화 카드 평균 평점 — 여러 영화의 SHORT/LONG "전체" 평점 평균을 한 번에 조회.
@@ -127,7 +140,7 @@ export async function getUserReviewStats(userId: string): Promise<UserReviewStat
     db.review.findFirst({
       where: { userId, likeCount: { gt: 0 } },
       orderBy: { likeCount: "desc" },
-      select: { content: true, likeCount: true },
+      select: { content: true, likeCount: true, hasSpoiler: true },
     }),
     db.review.findMany({
       where: { userId },
@@ -147,7 +160,8 @@ export async function getUserReviewStats(userId: string): Promise<UserReviewStat
     longCount: long?._count._all ?? 0,
     shortAvg: short?._avg.rating ?? null,
     longAvg: long?._avg.rating ?? null,
-    topLikedContent: topLiked?.content ?? null,
+    // 프로필 미리보기엔 스포일러 본문을 싣지 않는다.
+    topLikedContent: topLiked ? (topLiked.hasSpoiler && topLiked.content.trim() ? SPOILER_PLACEHOLDER : topLiked.content) : null,
     topLikedCount: topLiked?.likeCount ?? 0,
   };
 }
@@ -164,7 +178,8 @@ export type UserReview = {
   createdAt: string;
 };
 
-export async function getReviewsByUser(userId: string): Promise<UserReview[]> {
+// viewerId가 작성자 본인이 아니면 스포일러 리뷰 본문은 "스포일러가 포함된 한줄평" 문구로 바꿔 보낸다.
+export async function getReviewsByUser(userId: string, viewerId: string | null = null): Promise<UserReview[]> {
   const [rows, movies] = await Promise.all([
     db.review.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
     db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
@@ -177,7 +192,7 @@ export async function getReviewsByUser(userId: string): Promise<UserReview[]> {
     category: r.category,
     type: r.type as "SHORT" | "LONG",
     rating: r.rating,
-    content: r.content,
+    content: r.hasSpoiler && r.content.trim() && viewerId !== userId ? SPOILER_PLACEHOLDER : r.content,
     hasSpoiler: r.hasSpoiler,
     createdAt: r.createdAt.toISOString(),
   }));
@@ -197,7 +212,7 @@ export async function getUserProfileData(userId: string) {
   });
 }
 
-export type MyReview = { rating: number; content: string; createdAt: string } | null;
+export type MyReview = { rating: number; content: string; createdAt: string; isSpoiler: boolean } | null;
 
 // 지금 로그인한 사람이 이 영화의 이 항목·타입(한줄평/장문평)에 이미 남긴 리뷰(있으면).
 export async function getMyReview(
@@ -210,5 +225,7 @@ export async function getMyReview(
   const row = await db.review.findFirst({
     where: { userId, movieCd, category, type },
   });
-  return row ? { rating: row.rating, content: row.content, createdAt: row.createdAt.toISOString() } : null;
+  return row
+    ? { rating: row.rating, content: row.content, createdAt: row.createdAt.toISOString(), isSpoiler: row.hasSpoiler }
+    : null;
 }
