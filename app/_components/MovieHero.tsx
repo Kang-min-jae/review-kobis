@@ -110,18 +110,12 @@ export default function MovieHero({
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <ScrollToButton
-              targetId="rate"
-              className="rounded-full bg-star px-4 py-2 text-sm font-bold text-black transition-opacity hover:opacity-90"
-            >
+            <ScrollToButton view="rate" targetId="rate">
               평점
             </ScrollToButton>
             {actions}
-            {/* 모바일(1열 화면)에서만 — 예고편·예매 박스로 이동 */}
-            <ScrollToButton
-              targetId="watch"
-              className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-neutral-500 lg:hidden"
-            >
+            {/* 모바일(1열 화면)에서만 — 눌러야 예고편·예매 박스가 보인다 */}
+            <ScrollToButton view="watch" targetId="watch" className="lg:hidden">
               예고편 · 예매
             </ScrollToButton>
           </div>

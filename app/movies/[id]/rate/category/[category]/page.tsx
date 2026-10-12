@@ -145,8 +145,13 @@ export default async function CategoryRatePage({
 
         {/* 모바일(1열): 예고편·예매 → 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 영화 순서.
             넓은 화면(2열): 왼쪽에 평점, 오른쪽에 예고편·예매 / 별점 분포 / 비슷한 영화. 같은 요소를 grid 위치로만 옮긴다. */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]">
-          <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+        {/* data-mobile-view: 모바일에서 "평점"(rate) / "예고편 · 예매"(watch) 중 어느 영역을 보일지 — 상단 버튼(ScrollToButton)이 바꾼다 */}
+        <div
+          id="detail-layout"
+          data-mobile-view="rate"
+          className="group/detail mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]"
+        >
+          <div className="min-w-0 max-lg:hidden max-lg:group-data-[mobile-view=watch]/detail:block lg:col-start-2 lg:row-start-1">
             <Suspense fallback={<TrailerBoxSkeleton />}>
               <TrailerBoxData
                 tmdbId={info.tmdbId ?? null}
@@ -158,7 +163,7 @@ export default async function CategoryRatePage({
             </Suspense>
           </div>
 
-          <div id="rate" className="min-w-0 scroll-mt-20 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+          <div id="rate" className="min-w-0 scroll-mt-20 max-lg:group-data-[mobile-view=watch]/detail:hidden lg:col-start-1 lg:row-span-3 lg:row-start-1">
             {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
             <Suspense fallback={null}>
               <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
