@@ -110,16 +110,24 @@ export default function MovieHero({
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <a
-              href="#watch"
+              href="#rate"
               className="rounded-full bg-star px-4 py-2 text-sm font-bold text-black transition-opacity hover:opacity-90"
+            >
+              평점
+            </a>
+            {actions}
+            {/* 모바일(1열 화면)에서만 — 예고편·예매 박스로 이동 */}
+            <a
+              href="#watch"
+              className="rounded-full border border-neutral-700 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-neutral-500 lg:hidden"
             >
               예고편 · 예매
             </a>
-            {actions}
           </div>
         </div>
 
-        {children}
+        {/* 항목별 평점은 넓은 화면에서만 여기 두고, 모바일에선 아래 평점 영역(#rate)으로 옮겨 보여준다 */}
+        {children && <div className="hidden shrink-0 lg:block">{children}</div>}
       </div>
     </section>
   );

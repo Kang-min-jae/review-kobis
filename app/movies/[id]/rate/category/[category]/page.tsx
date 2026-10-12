@@ -143,15 +143,29 @@ export default async function CategoryRatePage({
           <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
         </MovieHero>
 
-        <div className="mt-6">
-          {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
-          <Suspense fallback={null}>
-            <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
-          </Suspense>
-        </div>
+        {/* 모바일(1열): 예고편·예매 → 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 영화 순서.
+            넓은 화면(2열): 왼쪽에 평점, 오른쪽에 예고편·예매 / 별점 분포 / 비슷한 영화. 같은 요소를 grid 위치로만 옮긴다. */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]">
+          <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+            <Suspense fallback={<TrailerBoxSkeleton />}>
+              <TrailerBoxData
+                tmdbId={info.tmdbId ?? null}
+                movieTitle={info.movieTitle}
+                movieCd={info.movieCd}
+                isNowShowing={info.boxOffice !== null}
+                isAdmin={isAdmin}
+              />
+            </Suspense>
+          </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_480px]">
-          <div className="min-w-0">
+          <div id="rate" className="min-w-0 scroll-mt-20 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+            {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
+            <Suspense fallback={null}>
+              <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
+            </Suspense>
+            <div className="mb-4 lg:hidden">
+              <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
+            </div>
             <CategoryRateForm
               movieId={info.movieId}
               movieCd={info.movieCd}
@@ -170,17 +184,11 @@ export default async function CategoryRatePage({
             />
           </div>
 
-          <aside className="min-w-0 space-y-4">
-            <Suspense fallback={<TrailerBoxSkeleton />}>
-              <TrailerBoxData
-                tmdbId={info.tmdbId ?? null}
-                movieTitle={info.movieTitle}
-                movieCd={info.movieCd}
-                isNowShowing={info.boxOffice !== null}
-                isAdmin={isAdmin}
-              />
-            </Suspense>
+          <div className="min-w-0 lg:col-start-2 lg:row-start-2">
             <RatingDistribution ratings={shortReviews.map((r) => r.rating)} />
+          </div>
+
+          <div className="min-w-0 lg:col-start-2 lg:row-start-3">
             <Suspense fallback={null}>
               <SimilarMoviesSection
                 movieCd={info.movieCd}
@@ -192,7 +200,7 @@ export default async function CategoryRatePage({
                 userId={userId}
               />
             </Suspense>
-          </aside>
+          </div>
         </div>
       </div>
     </main>
