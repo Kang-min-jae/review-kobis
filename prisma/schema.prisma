@@ -493,3 +493,14 @@ model MovieSimilarity {
   @@id([movieCd, similarMovieCd])
   @@index([movieCd, score])
 }
+
+// 예고편 채널 규칙(관리자). 기본 공식 채널 목록(official-channels.ts)에 없는 배급사 채널을 허용하거나
+// (allowed=true), 목록에 있어도 막을(allowed=false) 때 쓴다. channelKey는 "@handle" 또는 "channel/UC…".
+model TrailerChannelRule {
+  channelKey  String   @id
+  channelName String?
+  allowed     Boolean
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

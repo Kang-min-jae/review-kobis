@@ -20,7 +20,7 @@ import TrailerBox from "../../../../../_components/TrailerBox";
 import RatingDistribution from "../../../../../_components/RatingDistribution";
 import SimilarMoviesSection from "../../../../../_components/SimilarMoviesSection";
 import { getMovieAwardWins } from "../../../../../_lib/award-winners";
-import { getOfficialTrailers } from "../../../../../_lib/trailers";
+import { getTrailerData } from "../../../../../_lib/trailers";
 import { safeDecode } from "../../../../../_lib/safe-decode";
 import { db } from "../../../../../_lib/db";
 
@@ -51,10 +51,11 @@ async function AwardsBannerData(props: { movieId: string; tmdbId: string | null;
 
 // 예고편은 TMDB 조회(처음 보는 영화)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다.
 async function TrailerBoxData(props: { tmdbId: string | null; movieTitle: string; movieCd: string; isNowShowing: boolean; isAdmin: boolean }) {
-  const trailers = await getOfficialTrailers(props.tmdbId);
+  const { trailers, candidates } = await getTrailerData(props.tmdbId);
   return (
     <TrailerBox
       trailers={trailers}
+      candidates={props.isAdmin ? candidates : []}
       movieTitle={props.movieTitle}
       movieCd={props.movieCd}
       isNowShowing={props.isNowShowing}

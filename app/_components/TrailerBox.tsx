@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { OfficialTrailer } from "../_lib/trailers";
-import { blockTrailerAction } from "../_lib/trailer-admin-actions";
+import type { OfficialTrailer, TrailerCandidate, TrailerCandidateStatus } from "../_lib/trailers";
+import { blockTrailerAction, setTrailerChannelRuleAction } from "../_lib/trailer-admin-actions";
 
 // 극장 예매는 각 극장 공식 사이트로 새 탭에서 연결만 한다(상영시간표를 가져오지 않는다).
 const THEATERS = [
@@ -12,18 +12,128 @@ const THEATERS = [
   { name: "롯데시네마", href: "https://www.lottecinema.co.kr/" },
 ] as const;
 
+const STATUS_LABELS: Record<TrailerCandidateStatus, string> = {
+  official: "공식 채널",
+  unverified: "공식 채널 아님(숨김)",
+  "channel-blocked": "차단한 채널",
+  "video-blocked": "차단한 영상",
+  unavailable: "삭제·비공개·퍼가기 금지",
+};
+
+// 관리자에게만 보이는 예고편 후보 목록 — 숨겨진 영상이 어느 채널 것이고 왜 숨겨졌는지 보여주고,
+// 채널을 공식으로 허용하거나 차단할 수 있다(모든 영화에 바로 적용).
+function AdminCandidates({ candidates, movieCd }: { candidates: TrailerCandidate[]; movieCd: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function run(id: string, action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(id);
+    try {
+      await action();
+      router.refresh();
+    } catch {
+      window.alert("처리하지 못했어요.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-lg border border-red-500/40 bg-black/30 p-2 text-[11px]">
+      <summary className="cursor-pointer font-semibold text-red-400">🚨 관리자: TMDB 예고편 후보 {candidates.length}개</summary>
+      <ul className="mt-2 space-y-2">
+        {candidates.map((c) => (
+          <li key={c.key} className="rounded bg-black/30 p-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-semibold text-text">{c.label}</span>
+              <a
+                href={`https://www.youtube.com/watch?v=${c.key}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted underline-offset-2 hover:underline"
+              >
+                {c.key} ↗
+              </a>
+              <span className={c.status === "official" ? "text-star" : "text-muted"}>· {STATUS_LABELS[c.status]}</span>
+            </div>
+            <p className="mt-0.5 text-muted">
+              채널: {c.channelName ?? "확인 못 함"}
+              {c.channelKey && <span className="ml-1 text-neutral-500">({c.channelKey})</span>}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {c.channelKey && c.status === "unverified" && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!confirm(`"${c.channelName}" 채널을 배급사·제작사 공식 채널로 허용할까요?\n모든 영화의 예고편에 적용돼요.`)) return;
+                    void run(c.key, () => setTrailerChannelRuleAction({ channelKey: c.channelKey!, channelName: c.channelName, allowed: true }));
+                  }}
+                  className="rounded-full border border-star/60 px-2 py-0.5 text-star disabled:opacity-50"
+                >
+                  채널 공식 허용
+                </button>
+              )}
+              {c.channelKey && c.status === "official" && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!confirm(`"${c.channelName}" 채널을 차단할까요?\n모든 영화에서 이 채널 영상이 숨겨져요.`)) return;
+                    void run(c.key, () => setTrailerChannelRuleAction({ channelKey: c.channelKey!, channelName: c.channelName, allowed: false }));
+                  }}
+                  className="rounded-full border border-red-500/60 px-2 py-0.5 text-red-400 disabled:opacity-50"
+                >
+                  채널 차단
+                </button>
+              )}
+              {c.channelKey && c.status === "channel-blocked" && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void run(c.key, () => setTrailerChannelRuleAction({ channelKey: c.channelKey!, allowed: null }))}
+                  className="rounded-full border border-neutral-600 px-2 py-0.5 text-muted disabled:opacity-50"
+                >
+                  채널 차단 해제
+                </button>
+              )}
+              {c.status !== "video-blocked" && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!confirm(`이 영상(${c.key})만 차단할까요?`)) return;
+                    void run(c.key, () => blockTrailerAction({ videoKey: c.key, movieCd }));
+                  }}
+                  className="rounded-full border border-neutral-600 px-2 py-0.5 text-muted disabled:opacity-50"
+                >
+                  영상 차단
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 // 상세 페이지 오른쪽 "공식 예고편 확인하기" 박스(위쪽 "예고편 · 예매" 버튼의 #watch 앵커 대상).
 // 처음엔 썸네일과 재생 버튼만 보여주고, 재생 버튼을 눌렀을 때만 youtube-nocookie iframe을 만든다
 // (자동재생 없음). 다른 영상을 고르면 재생 중이던 플레이어는 닫힌다. 재생 중인 iframe 위에는
 // 아무것도 겹치지 않는다.
 export default function TrailerBox({
   trailers,
+  candidates = [],
   movieTitle,
   movieCd,
   isNowShowing,
   isAdmin = false,
 }: {
   trailers: OfficialTrailer[];
+  candidates?: TrailerCandidate[]; // 관리자에게만 넘긴다
   movieTitle: string;
   movieCd: string;
   isNowShowing: boolean;
@@ -160,7 +270,13 @@ export default function TrailerBox({
         </div>
       </div>
 
-      {selected && <p className="mt-3 text-[10px] text-muted">예고편: YouTube 공식 영상</p>}
+      {isAdmin && <AdminCandidates candidates={candidates} movieCd={movieCd} />}
+
+      {selected && (
+        <p className="mt-3 text-[10px] text-muted">
+          예고편: YouTube 공식 영상{selected.channelName ? ` · ${selected.channelName}` : ""}
+        </p>
+      )}
     </section>
   );
 }
