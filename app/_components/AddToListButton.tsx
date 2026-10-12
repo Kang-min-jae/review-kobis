@@ -113,7 +113,7 @@ export default function AddToListButton({
                       aria-pressed={included}
                       className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-text transition-colors hover:bg-black/30"
                     >
-                      <span className="min-w-0 truncate">{list.name}</span>
+                      <span className="min-w-0 truncate">{included ? list.name : `${list.name} 추가`}</span>
                       <span className={`shrink-0 text-xs ${included ? "font-bold text-star" : "text-muted"}`}>
                         {included ? "✓ 추가됨" : `${list.movies.length}편`}
                       </span>
