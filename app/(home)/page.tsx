@@ -34,6 +34,8 @@ import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } fr
 import SeriesKeywordSearch from "../_components/SeriesKeywordSearch";
 import CoverflowCarousel from "../_components/CoverflowCarousel";
 import RowSkeleton from "../_components/RowSkeleton";
+import HomeHero from "../_components/HomeHero";
+import { getHeroLists } from "../_lib/home-hero";
 
 
 // 행 하나의 데이터 조회가 throw하면 Suspense는 잡지 못하고 app/error.tsx까지 올라가
@@ -208,9 +210,23 @@ async function AwardWinnersData() {
   return <AwardWinnersSection tabs={tabs} />;
 }
 
+// 홈 상단 히어로 — 최근 30일 평점 데이터를 불러오는 동안에도 의자 화면은 바로 보인다(버튼만 잠시 비활성).
+async function HomeHeroData() {
+  const lists = await getHeroLists().catch((error) => {
+    console.error("[home] 히어로 데이터 로드 실패", error);
+    return { popular: [], best: [] };
+  });
+  return <HomeHero lists={lists} />;
+}
+
 function MovieCategorySection() {
   return (
     <>
+      <div className="px-4 pt-4 sm:px-5">
+        <Suspense fallback={<HomeHero lists={null} />}>
+          <HomeHeroData />
+        </Suspense>
+      </div>
       <Suspense fallback={<RowSkeleton />}>
         <WeeklyBoxOfficeRowData />
       </Suspense>
