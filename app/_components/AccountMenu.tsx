@@ -11,8 +11,8 @@ import { getAccountSummaryAction } from "../_lib/account-actions";
 
 export type AccountUser = { nickname: string; image: string | null };
 
-// 계정 영역 자리 너비를 상태(확인 중·로그인 전·로그인 후)와 상관없이 고정해, 옆의 검색창 너비가 흔들리지 않게 한다.
-export const ACCOUNT_SLOT_CLASS = "flex w-[76px] shrink-0 justify-end sm:w-[196px]";
+// 계정 영역은 내용 크기만큼만 차지해 검색창이 닉네임 바로 옆까지 넓어진다.
+export const ACCOUNT_SLOT_CLASS = "flex shrink-0 justify-end";
 
 const NICKNAME_MAX = 8;
 
@@ -250,7 +250,7 @@ export default function AccountMenu({ user }: { user: AccountUser | null }) {
   return <div className={ACCOUNT_SLOT_CLASS}>{user ? <LoggedInMenu user={user} /> : <LoginButton />}</div>;
 }
 
-// 세션을 확인하는 동안 보이는 자리 표시 — 최종 버튼과 같은 자리·높이를 차지해 깜빡임과 레이아웃 이동을 막는다.
+// 세션을 확인하는 동안 보이는 자리 표시 — 최종 버튼과 같은 높이·비슷한 너비라 "로그인" 글자가 깜빡이지 않는다.
 export function AccountMenuSkeleton() {
   return (
     <div className={ACCOUNT_SLOT_CLASS} aria-hidden="true">
