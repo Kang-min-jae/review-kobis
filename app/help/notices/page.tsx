@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { db } from "../../_lib/db";
 import BackBar from "../../_components/BackBar";
 
@@ -11,16 +12,23 @@ const TYPE_STYLE: Record<string, string> = {
 };
 
 export default async function NoticesPage() {
-  const notices = await db.notice.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 30,
-  });
+  // 요청 때마다 DB에서 읽는다. 예전엔 빌드 때 미리 만든 정적 페이지라 ① 빌드 중 DB 연결이 안 되면
+  // 배포 전체가 실패했고 ② 관리자가 새 공지를 올려도 다음 배포 전까지 안 보였다.
+  await connection();
+  const notices = await db.notice
+    .findMany({ orderBy: { createdAt: "desc" }, take: 30 })
+    .catch((error) => {
+      console.error("[notices] 공지 조회 실패:", error);
+      return [];
+    });
 
   return (
     <div className="mx-auto max-w-lg px-4 pb-12 pt-4">
       <BackBar />
       <h1 className="mt-4 text-xl font-bold text-text">공지사항</h1>
       <p className="mt-1 text-sm text-muted">업데이트, 점검 일정을 알려드려요</p>
+
+      {notices.length === 0 && <p className="mt-5 text-sm text-muted">아직 등록된 공지사항이 없어요.</p>}
 
       <ul className="mt-5 space-y-2">
         {notices.map((n) => (
