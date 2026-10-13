@@ -23,6 +23,7 @@ import { getMovieAwardWins } from "../../../../../_lib/award-winners";
 import { getTrailerData } from "../../../../../_lib/trailers";
 import { safeDecode } from "../../../../../_lib/safe-decode";
 import { db } from "../../../../../_lib/db";
+import { BASE_OPEN_GRAPH, BASE_TWITTER } from "../../../../../_lib/site";
 
 export async function generateMetadata({
   params,
@@ -36,11 +37,12 @@ export async function generateMetadata({
     title,
     description,
     openGraph: {
+      ...BASE_OPEN_GRAPH,
       title,
       description,
       ...(info.posterUrl ? { images: [{ url: info.posterUrl }] } : {}),
     },
-    twitter: { title, description },
+    twitter: { ...BASE_TWITTER, title, description, ...(info.posterUrl ? { images: [info.posterUrl] } : {}) },
   };
 }
 

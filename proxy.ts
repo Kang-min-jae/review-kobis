@@ -39,6 +39,6 @@ export async function proxy(request: NextRequest) {
 // 있어야 하는 화면(약관 전문, 로그인·가입·비밀번호 찾기)은 제외한다.
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)",
   ],
 };

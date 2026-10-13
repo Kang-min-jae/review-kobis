@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
+import { SITE_URL, SITE_NAME, SITE_TITLE, SITE_DESCRIPTION, BASE_OPEN_GRAPH } from "../_lib/site";
 import { resolveCategory, resolveGenre, type GenreLabel } from "../_components/CategoryNav";
 import MovieRow from "../_components/MovieRow";
 import GenreMovieRow from "../_components/GenreMovieRow";
@@ -382,6 +384,21 @@ function GenreSection({ genre }: { genre: GenreLabel }) {
   );
 }
 
+// 홈에서만 정식 주소(canonical)와 og:url을 지정한다. 탭(?category=…)이 바뀌어도 정식 주소는 홈 하나.
+export const metadata: Metadata = {
+  alternates: { canonical: SITE_URL },
+  openGraph: { ...BASE_OPEN_GRAPH, url: SITE_URL, title: SITE_TITLE, description: SITE_DESCRIPTION },
+};
+
+// 검색엔진이 사이트 이름을 "STILL THEATER"로 표시하도록 하는 WebSite 구조화 데이터(홈에만).
+const WEBSITE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: SITE_NAME,
+  alternateName: ["스틸 시어터", "stilltheater.com"],
+  url: SITE_URL,
+};
+
 export default async function Home({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
   const category = resolveCategory(
@@ -391,6 +408,11 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <main>
+      <script
+        type="application/ld+json"
+        // 고정된 객체를 JSON으로 직렬화할 뿐이라 사용자 입력이 섞이지 않는다. "<"는 이스케이프해 둔다.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD).replace(/</g, "\\u003c") }}
+      />
       {category === "현재 상영중인 영화" && <NowShowingSection />}
 
       {category === "영화" && genre === "전체" && <MovieCategorySection />}

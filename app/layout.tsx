@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
 import TmdbLogo from "./_components/TmdbLogo";
-import { SITE_URL } from "./_lib/site";
+import { SITE_URL, SITE_NAME, SITE_TITLE, SITE_DESCRIPTION, BASE_OPEN_GRAPH, BASE_TWITTER } from "./_lib/site";
 import "./globals.css";
 // 가변(Variable) 폰트의 글자 범위별 조각 버전. 굵기별 통파일은 첫 방문에 수 MB를 받고,
 // 굵기별 조각(static dynamic-subset)은 @font-face가 828개(9굵기×92조각)라 렌더링을 막는
@@ -10,32 +10,34 @@ import "./globals.css";
 // 가변 폰트는 조각 92개가 모든 굵기를 담아 CSS 13KB, 폰트 요청 수도 훨씬 적다.
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
-const SITE_NAME = "무비리뷰";
-const SITE_DESCRIPTION = "한국 영화 평점과 리뷰를 남기고, 영화제 수상작을 한눈에 — 나만의 영화 리스트를 만들어 보세요.";
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: SITE_NAME,
+    default: SITE_TITLE,
     template: `%s · ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
   openGraph: {
-    type: "website",
-    siteName: SITE_NAME,
-    title: SITE_NAME,
+    ...BASE_OPEN_GRAPH,
+    title: SITE_TITLE,
     description: SITE_DESCRIPTION,
-    locale: "ko_KR",
   },
   twitter: {
-    card: "summary",
-    title: SITE_NAME,
+    ...BASE_TWITTER,
+    title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
   icons: {
-    icon: "/favicon.ico",
-    apple: "/favicon.ico",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-48.png", sizes: "48x48", type: "image/png" },
+      { url: "/favicon-96.png", sizes: "96x96", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
   },
+  // canonical과 og:url은 홈 페이지(app/(home)/page.tsx)에서만 지정한다 — 레이아웃에 두면 모든 하위
+  // 페이지가 "정식 주소는 홈"이라고 선언하게 되어 영화 페이지들이 검색에서 빠질 수 있다.
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

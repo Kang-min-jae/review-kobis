@@ -8,6 +8,7 @@ import { getUserProfileData, getUserReviewStats, getReviewsByUser } from "../../
 import { getMyRatedMovies } from "../../_lib/my-rated-movies";
 import { checkIsFollowing, getFollowerCount } from "../../_lib/follow-actions";
 import { notFound } from "next/navigation";
+import { BASE_OPEN_GRAPH, BASE_TWITTER } from "../../_lib/site";
 
 export async function generateMetadata({ params }: PageProps<"/users/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -19,8 +20,8 @@ export async function generateMetadata({ params }: PageProps<"/users/[id]">): Pr
   return {
     title,
     description,
-    openGraph: { title, description },
-    twitter: { title, description },
+    openGraph: { ...BASE_OPEN_GRAPH, title, description },
+    twitter: { ...BASE_TWITTER, title, description },
   };
 }
 

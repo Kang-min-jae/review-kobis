@@ -1,3 +1,23 @@
-// 사이트 기본 주소 — 메타데이터(metadataBase·og 이미지 절대 주소), robots.txt, sitemap.xml이 같이 쓴다.
-// Vercel 환경변수 NEXT_PUBLIC_SITE_URL이 있으면 그 값을, 없으면 정식 도메인을 쓴다(끝의 / 는 뗀다).
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://stilltheater.com").replace(/\/+$/, "");
+import type { Metadata } from "next";
+
+// 사이트 기본 주소(www 없는 정식 주소) — metadataBase, canonical, robots.txt, sitemap.xml, JSON-LD가 같이 쓴다.
+export const SITE_URL = "https://stilltheater.com";
+export const SITE_NAME = "STILL THEATER";
+export const SITE_TITLE = "STILL THEATER - 영화 평점·한줄평";
+export const SITE_DESCRIPTION = "불이 켜져도 아직 일어나지 못한 마음을 남겨주세요. 영화 평점과 한줄평을 남기는 곳.";
+
+export const OG_IMAGE = { url: "/og-image.jpg", width: 1200, height: 630, alt: SITE_NAME };
+
+// 페이지가 openGraph/twitter를 따로 지정하면 레이아웃 값이 통째로 대체된다(Next.js 메타데이터는 얕게 합쳐짐).
+// 그래서 페이지에서도 이 기본값을 펼쳐 쓰면 사이트 이름·언어·공유 이미지가 빠지지 않는다.
+export const BASE_OPEN_GRAPH = {
+  siteName: SITE_NAME,
+  type: "website",
+  locale: "ko_KR",
+  images: [OG_IMAGE],
+} satisfies Metadata["openGraph"];
+
+export const BASE_TWITTER = {
+  card: "summary_large_image",
+  images: [OG_IMAGE.url],
+} satisfies Metadata["twitter"];
