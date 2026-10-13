@@ -46,6 +46,7 @@ import {
   LogoutIcon,
 } from "./MenuIcons";
 import NotificationPanel from "./NotificationPanel";
+import ContactEmailLink from "./ContactEmailLink";
 
 export default function SideMenu({
   session,
@@ -325,6 +326,9 @@ export default function SideMenu({
               <Link href="/legal#privacy" onClick={close} className="font-semibold hover:text-text hover:underline">
                 개인정보 처리방침
               </Link>
+            </p>
+            <p className="mt-1.5 text-center text-[11px] text-muted">
+              문의 <ContactEmailLink />
             </p>
           </div>
         </>

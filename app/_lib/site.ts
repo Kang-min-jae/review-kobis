@@ -21,3 +21,6 @@ export const BASE_TWITTER = {
   card: "summary_large_image",
   images: [OG_IMAGE.url],
 } satisfies Metadata["twitter"];
+
+// 사이트 문의 메일 — 메뉴·고객센터·푸터가 모두 이 값을 쓴다. 주소를 바꿀 땐 여기만 고치면 된다.
+export const CONTACT_EMAIL = "contact@stilltheater.com";
