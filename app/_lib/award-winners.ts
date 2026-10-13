@@ -316,7 +316,9 @@ export async function getMovieAwardWins({
     for (const w of winners) {
       const isSelf = movieId?.startsWith(`wikidata-${w.filmQid}`) ?? false;
       const titleHit = [w.titleKo, w.titleEn].some((t) => t && myTitles.has(normForComp(t)));
-      if (!isSelf && !titleHit) continue;
+      // TMDB id가 같으면 같은 영화 — 한국 개봉 제목이 수상작 목록의 제목과 달라도 찾는다.
+      const tmdbHit = Boolean(tmdbId && w.tmdbId && w.tmdbId === tmdbId);
+      if (!isSelf && !titleHit && !tmdbHit) continue;
       const key = `${festival}-${w.ceremonyYear}-${w.categoryLabel}`;
       if (seen.has(key)) continue;
       seen.add(key);

@@ -126,13 +126,83 @@ LIMIT 300
 // ── 결과 파싱 ────────────────────────────────────────────────────────────────
 type RawRow = Record<string, { value: string }>;
 
+// 영어 상 이름 → 한국어 부문명. Wikidata 한국어 라벨은 없거나 제각각("베네치아 국제 영화제 …")이라
+// 아는 상은 이 표를 먼저 쓴다. 위에서부터 처음 맞는 규칙을 쓴다(더 구체적인 규칙을 위에 둔다).
+const AWARD_LABEL_KO: [RegExp, string][] = [
+  // 아카데미
+  [/^academy award for best picture/, "작품상"],
+  [/^academy award for best director/, "감독상"],
+  [/^academy award for best supporting actor/, "남우조연상"],
+  [/^academy award for best supporting actress/, "여우조연상"],
+  [/^academy award for best actor/, "남우주연상"],
+  [/^academy award for best actress/, "여우주연상"],
+  [/^academy award for best original screenplay/, "각본상"],
+  [/^academy award for best adapted screenplay/, "각색상"],
+  [/^academy award for best international feature|^academy award for best foreign language film/, "국제장편영화상"],
+  [/^academy award for best animated feature/, "장편애니메이션상"],
+  [/^academy award for best animated short/, "단편애니메이션상"],
+  [/^academy award for best documentary short/, "단편다큐멘터리상"],
+  [/^academy award for best documentary/, "장편다큐멘터리상"],
+  [/^academy award for best live action short/, "단편영화상"],
+  [/^academy award for best cinematography/, "촬영상"],
+  [/^academy award for best film editing/, "편집상"],
+  [/^academy award for best original score/, "음악상"],
+  [/^academy award for best original song/, "주제가상"],
+  [/^academy award for best production design/, "미술상"],
+  [/^academy award for best costume design/, "의상상"],
+  [/^academy award for best makeup/, "분장상"],
+  [/^academy award for best sound/, "음향상"],
+  [/^academy award for best visual effects/, "시각효과상"],
+  [/^academy award for best casting/, "캐스팅상"],
+  // 칸
+  [/short film palme/, "단편 황금종려상"],
+  [/^palme d.or/, "황금종려상"],
+  [/^grand prix.*cannes|^cannes.*grand prix/, "심사위원대상"],
+  [/^cam[eé]ra d.or/, "황금카메라상"],
+  [/cannes.*best director/, "감독상"],
+  [/cannes.*best actor/, "남우주연상"],
+  [/cannes.*best actress/, "여우주연상"],
+  [/cannes.*best screenplay/, "각본상"],
+  [/^jury prize.*cannes|cannes.*jury prize/, "심사위원상"],
+  [/cannes.*special (award|prize)/, "특별상"],
+  // 베를린
+  [/^golden bear/, "황금곰상"],
+  [/^silver bear.*grand jury/, "심사위원대상"],
+  [/^silver bear.*director/, "감독상"],
+  [/^silver bear.*supporting/, "조연상"],
+  [/^silver bear.*leading performance/, "주연상"],
+  [/^silver bear.*best actor/, "남우주연상"],
+  [/^silver bear.*best actress/, "여우주연상"],
+  [/^silver bear.*screenplay/, "각본상"],
+  [/^silver bear.*artistic contribution/, "예술공헌상"],
+  [/^silver bear.*jury prize/, "심사위원상"],
+  // 베니스
+  [/^golden lion/, "황금사자상"],
+  [/grand jury prize.*venice|venice.*grand jury|^silver lion.*grand jury/, "심사위원대상"],
+  [/^silver lion/, "감독상"],
+  [/^volpi cup.*actress/, "여우주연상"],
+  [/^volpi cup.*actor/, "남우주연상"],
+  [/venice.*best screenplay|^golden osella.*screenplay/, "각본상"],
+  [/special jury prize.*venice|venice.*special jury/, "특별심사위원상"],
+  [/^marcello mastroianni/, "신인배우상"],
+  [/lion of the future|luigi de laurentiis/, "신인감독상"],
+];
+
+export function koreanAwardLabel(labelEn: string): string | null {
+  const s = labelEn.toLowerCase().trim();
+  for (const [pattern, label] of AWARD_LABEL_KO) if (pattern.test(s)) return label;
+  return null;
+}
+
 function shortenLabel(labelKo: string | null, labelEn: string): string {
+  const mapped = koreanAwardLabel(labelEn);
+  if (mapped) return mapped;
   if (labelKo) {
     return labelKo
       .replace(/^아카데미\s+(시상식\s+)?/, "")
       .replace(/^칸\s+(국제\s+)?영화제\s+/, "")
       .replace(/^베를린\s+(국제\s+)?영화제\s+/, "")
-      .replace(/^베니스\s+(국제\s+)?영화제\s+/, "")
+      .replace(/^(베니스|베네치아)\s+(국제\s+)?영화제\s+/, "")
       .trim() || labelKo;
   }
   return labelEn
@@ -196,15 +266,26 @@ async function fetchFestivalWinnersRaw(
 export function onlyLatestCeremony(winners: FestivalWinner[]): FestivalWinner[] {
   if (winners.length === 0) return [];
   const latestYear = Math.max(...winners.map((w) => w.ceremonyYear));
+  const rank = (label: string) => {
+    const i = CATEGORY_ORDER.indexOf(label);
+    return i === -1 ? CATEGORY_ORDER.length : i;
+  };
   return winners
     .filter((w) => w.ceremonyYear === latestYear)
-    .sort((a, b) => a.categoryLabel.localeCompare(b.categoryLabel, "ko"));
+    .sort((a, b) => rank(a.categoryLabel) - rank(b.categoryLabel) || a.categoryLabel.localeCompare(b.categoryLabel, "ko"));
 }
+
+// 수상작 칸의 카드 순서 — 최고상부터.
+const CATEGORY_ORDER = [
+  "작품상", "황금종려상", "황금곰상", "황금사자상", "심사위원대상", "감독상", "남우주연상", "여우주연상", "주연상",
+  "남우조연상", "여우조연상", "조연상", "각본상", "각색상", "심사위원상", "특별심사위원상", "국제장편영화상", "장편애니메이션상",
+];
 
 // ── 캐싱 ────────────────────────────────────────────────────────────────────
 // 버전을 올리면 기존 DB 캐시와 unstable_cache 키 양쪽을 무효화한다.
 // v7: 최근 회차만 남기도록 바꾸고, 시상식이 끝나도 옛 수상작에서 갱신되지 않던 캐시를 버린다.
-export const CACHE_VERSION = "v7";
+// v8: 상 이름 한국어 표(AWARD_LABEL_KO) 적용 + 직접 확인한 목록과 합치기.
+export const CACHE_VERSION = "v8";
 
 // 개발 핫리로드 중 모듈이 재평가돼도 글로벌 객체에 붙여두면 유지된다
 const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 (시상식 데이터는 자주 안 바뀜)
@@ -234,9 +315,13 @@ export function expectedLatestCeremonyYear(type: FestivalType, now: Date = new D
 // 최근 회차 데이터가 아직 없을 때 Wikidata에 다시 묻는 최소 간격 — 반영이 늦어도 매 요청마다 묻지 않는다.
 const REFETCH_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
-// 폴백은 Wikidata 연결 실패 시에만 사용된다. 최신 데이터는 항상 Wikidata에서 온다.
+// 직접 확인해 넣어 둔 수상작 목록. 두 가지로 쓴다.
+//  1) Wikidata 연결이 안 될 때의 폴백
+//  2) Wikidata에 최근 회차가 일부만 올라와 있을 때의 보충 — 같은 회차면 이 목록을 우선해 합친다
+//     (예: 2026 베니스는 Wikidata에 남우주연상만 있어 수상작 칸이 1편만 보였다).
+// 새 회차가 끝나면 여기에 추가해 두면 Wikidata 반영 전에도 바로 보인다.
 // tmdbId는 힌트일 뿐이다 — award-winners.ts가 제목·개봉연도로 검증한 뒤에만 쓴다.
-const FALLBACK_WINNERS: Record<FestivalType, FestivalWinner[]> = {
+const CURATED_WINNERS: Record<FestivalType, FestivalWinner[]> = {
   // 97회 아카데미 시상식 (2025년 3월)
   academy: [
     { categoryLabel: "작품상",    titleKo: "아노라",        titleEn: "Anora",          ceremonyYear: 2025, filmQid: "Q125499906", tmdbId: "1064213"  }, // Anora (2024)
@@ -297,7 +382,7 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
     // P2021: 테이블 자체가 없음 → npx prisma db push 미실행 상태.
     if ((err as { code?: string }).code === "P2021") {
       console.warn("[wikidata] CachedAwardWinners 테이블 없음 — 폴백 사용 (npx prisma db push 필요)");
-      const data = onlyLatestCeremony(FALLBACK_WINNERS[type]);
+      const data = onlyLatestCeremony(CURATED_WINNERS[type]);
       memCache.set(cacheKey, { data, at: Date.now() });
       return data;
     }
@@ -308,7 +393,7 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
   const raw = await fetchFestivalWinnersRaw(FESTIVAL_FILTERS[type], sinceYear).catch(() => []);
   if (raw.length === 0) {
     // 조회 실패 — 예전 캐시가 있으면 그걸, 없으면 폴백을 쓰되 DB엔 저장하지 않는다(다음에 다시 시도).
-    const data = cachedWinners ?? onlyLatestCeremony(FALLBACK_WINNERS[type]);
+    const data = cachedWinners ?? onlyLatestCeremony(CURATED_WINNERS[type]);
     memCache.set(cacheKey, { data, at: Date.now() });
     return data;
   }
@@ -335,20 +420,39 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
 // 최근 2년치만 조회한 뒤 가장 최근 회차(연도)만 남긴다. 서버가 해를 넘겨 떠 있어도 맞도록 매번 계산한다.
 const sinceYear = () => new Date().getUTCFullYear() - 2;
 
+// Wikidata 결과와 직접 확인한 목록을 합쳐 최근 회차만 남긴다. 같은 회차·같은 부문이면 직접 확인한
+// 목록을 쓴다(한국어 제목·검증된 영화). 한쪽이 더 최근 회차면 그쪽만 남는다.
+export function mergeWithCurated(type: FestivalType, wikidata: FestivalWinner[]): FestivalWinner[] {
+  const curated = CURATED_WINNERS[type];
+  const all = [...curated, ...wikidata];
+  if (all.length === 0) return [];
+  const latestYear = Math.max(...all.map((w) => w.ceremonyYear));
+  const byCategory = new Map<string, FestivalWinner>();
+  for (const w of all) {
+    if (w.ceremonyYear !== latestYear) continue;
+    if (!byCategory.has(w.categoryLabel)) byCategory.set(w.categoryLabel, w); // curated가 앞이라 우선
+  }
+  return onlyLatestCeremony([...byCategory.values()]);
+}
+
+async function fetchLatest(type: FestivalType): Promise<FestivalWinner[]> {
+  return mergeWithCurated(type, await fetchWithCache(type, sinceYear()));
+}
+
 export async function fetchLatestAcademyWinners(): Promise<FestivalWinner[]> {
-  return fetchWithCache("academy", sinceYear());
+  return fetchLatest("academy");
 }
 
 export async function fetchLatestCannesWinners(): Promise<FestivalWinner[]> {
-  return fetchWithCache("cannes", sinceYear());
+  return fetchLatest("cannes");
 }
 
 export async function fetchLatestBerlinWinners(): Promise<FestivalWinner[]> {
-  return fetchWithCache("berlin", sinceYear());
+  return fetchLatest("berlin");
 }
 
 export async function fetchLatestVeniceWinners(): Promise<FestivalWinner[]> {
-  return fetchWithCache("venice", sinceYear());
+  return fetchLatest("venice");
 }
 
 // ── 특정 영화의 수상 이력 조회 ────────────────────────────────────────────────
