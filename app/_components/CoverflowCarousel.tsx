@@ -6,6 +6,7 @@ import PosterImage from "./PosterImage";
 import StarRating from "./StarRating";
 import { subscribe, getReviewsSnapshot, getSeedReviewsSnapshot, getAverageRating, getSeedAverageRating } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
+import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
 
 const SPACING_PX = 160;
 const MAX_VISIBLE_OFFSET = 3;
@@ -44,12 +45,11 @@ function parseBadge(badge: string | undefined): { primary: string | null; second
 }
 
 function rateHref(movie: RowMovie): string {
-  if (movie.id.startsWith("tmdb-tv-")) return `/series/${movie.id}/rate`;
-  return `/movies/${movie.id}/rate`;
+  return rateHrefFor(movie.id);
 }
 
 function isRatable(movie: RowMovie): boolean {
-  return movie.id.startsWith("kobis-") || movie.id.startsWith("tmdb-tv-") || movie.id.startsWith("wikidata-");
+  return isRatableMovieId(movie.id);
 }
 
 // 카드 뒤집기 시 보이는 뒷면 — 실제 사용자 리뷰 + 평점 버튼

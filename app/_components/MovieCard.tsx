@@ -20,6 +20,7 @@ import {
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
+import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
 
 const CF_HINT = "취향이 비슷한 회원들의 평가가 일부 반영됐어요";
 
@@ -78,12 +79,10 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   // 필모그래피에는 KOBIS에 등록이 없는(평점 페이지로 연결할 movieCd가 없는) 작품도
   // 이제 포함된다(person-filmography.ts 참고) — 그런 카드는 id가 "kobis-"가 아니라
   // "kmdb-"로 시작한다. 평점 등록만 못 하게 막고, 카드 자체는 그대로 보여준다.
-  const isSeries = movie.id.startsWith("tmdb-tv-");
-  const isTmdbMovie = movie.id.startsWith("tmdb-") && !isSeries;
   // kmdb-* 도 평점 페이지로 연결한다 — resolveMovieRateInfo가 CachedMovie를 조회해
-  // TMDB에서 정보를 보완하거나 KMDb 기본 정보만으로라도 평점 페이지를 제공한다.
-  const isRatable = movie.id.startsWith("kobis-") || isSeries || isTmdbMovie || movie.id.startsWith("kmdb-");
-  const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+  // TMDB에서 정보를 보완하거나 KMDb 기본 정보만으로라도 평점 페이지를 제공한다. 수상작(wikidata-*)도 마찬가지.
+  const isRatable = isRatableMovieId(movie.id);
+  const rateHref = rateHrefFor(movie.id);
 
   const affinityScores = useSyncExternalStore(subscribeAffinity, getAffinitySnapshot, getServerAffinitySnapshot);
   const cfBlendedIds = useSyncExternalStore(subscribeAffinity, getCfBlendedSnapshot, getServerCfBlendedSnapshot);

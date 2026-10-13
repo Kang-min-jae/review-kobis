@@ -7,6 +7,7 @@ import RatingSummary from "./RatingSummary";
 import TopReviewsList from "./TopReviewsList";
 import { useTopReviews } from "../_lib/use-top-reviews";
 import type { RowMovie } from "../_lib/movie-rows";
+import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
 
 // 카드 사이 간격/각도 값 — 화면에 한 번에 3~4장 정도(가운데 1장 + 양옆 1~2장)만
 // 또렷하게 보이고, 그보다 먼 카드는 점점 작아지고 옆으로 돌아가며 흐려지다가
@@ -160,7 +161,7 @@ export default function BoxOfficeCoverflow({
 
   const current = movies[active];
   const { rank: currentRank, detail: currentDetail } = parseBadge(current.badge);
-  const isCurrentRatable = current.id.startsWith("kobis-") || current.id.startsWith("wikidata-") || current.id.startsWith("tmdb-tv-");
+  const isCurrentRatable = isRatableMovieId(current.id);
 
   return (
     <section className="px-5 py-6">
@@ -251,9 +252,9 @@ export default function BoxOfficeCoverflow({
                             🎫 예매
                           </Link>
                         )}
-                        {movie.id.startsWith("kobis-") || movie.id.startsWith("wikidata-") || movie.id.startsWith("tmdb-tv-") ? (
+                        {isRatableMovieId(movie.id) ? (
                           <Link
-                            href={movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`}
+                            href={rateHrefFor(movie.id)}
                             className="flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
                           >
                             ★ 평점
@@ -275,7 +276,7 @@ export default function BoxOfficeCoverflow({
         <div className="mt-5 text-center">
           {isCurrentRatable ? (
             <Link
-              href={current.id.startsWith("tmdb-tv-") ? `/series/${current.id}/rate` : `/movies/${current.id}/rate`}
+              href={rateHrefFor(current.id)}
               className="text-lg font-bold text-text hover:underline"
             >
               {current.title}

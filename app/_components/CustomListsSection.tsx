@@ -15,6 +15,7 @@ import {
   reorderMovieInList,
   type CustomList,
 } from "../_lib/custom-lists-store";
+import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
 
 // 리스트 이름을 클릭하면 그 자리에서 바로 고칠 수 있는 입력창으로 바뀐다.
 function EditableListName({ list }: { list: CustomList }) {
@@ -77,9 +78,8 @@ function ListMovieCard({
 }) {
   const movie = list.movies[index];
   // 상세 페이지의 "리스트에 추가"로 KOBIS 외 영화(tmdb-*, kmdb-* 등)도 들어올 수 있다 — 전부 평점 페이지로 연결한다.
-  const isSeries = movie.movieId.startsWith("tmdb-tv-");
-  const isRatable = /^(kobis-|tmdb-|kmdb-|wikidata-)/.test(movie.movieId);
-  const rateHref = isSeries ? `/series/${movie.movieId}/rate` : `/movies/${movie.movieId}/rate`;
+  const isRatable = isRatableMovieId(movie.movieId);
+  const rateHref = rateHrefFor(movie.movieId);
 
   const poster = (
     <div

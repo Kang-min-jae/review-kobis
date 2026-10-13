@@ -72,6 +72,18 @@ export function movieIdToCd(movieId: string): string | null {
   return wikidata ? wikidata[0] : null;
 }
 
+// 평점 페이지가 있는 작품인지 — 서버가 평점을 받는 ID(movieIdToCd가 아는 형식: kobis-숫자, tmdb-숫자,
+// tmdb-tv-숫자, kmdb-*, wikidata-Q숫자)면 평점을 남길 수 있다. 카드·코버플로우·다이어리가 모두 이 함수로
+// 판단한다(예전엔 컴포넌트마다 목록이 달라 수상작(wikidata-*)이나 TMDB 영화가 "평점 준비중"으로 막혔다).
+export function isRatableMovieId(movieId: string): boolean {
+  return movieIdToCd(movieId) !== null;
+}
+
+// 평점 페이지 주소 — 시리즈는 /series, 나머지는 /movies.
+export function rateHrefFor(movieId: string): string {
+  return movieId.startsWith("tmdb-tv-") ? `/series/${movieId}/rate` : `/movies/${movieId}/rate`;
+}
+
 // DB 키 → 화면용 영화 ID. 숫자만 있는 KOBIS 코드에만 "kobis-"를 붙인다
 // (tmdb-*·wikidata-* 앞에 붙이면 "kobis-tmdb-123" 같은 깨진 ID가 된다).
 export function cdToMovieId(movieCd: string): string {

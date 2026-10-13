@@ -20,6 +20,7 @@ import {
   removeDiaryLogForMovieOnDate,
   type DiaryLogEntry,
 } from "../_lib/diary-log-store";
+import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
 
 function toLocalDateKey(iso: string): string {
   const d = new Date(iso);
@@ -179,7 +180,7 @@ export default function DiaryDayDetailModal({
         <div className="mt-4 flex-1 space-y-2 overflow-y-auto">
           {rows.length === 0 && <p className="py-4 text-center text-xs text-muted">이 날 기록이 없어요.</p>}
           {rows.map((row) => {
-            const isRatable = row.movieId.startsWith("kobis-");
+            const isRatable = isRatableMovieId(row.movieId);
             const poster = (
               <div
                 className={`relative h-14 w-10 shrink-0 overflow-hidden rounded ${
@@ -193,7 +194,7 @@ export default function DiaryDayDetailModal({
             return (
               <div key={row.movieId} className="flex items-start gap-3 rounded-lg bg-black/20 p-2">
                 {isRatable ? (
-                  <Link href={`/movies/${row.movieId}/rate`} aria-label={`${row.title} 정보 보기`}>
+                  <Link href={rateHrefFor(row.movieId)} aria-label={`${row.title} 정보 보기`}>
                     {poster}
                   </Link>
                 ) : (
