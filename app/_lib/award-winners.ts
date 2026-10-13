@@ -176,6 +176,7 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
 
     results.push({
       categoryLabel: winner.categoryLabel,
+      ceremonyYear: winner.ceremonyYear,
       movie: {
         id: `wikidata-${winner.filmQid}-${winner.categoryLabel}`,
         title: winner.titleKo ?? winner.titleEn,
@@ -191,8 +192,19 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
 
 export type AwardMovieRow = {
   categoryLabel: string;
+  ceremonyYear: number;
   movie: RowMovie;
 };
+
+// 회차 번호 — 아카데미 1929년 1회, 칸 1946년 1회(1948·1950 미개최), 베를린 1951년 1회, 베니스 1932년 1회(전쟁 중 일부 미개최).
+const EDITION_OFFSET: Record<FestivalType, number> = { academy: 1928, cannes: 1947, berlin: 1950, venice: 1943 };
+
+// "제98회 · 2026년" 같은 회차 표기. 수상작이 없으면 null.
+export function ceremonyLabel(festival: FestivalType, rows: AwardMovieRow[]): string | null {
+  const year = rows[0]?.ceremonyYear;
+  if (!year) return null;
+  return `제${year - EDITION_OFFSET[festival]}회 · ${year}년`;
+}
 
 // 수상작 조회는 Wikidata + TMDB API를 여러 번 직렬 호출하므로 최초 응답이 수 초
 // 걸릴 수 있다. 결과를 12시간 캐싱해 반복 요청은 즉시 반환하고 서버 부하를 낮춘다.

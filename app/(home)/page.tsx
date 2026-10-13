@@ -29,6 +29,7 @@ import {
   getLatestCannesWinnerRows,
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
+  ceremonyLabel,
 } from "../_lib/award-winners";
 import { getCuratedSeriesRow, getPopularSeriesRow, getTop10PopularSeriesRow } from "../_lib/series-rows";
 import SeriesKeywordSearch from "../_components/SeriesKeywordSearch";
@@ -187,24 +188,28 @@ async function AwardWinnersData() {
       name: "아카데미 시상식",
       icon: "trophy",
       movies: academyRows.map((r) => r.movie),
+      edition: ceremonyLabel("academy", academyRows),
     },
     {
       id: "cannes",
       name: "칸 영화제",
       icon: "star",
       movies: cannesRows.map((r) => r.movie),
+      edition: ceremonyLabel("cannes", cannesRows),
     },
     {
       id: "berlin",
       name: "베를린 영화제",
       icon: "star",
       movies: berlinRows.map((r) => r.movie),
+      edition: ceremonyLabel("berlin", berlinRows),
     },
     {
       id: "venice",
       name: "베니스 영화제",
       icon: "star",
       movies: veniceRows.map((r) => r.movie),
+      edition: ceremonyLabel("venice", veniceRows),
     },
   ].filter((tab) => tab.movies.length > 0) as AwardTab[];
 

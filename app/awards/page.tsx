@@ -7,6 +7,7 @@ import {
   getLatestCannesWinnerRows,
   getLatestBerlinWinnerRows,
   getLatestVeniceWinnerRows,
+  ceremonyLabel,
 } from "../_lib/award-winners";
 import { auth } from "../../auth";
 
@@ -31,7 +32,7 @@ async function AcademySection() {
   return (
     <BoxOfficeCoverflow
       title="🏆 아카데미 시상식 수상작"
-      subtitle="최근 수상작"
+      subtitle={`${ceremonyLabel("academy", rows) ?? "최근"} 수상작`}
       movies={rows.map((r) => r.movie)}
     />
   );
@@ -43,7 +44,7 @@ async function CannesSection() {
   return (
     <BoxOfficeCoverflow
       title="🌴 칸 영화제 수상작"
-      subtitle="최근 수상작"
+      subtitle={`${ceremonyLabel("cannes", rows) ?? "최근"} 수상작`}
       movies={rows.map((r) => r.movie)}
     />
   );
@@ -55,7 +56,7 @@ async function BerlinSection() {
   return (
     <BoxOfficeCoverflow
       title="🐻 베를린 영화제 수상작"
-      subtitle="최근 수상작"
+      subtitle={`${ceremonyLabel("berlin", rows) ?? "최근"} 수상작`}
       movies={rows.map((r) => r.movie)}
     />
   );
@@ -67,7 +68,7 @@ async function VeniceSection() {
   return (
     <BoxOfficeCoverflow
       title="🦁 베니스 영화제 수상작"
-      subtitle="최근 수상작"
+      subtitle={`${ceremonyLabel("venice", rows) ?? "최근"} 수상작`}
       movies={rows.map((r) => r.movie)}
     />
   );
