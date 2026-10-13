@@ -11,6 +11,8 @@ import type { RowMovie } from "../_lib/movie-rows";
 import {
   subscribe as subscribeAffinity,
   getAffinitySnapshot,
+  getCfBlendedSnapshot,
+  getServerCfBlendedSnapshot,
   getServerAffinitySnapshot,
 } from "../_lib/affinity-store";
 import {
@@ -18,6 +20,8 @@ import {
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
+
+const CF_HINT = "취향이 비슷한 회원들의 평가가 일부 반영됐어요";
 
 const FESTIVAL_KO: Record<string, string> = {
   academy: "아카데미상",
@@ -82,6 +86,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   const rateHref = isSeries ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
 
   const affinityScores = useSyncExternalStore(subscribeAffinity, getAffinitySnapshot, getServerAffinitySnapshot);
+  const cfBlendedIds = useSyncExternalStore(subscribeAffinity, getCfBlendedSnapshot, getServerCfBlendedSnapshot);
   const myReviews = useSyncExternalStore(subscribeReviews, getMyReviewsSnapshot, getServerMyReviewsSnapshot);
 
   // 내가 이 영화에 남긴 "전체" 한줄평 평점 (있으면)
@@ -113,6 +118,8 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
   // 서버 점수로 바뀌어 숫자가 튀었다 — 이제 근거 있는 점수가 있을 때만 보여준다.
   // 이미 평점을 남긴 영화는 추천 대상이 아니라 배지 대신 내 별점만 보인다.
   const recommendPercent = movie.recommendScore ?? affinityScores[movie.id] ?? null;
+  // 협업 필터링이 섞인 점수일 때만 도움말을 단다(섞이지 않았으면 예전 배지 그대로).
+  const recommendCf = movie.recommendScore != null ? movie.recommendCf === true : cfBlendedIds[movie.id] === true;
   const matchBadge =
     myMovieRating === null && recommendPercent !== null && recommendPercent > 0 ? `추천 ${recommendPercent}%` : null;
 
@@ -144,8 +151,12 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         {movie.posterUrl && !posterFailed && <PosterImage src={movie.posterUrl} alt={`${movie.title} 포스터`} sizes="(min-width: 640px) 144px, 114px" priority={priority} onError={() => setPosterFailed(true)} />}
         {/* 왼쪽: 추천 % */}
         {matchBadge && (
-          <span className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50">
+          <span
+            className="absolute left-1.5 top-1.5 rounded-full bg-brand/25 px-2 py-0.5 text-[10px] font-semibold text-white ring-1 ring-inset ring-brand/50"
+            {...(recommendCf ? { title: CF_HINT } : {})}
+          >
             {matchBadge}
+            {recommendCf && <span className="sr-only"> ({CF_HINT})</span>}
           </span>
         )}
         {/* 우측 상단: 트로피 (수상작) + 순위·재개봉일 배지 세로 스택 */}

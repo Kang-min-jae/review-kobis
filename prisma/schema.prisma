@@ -124,7 +124,7 @@ model RereleaseClassification {
 // 영화제 수상작 캐시 — Wikidata SPARQL 결과를 하루 1회 저장해 429 반복 호출을 방지한다.
 model CachedAwardWinners {
   id        String   @id // "academy" | "cannes" | "berlin" | "venice"
-  winners   Json     // FestivalWinner[]
+  winners   Json // FestivalWinner[]
   updatedAt DateTime @updatedAt
 }
 
@@ -135,34 +135,34 @@ model CachedAwardWinners {
 // 참고: https://authjs.dev/getting-started/adapters/prisma
 
 model User {
-  id            String    @id @default(cuid())
-  name          String? // OAuth 제공자가 준 원래 이름
-  nickname      String?   @unique // 다른 사람에게 보여지는 표시 이름. 중복 불가(NULL은 여러 개 허용).
-  username      String?   @unique // 크레덴셜 로그인용 아이디 — 소셜 가입 유저는 null
-  email         String?   @unique // 비밀번호 찾기·소셜 로그인용. 카카오는 동의 안 받으면 null
-  emailVerified DateTime?
-  image         String?
-  password      String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null
-  role          String    @default("USER") // "USER" | "ADMIN"
-  totalLikes    Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
-  profileViewsTotal Int     @default(0) // 다른 사용자가 내 프로필을 방문한 누적 횟수
-  profileViewsToday Int     @default(0) // 오늘(profileViewsDate 기준) 방문 횟수
-  profileViewsDate  String? // 오늘 카운터를 마지막으로 초기화한 날짜(yyyy-mm-dd)
-  alwaysShowSpoilers Boolean @default(false) // "스포일러 항상 보기" — 켜면 스포일러 한줄평도 바로 펼쳐 보인다
+  id                 String    @id @default(cuid())
+  name               String? // OAuth 제공자가 준 원래 이름
+  nickname           String?   @unique // 다른 사람에게 보여지는 표시 이름. 중복 불가(NULL은 여러 개 허용).
+  username           String?   @unique // 크레덴셜 로그인용 아이디 — 소셜 가입 유저는 null
+  email              String?   @unique // 비밀번호 찾기·소셜 로그인용. 카카오는 동의 안 받으면 null
+  emailVerified      DateTime?
+  image              String?
+  password           String? // 이메일/비밀번호 로그인용 해시(bcrypt) — OAuth로만 가입한 사용자는 null
+  role               String    @default("USER") // "USER" | "ADMIN"
+  totalLikes         Int       @default(0) // 등급(관객/씨네필/평론가/거장) 계산용 반정규화
+  profileViewsTotal  Int       @default(0) // 다른 사용자가 내 프로필을 방문한 누적 횟수
+  profileViewsToday  Int       @default(0) // 오늘(profileViewsDate 기준) 방문 횟수
+  profileViewsDate   String? // 오늘 카운터를 마지막으로 초기화한 날짜(yyyy-mm-dd)
+  alwaysShowSpoilers Boolean   @default(false) // "스포일러 항상 보기" — 켜면 스포일러 한줄평도 바로 펼쳐 보인다
 
-  accounts            Account[]
-  sessions            Session[]
-  reviews             Review[]
-  reviewLikes         ReviewLike[]
-  categoryRatings     CategoryRating[]
-  following           Follow[]             @relation("Following")
-  followers           Follow[]             @relation("Followers")
-  watchTriggers       WatchTrigger[]       @relation("Reader")
-  passwordResetCodes  PasswordResetCode[]
-  awardVotes          AwardVote[]
-  inquiries           Inquiry[]
-  termsConsent        TermsConsent?
-  spoilerReports      SpoilerReport[]
+  accounts           Account[]
+  sessions           Session[]
+  reviews            Review[]
+  reviewLikes        ReviewLike[]
+  categoryRatings    CategoryRating[]
+  following          Follow[]            @relation("Following")
+  followers          Follow[]            @relation("Followers")
+  watchTriggers      WatchTrigger[]      @relation("Reader")
+  passwordResetCodes PasswordResetCode[]
+  awardVotes         AwardVote[]
+  inquiries          Inquiry[]
+  termsConsent       TermsConsent?
+  spoilerReports     SpoilerReport[]
 
   createdAt DateTime @default(now())
 }
@@ -173,7 +173,7 @@ model PasswordResetCode {
   id        String   @id @default(cuid())
   email     String
   user      User     @relation(fields: [email], references: [email], onDelete: Cascade)
-  code      String   // 6자리 난수 (예: "482910")
+  code      String // 6자리 난수 (예: "482910")
   expiresAt DateTime
   createdAt DateTime @default(now())
 
@@ -232,15 +232,15 @@ model Review {
 
   // 스포일러 표시(is_spoiler). 작성자가 "스포일러가 있어요"를 체크했거나, 다른 회원 신고가
   // SPOILER_REPORT_THRESHOLD명을 넘으면 켜진다. 켜진 리뷰는 본문을 가리고 눌러야 불러온다.
-  hasSpoiler   Boolean  @default(false)
-  spoilerLevel Int      @default(0)
+  hasSpoiler        Boolean   @default(false)
+  spoilerLevel      Int       @default(0)
   // 누가 스포일러로 표시했는지 — "author"(작성자 체크) | "reports"(신고 누적) | "keyword"(예전 자동 감지) | null
   spoilerFlagSource String?
   spoilerFlaggedAt  DateTime? // 신고 누적으로 표시된 시각 — 작성자 알림에 쓴다
-  likeCount    Int      @default(0) // 반정규화 — 좋아요 받을 때마다 트랜잭션으로 같이 갱신
-  dislikeCount Int      @default(0) // 반정규화 — 싫어요는 등급(totalLikes) 계산엔 안 들어간다
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  likeCount         Int       @default(0) // 반정규화 — 좋아요 받을 때마다 트랜잭션으로 같이 갱신
+  dislikeCount      Int       @default(0) // 반정규화 — 싫어요는 등급(totalLikes) 계산엔 안 들어간다
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   likes          ReviewLike[]
   watchTriggers  WatchTrigger[]
@@ -363,7 +363,7 @@ model Inquiry {
   id         String   @id @default(cuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category   String   // "영화 정보 오류" | "신규 영화 추가 요청" | "버그 신고" | "기타 문의"
+  category   String // "영화 정보 오류" | "신규 영화 추가 요청" | "버그 신고" | "기타 문의"
   title      String
   content    String
   images     Json     @default("[]") // base64 data URI 배열 (최대 5장, 클라이언트에서 리사이즈)
@@ -378,7 +378,7 @@ model Inquiry {
 // 서비스 공지사항 — DB에 직접 INSERT하거나 관리 스크립트로 관리한다.
 model Notice {
   id        String   @id @default(cuid())
-  type      String   // "업데이트" | "신규 기능" | "점검 안내" | "공지"
+  type      String // "업데이트" | "신규 기능" | "점검 안내" | "공지"
   title     String
   content   String?
   isNew     Boolean  @default(false)
@@ -392,14 +392,14 @@ model Notice {
 model AwardVote {
   id            String   @id @default(cuid())
   userId        String
-  festival      String   // "academy" | "cannes" | "berlin" | "venice"
-  awardCategory String   // "작품상" | "감독상" | ...
-  movieId       String   // kobis-* | wikidata-* 등
+  festival      String // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String // "작품상" | "감독상" | ...
+  movieId       String // kobis-* | wikidata-* 등
   movieTitle    String
   posterUrl     String?
   createdAt     DateTime @default(now())
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, festival, awardCategory])
   @@index([festival, awardCategory])
@@ -409,10 +409,10 @@ model AwardVote {
 // 연도+영화제+부문 조합은 유일하다(upsert 기준).
 model OfficialWinner {
   id            String   @id @default(cuid())
-  year          Int      // 시상식 연도 (예: 2025)
-  festival      String   // "academy" | "cannes" | "berlin" | "venice"
-  awardCategory String   // "작품상" | "황금종려상" | 등
-  movieId       String   // kobis-* | wikidata-* 등 내부 ID
+  year          Int // 시상식 연도 (예: 2025)
+  festival      String // "academy" | "cannes" | "berlin" | "venice"
+  awardCategory String // "작품상" | "황금종려상" | 등
+  movieId       String // kobis-* | wikidata-* 등 내부 ID
   movieTitle    String
   posterUrl     String?
   createdAt     DateTime @default(now())
@@ -430,7 +430,7 @@ model AwardVoteSummary {
   movieId       String
   movieTitle    String
   posterUrl     String?
-  voteCount     Int    @default(0)
+  voteCount     Int     @default(0)
 
   @@id([festival, awardCategory, movieId])
   @@index([festival, awardCategory])
@@ -492,6 +492,34 @@ model MovieSimilarity {
 
   @@id([movieCd, similarMovieCd])
   @@index([movieCd, score])
+}
+
+// 협업 필터링(CF)용 영화 간 유사도 — "추천 N%"에 비슷한 취향 회원들의 평가를 섞을 때 쓴다(cf-similarity-compute.ts).
+// 위 MovieSimilarity("이 영화를 좋아한 사람들이 본", 좋아요 동시 등장)와 계산식이 달라 따로 둔다.
+// 사용자 평균을 뺀 평점의 코사인 유사도를 공동 평가자 수로 축소한 값(sim')만 저장한다 — 회원 정보는 없다.
+model MovieCfSimilarity {
+  movieCd    String
+  neighborCd String
+  similarity Float // sim × n / (n + λ)
+  coRaters   Int // 두 영화를 모두 평가한 회원 수(n)
+  updatedAt  DateTime @default(now())
+
+  @@id([movieCd, neighborCd])
+  @@index([movieCd, similarity])
+}
+
+// CF 전역 통계(한 줄, id = "global") — 야간 크론이 세어 두고, 요청 때는 이 값만 읽어 CF를 켤지 정한다.
+// cursor는 영화 유사도 계산을 여러 번에 나눠 할 때 이어서 시작할 위치(movieCd)다.
+model CfStats {
+  id            String    @id
+  totalRatings  Int
+  ratingUsers   Int
+  pairCount     Int       @default(0)
+  avgCoRaters   Float     @default(0)
+  cursor        String?
+  passStartedAt DateTime?
+  lastPassAt    DateTime? // 전체 영화 계산을 마지막으로 끝낸 시각
+  lastRunAt     DateTime  @default(now()) // 크론이 마지막으로 실행된 시각
 }
 
 // 예고편 채널 규칙(관리자). 기본 공식 채널 목록(official-channels.ts)에 없는 배급사 채널을 허용하거나

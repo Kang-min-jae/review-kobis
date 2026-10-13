@@ -24,6 +24,7 @@ import {
   type AffinityContext,
   type RatedMovieForContext,
 } from "./calculateAffinity";
+import type { CfScorer } from "./cf-data";
 
 export type TasteMeta = {
   genres: string[]; // 대표 장르
@@ -124,7 +125,20 @@ export async function buildTasteContext(
     const cd = movieIdToCd(r.movieId);
     if (cd) cdOf.set(r.movieId, cd);
   }
-  const ratedMetas = await loadTasteMetas([...cdOf.values()]);
+  return buildTasteContextFromMetas(ratings, categoryRatings, await loadTasteMetas([...cdOf.values()]));
+}
+
+// buildTasteContext의 DB 없는 부분 — 메타를 이미 갖고 있을 때(오프라인 검증 scripts/cf-eval.mts) 그대로 쓴다.
+export function buildTasteContextFromMetas(
+  ratings: RatingInput[],
+  categoryRatings: CategoryRatingInput[],
+  ratedMetas: Map<string, TasteMeta>,
+): TasteContext {
+  const cdOf = new Map<string, string>();
+  for (const r of ratings) {
+    const cd = movieIdToCd(r.movieId);
+    if (cd) cdOf.set(r.movieId, cd);
+  }
 
   const ratedCds = new Set<string>();
   const ratedTmdbIds = new Set<string>();
@@ -155,20 +169,45 @@ export async function buildTasteContext(
   };
 }
 
-// 대상 작품 하나의 추천도(1~99). 취향 기록이 없거나(콜드 스타트) 작품 정보가 전혀 없으면
-// null — 근거 없는 숫자(모든 영화에 똑같이 붙는 "추천 65%")를 보여주지 않는다.
-export function scoreAffinity(
+// 대상 작품 하나의 content 추천도(0~1, 협업 필터링을 섞기 전 = 점수 A). 취향 기록이 없거나(콜드 스타트)
+// 작품 정보가 전혀 없으면 null — 근거 없는 숫자(모든 영화에 똑같이 붙는 "추천 65%")를 보여주지 않는다.
+export function contentAffinityRaw(
   meta: TasteMeta | undefined,
   ctx: AffinityContext,
   quality: QualityStats | undefined,
 ): number | null {
   if (!ctx.hasData || !meta) return null;
   if (meta.genres.length === 0 && !meta.directorName && meta.castNames.length === 0) return null;
-  const raw = calculateMovieAffinity(
+  return calculateMovieAffinity(
     meta,
     ctx,
     computeBayesianQuality(quality?.overallAvg ?? null, quality?.overallCount ?? 0),
     calculateCategoryBoost(ctx.categoryWeights, quality?.categoryStats ?? {}),
   );
-  return affinityPercent(raw);
+}
+
+// 대상 작품 하나의 추천도(1~99).
+export function scoreAffinity(
+  meta: TasteMeta | undefined,
+  ctx: AffinityContext,
+  quality: QualityStats | undefined,
+): number | null {
+  const raw = contentAffinityRaw(meta, ctx, quality);
+  return raw === null ? null : affinityPercent(raw);
+}
+
+// 협업 필터링(cf-data.ts)까지 섞은 추천도. scorer가 없거나(CF 꺼짐) 이 영화에 CF 근거가 없으면
+// scoreAffinity와 같은 값이고 cfBlended = false. 근거 없는 영화에 CF만으로 점수를 만들지는 않는다.
+export function scoreAffinityWithCf(
+  meta: TasteMeta | undefined,
+  ctx: AffinityContext,
+  quality: QualityStats | undefined,
+  cd: string,
+  scorer: CfScorer | null,
+): { score: number; cfBlended: boolean } | null {
+  const raw = contentAffinityRaw(meta, ctx, quality);
+  if (raw === null) return null;
+  if (!scorer) return { score: affinityPercent(raw), cfBlended: false };
+  const blended = scorer.blend(cd, raw);
+  return { score: affinityPercent(blended.raw), cfBlended: blended.alpha > 0 };
 }

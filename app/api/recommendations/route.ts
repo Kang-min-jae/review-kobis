@@ -18,12 +18,13 @@ import { calculateCategoryBoost, recencyDecay } from "../../_lib/calculateAffini
 import {
   buildTasteContext,
   loadQualityStats,
-  scoreAffinity,
+  scoreAffinityWithCf,
   toTasteMeta,
   type QualityStats,
   type TasteContext,
   type TasteMeta,
 } from "../../_lib/affinity-data";
+import { createCfScorer } from "../../_lib/cf-data";
 
 const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -713,7 +714,10 @@ async function buildRecommendations(
   target: number,
   cacheKey: string,
 ): Promise<{ results: RowMovie[] }> {
-  const taste = await buildTasteContext(myRatings, myCategoryRatings);
+  const [taste, cf] = await Promise.all([
+    buildTasteContext(myRatings, myCategoryRatings),
+    createCfScorer(myRatings).catch(() => null),
+  ]);
   // 이미 평가한 영화는 추천하지 않는다 — 같은 영화가 KOBIS·TMDB 두 항목으로 저장된 경우도
   // TMDB id로 함께 거른다(예전엔 다른 항목으로 저장된 같은 영화가 다시 추천됐다).
   const isRated: IsRated = (m) => taste.ratedCds.has(m.movieCd) || (m.tmdbId !== null && taste.ratedTmdbIds.has(m.tmdbId));
@@ -737,7 +741,10 @@ async function buildRecommendations(
     });
   }
   // 후보는 전부 cachedMovie에서 뽑혔으므로 외부 API 재조회 없이 DB만 읽는다.
-  const metas = await getCachedMovieMetas(candidates.map((c) => c.movieCd));
+  const [metas] = await Promise.all([
+    getCachedMovieMetas(candidates.map((c) => c.movieCd)),
+    cf?.prefetch(candidates.map((c) => c.movieCd)),
+  ]);
 
   const llmMap = new Map(llmResults.map((r) => [r.movieCd, r]));
   const final = blendAndMMR(candidates, llmMap, target, !keywords);
@@ -746,7 +753,8 @@ async function buildRecommendations(
   // 영화가 다른 행에 나와도 같은 숫자가 되게 한다.
   const toRow = (c: CandidateMovie, posterUrl: string | null, genreAlt: string | null, reason?: string): RowMovie => {
     const { genre, allGenres } = genreFields(genreAlt);
-    const recommendScore = scoreAffinity(c.taste, taste.ctx, c.quality);
+    const affinity = scoreAffinityWithCf(c.taste, taste.ctx, c.quality, c.movieCd, cf);
+    const recommendScore = affinity?.score ?? null;
     return {
       // 숫자 KOBIS 코드만 "kobis-"를 붙인다 — 예전엔 tmdb-*·wikidata-* 영화에도 붙여
       // "kobis-tmdb-123" 같은 ID가 되어 평점이 다른 행의 같은 영화와 따로 저장됐다.
@@ -758,6 +766,7 @@ async function buildRecommendations(
       genre,
       allGenres,
       ...(recommendScore !== null ? { recommendScore } : {}),
+      ...(affinity?.cfBlended ? { recommendCf: true } : {}),
       ...(reason ? { recommendReason: reason } : {}),
     };
   };
@@ -777,7 +786,10 @@ async function buildRecommendations(
     const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
     const fallback = await fetchFallbackCandidates(isRated, excludeMovieCds, needed, keywords);
     if (fallback.length > 0) {
-      const fallbackMetas = await getCachedMovieMetas(fallback.map((c) => c.movieCd));
+      const [fallbackMetas] = await Promise.all([
+        getCachedMovieMetas(fallback.map((c) => c.movieCd)),
+        cf?.prefetch(fallback.map((c) => c.movieCd)),
+      ]);
       for (const c of fallback) {
         const meta = fallbackMetas.get(c.movieCd);
         const row = toRow(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt);

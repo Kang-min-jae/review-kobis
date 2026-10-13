@@ -31,6 +31,8 @@ export type RowMovie = {
   allGenres?: string[];
   // 개인화 추천 알고리즘이 계산한 추천 점수(0~100). 이 값이 있으면 matchBadge 대신 쓴다.
   recommendScore?: number;
+  // recommendScore에 비슷한 취향 회원들의 평가(협업 필터링)가 섞였으면 true — 배지 도움말에 알린다.
+  recommendCf?: boolean;
   // LLM이 생성한 추천 이유 한 줄 — genre 필드 대신 카드 하단에 표시한다.
   recommendReason?: string;
   // 아카데미/칸/베를린/베니스 주요 시상식 수상 이력이 있으면 트로피 배지를 보여준다.

@@ -10,7 +10,7 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
       disallow: [
-        "/api/",
+        "/api/", // 관리자 API(/api/admin/*, 예: /api/admin/cf-status)도 여기에 포함된다
         "/admin",
         "/login",
         "/signup",

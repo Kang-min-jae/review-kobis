@@ -17,6 +17,8 @@ const LATE_DEBOUNCE_MS = 2000;
 const MAX_IDS_PER_REQUEST = 200;
 
 let scores: Record<string, number> = {}; // movieId → 1~99
+// 비슷한 취향 회원들의 평가(협업 필터링)가 섞인 점수의 movieId — 배지 도움말에 쓴다.
+let cfBlended: Record<string, true> = {};
 const knownIds = new Set<string>(); // 지금까지 화면에 등록된 모든 카드
 let pendingIds = new Set<string>();
 let fetchedIds = new Set<string>();
@@ -42,6 +44,15 @@ export function getAffinitySnapshot(): Record<string, number> {
 }
 
 const EMPTY_SCORES: Record<string, number> = {};
+const EMPTY_CF: Record<string, true> = {};
+
+export function getCfBlendedSnapshot(): Record<string, true> {
+  return cfBlended;
+}
+
+export function getServerCfBlendedSnapshot(): Record<string, true> {
+  return EMPTY_CF;
+}
 
 export function getServerAffinitySnapshot(): Record<string, number> {
   return EMPTY_SCORES;
@@ -57,22 +68,30 @@ function schedule(delay: number) {
 
 // 조회한 카드들의 점수를 반영한다. 점수가 없어진 카드(예: 방금 평가해서 추천 대상에서
 // 빠진 영화)는 옛 점수가 남지 않도록 지운다.
-function applyScores(ids: string[], incoming: Record<string, number>) {
+function applyScores(ids: string[], incoming: Record<string, number>, incomingCf: string[] = []) {
   const next = { ...scores };
+  const nextCf = { ...cfBlended };
+  const cfSet = new Set(incomingCf);
   let changed = false;
+  let cfChanged = false;
   for (const id of ids) {
     fetchedIds.add(id);
     const value = incoming[id];
     const score = typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+    const isCf = score !== undefined && cfSet.has(id);
+    if (Boolean(nextCf[id]) !== isCf) {
+      cfChanged = true;
+      if (isCf) nextCf[id] = true;
+      else delete nextCf[id];
+    }
     if (next[id] === score) continue;
     changed = true;
     if (score === undefined) delete next[id];
     else next[id] = score;
   }
-  if (changed) {
-    scores = next;
-    emit();
-  }
+  if (cfChanged) cfBlended = nextCf;
+  if (changed) scores = next;
+  if (changed || cfChanged) emit();
 }
 
 async function flushPending() {
@@ -108,10 +127,11 @@ async function flushPending() {
       body: JSON.stringify({ movieIds: ids, ...payload }),
     });
     if (!res.ok) return;
-    const data = (await res.json()) as { scores?: Record<string, number> };
+    const data = (await res.json()) as { scores?: Record<string, number>; cfBlended?: unknown };
     // 응답을 기다리는 사이 평점이 또 바뀌었으면 이 결과는 버린다(다음 조회가 새 취향으로 채운다).
     if (fetchedKey !== key) return;
-    applyScores(ids, data.scores ?? {});
+    const cf = Array.isArray(data.cfBlended) ? data.cfBlended.filter((id): id is string => typeof id === "string") : [];
+    applyScores(ids, data.scores ?? {}, cf);
   } catch {
     // 네트워크 오류는 무시 — 이 카드들은 다음 등록이나 평점 변경 때 다시 조회된다.
   } finally {
