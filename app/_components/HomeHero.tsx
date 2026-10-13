@@ -61,8 +61,8 @@ function MoviePanel({ movie, mode }: { movie: HeroMovie; mode: Mode }) {
           {movie.reviews.length === 0 ? (
             <p className="rounded-xl border border-neutral-800 px-3 py-3 text-xs text-muted">아직 한줄평이 없어요. 첫 한줄평을 남겨 보세요.</p>
           ) : (
-            movie.reviews.map((r, i) => (
-              <div key={r.id} className={`rounded-xl border border-neutral-800 bg-black/30 px-3 py-2 ${i > 0 ? "max-md:hidden" : ""}`}>
+            movie.reviews.map((r) => (
+              <div key={r.id} className="rounded-xl border border-neutral-800 bg-black/30 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-star text-[10px] font-bold text-black">
                     {Array.from(r.authorName)[0]}
