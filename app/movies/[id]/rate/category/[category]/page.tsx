@@ -1,6 +1,7 @@
-import { Suspense } from "react";
+import { Suspense, type ComponentProps } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import type { Session } from "next-auth";
 import { auth } from "../../../../../../auth";
 import { resolveMovieRateInfo } from "../../../../../_lib/movie-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
@@ -81,6 +82,129 @@ function TrailerBoxSkeleton() {
   );
 }
 
+// 리뷰 영역(별점·한줄평 입력과 리뷰 목록)을 불러오는 동안의 뼈대 — 입력 칸 + 리뷰 카드 3개 자리.
+function ReviewsSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="리뷰를 불러오는 중">
+      <div className="h-14 animate-pulse rounded-xl bg-neutral-800" />
+      <div className="mt-4 space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-20 animate-pulse rounded-lg bg-neutral-800" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RatingDistributionSkeleton() {
+  return (
+    <section className="rounded-2xl border border-neutral-800 bg-surface p-4" aria-busy="true">
+      <h2 className="text-sm font-bold text-text">별점 분포</h2>
+      <div className="mt-3 space-y-2.5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-2 animate-pulse rounded-full bg-black/40" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type ReviewData = {
+  session: Session | null;
+  shortReviews: Awaited<ReturnType<typeof getReviewsForCategoryType>>;
+  longReviews: Awaited<ReturnType<typeof getReviewsForCategoryType>>;
+  myShortReview: Awaited<ReturnType<typeof getMyReview>>;
+  myLongReview: Awaited<ReturnType<typeof getMyReview>>;
+  alwaysShowSpoilers: boolean;
+  followingIds: string[];
+};
+
+// 로그인 정보·리뷰 목록·내 리뷰·팔로잉 — 리뷰 영역과 별점 분포가 같이 쓰므로 한 번만 불러 나눠 준다.
+async function loadReviewData(movieCd: string, category: RatingCategory, sessionPromise: Promise<Session | null>): Promise<ReviewData> {
+  const session = await sessionPromise;
+  const userId = session?.user?.id ?? null;
+  // "스포일러 항상 보기" 설정에 따라 스포일러 리뷰 본문을 처음부터 보낼지가 달라져 먼저 읽는다.
+  const prefs = userId
+    ? await db.user.findUnique({ where: { id: userId }, select: { alwaysShowSpoilers: true } }).catch(() => null)
+    : null;
+  const alwaysShowSpoilers = prefs?.alwaysShowSpoilers ?? false;
+  const [shortReviews, longReviews, myShortReview, myLongReview, following] = await Promise.all([
+    getReviewsForCategoryType(movieCd, category, "SHORT", userId, { alwaysShowSpoilers }),
+    getReviewsForCategoryType(movieCd, category, "LONG", userId, { alwaysShowSpoilers }),
+    getMyReview(userId, movieCd, category, "SHORT"),
+    getMyReview(userId, movieCd, category, "LONG"),
+    userId
+      ? db.follow.findMany({ where: { followerId: userId }, select: { followingId: true } }).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+  return {
+    session,
+    shortReviews,
+    longReviews,
+    myShortReview,
+    myLongReview,
+    alwaysShowSpoilers,
+    followingIds: following.map((f) => f.followingId),
+  };
+}
+
+async function ReviewsSection({
+  dataPromise,
+  info,
+  category,
+}: {
+  dataPromise: Promise<ReviewData>;
+  info: NonNullable<Awaited<ReturnType<typeof resolveMovieRateInfo>>>;
+  category: RatingCategory;
+}) {
+  const data = await dataPromise;
+  const userId = data.session?.user?.id ?? null;
+  return (
+    <CategoryRateForm
+      movieId={info.movieId}
+      movieCd={info.movieCd}
+      movieTitle={info.movieTitle}
+      moviePosterUrl={info.posterUrl}
+      movieGradient={info.gradient}
+      category={category}
+      isLoggedIn={Boolean(userId)}
+      userId={userId}
+      userName={data.session?.user?.name ?? null}
+      isAdmin={data.session?.user?.role === "ADMIN"}
+      reviews={{ SHORT: data.shortReviews, LONG: data.longReviews }}
+      myReviews={{ SHORT: data.myShortReview, LONG: data.myLongReview }}
+      followingIds={data.followingIds}
+      alwaysShowSpoilers={data.alwaysShowSpoilers}
+    />
+  );
+}
+
+async function RatingDistributionData({ dataPromise }: { dataPromise: Promise<ReviewData> }) {
+  const { shortReviews } = await dataPromise;
+  return <RatingDistribution ratings={shortReviews.map((r) => r.rating)} />;
+}
+
+// 예고편 박스는 관리자에게만 후보 영상을 보여줘서 로그인 정보가 필요하다.
+async function TrailerBoxWithSession(props: {
+  sessionPromise: Promise<Session | null>;
+  tmdbId: string | null;
+  movieTitle: string;
+  movieCd: string;
+  isNowShowing: boolean;
+}) {
+  const { sessionPromise, ...rest } = props;
+  const session = await sessionPromise;
+  return <TrailerBoxData {...rest} isAdmin={session?.user?.role === "ADMIN"} />;
+}
+
+async function SimilarMoviesWithSession(
+  props: Omit<ComponentProps<typeof SimilarMoviesSection>, "userId"> & { sessionPromise: Promise<Session | null> },
+) {
+  const { sessionPromise, ...rest } = props;
+  const session = await sessionPromise;
+  return <SimilarMoviesSection {...rest} userId={session?.user?.id ?? null} />;
+}
+
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
@@ -95,34 +219,21 @@ export default async function CategoryRatePage({
     notFound();
   }
 
-  const [info, session] = await Promise.all([resolveMovieRateInfo(id), auth()]);
+  // 제목·포스터·줄거리·평점 요약(MovieHero)은 처음 HTML에 바로 들어가도록 여기서 먼저 읽는다 — 이 페이지엔
+  // 로딩 화면(loading.tsx)을 두지 않는다(있으면 본문 전체가 숨겨진 스트리밍 블록으로 늦게 붙는다).
+  // 영화 정보는 DB 캐시(CachedMovie, 3일 + 백그라운드 갱신), 박스오피스는 fetch 캐시(6시간)를 거쳐 빠르다.
+  // 평점 요약은 별점을 남기면 바로 바뀌어야 해서 캐시 없이 읽는다(인덱스 걸린 집계 한 번).
+  // 로그인 정보·리뷰처럼 사람마다 다르거나 느린 부분은 아래 <Suspense>에서 따로 불러온다.
+  const sessionPromise = auth().catch(() => null);
+  const info = await resolveMovieRateInfo(id);
   if (!info) {
     notFound();
   }
-  const userId = session?.user?.id ?? null;
-
-  // "스포일러 항상 보기" 설정에 따라 스포일러 리뷰 본문을 처음부터 보낼지가 달라져 먼저 읽는다.
-  const prefsPromise = userId
-    ? db.user.findUnique({ where: { id: userId }, select: { alwaysShowSpoilers: true } }).catch(() => null)
-    : Promise.resolve(null);
-  const reviewsFor = (type: "SHORT" | "LONG") =>
-    prefsPromise.then((prefs) =>
-      getReviewsForCategoryType(info.movieCd, category, type, userId, { alwaysShowSpoilers: prefs?.alwaysShowSpoilers ?? false })
-    );
-
-  const [averages, shortReviews, longReviews, myShortReview, myLongReview, prefs, following] = await Promise.all([
-    getAllCategoryAverages(info.movieCd),
-    reviewsFor("SHORT"),
-    reviewsFor("LONG"),
-    getMyReview(userId, info.movieCd, category, "SHORT"),
-    getMyReview(userId, info.movieCd, category, "LONG"),
-    prefsPromise,
-    userId
-      ? db.follow.findMany({ where: { followerId: userId }, select: { followingId: true } }).catch(() => [])
-      : Promise.resolve([]),
-  ]);
+  const averages = await getAllCategoryAverages(info.movieCd);
   const overall = averages.find((a) => a.category === "전체");
-  const isAdmin = session?.user?.role === "ADMIN";
+  const reviewDataPromise = loadReviewData(info.movieCd, category, sessionPromise);
+  // 두 Suspense 영역이 같이 기다리는 promise — 한쪽이 렌더되기 전에 실패해도 처리되지 않은 거부로 남지 않게 한다.
+  reviewDataPromise.catch(() => {});
 
   return (
     <main>
@@ -161,12 +272,12 @@ export default async function CategoryRatePage({
         >
           <div className="min-w-0 max-lg:hidden max-lg:group-data-[mobile-view=watch]/detail:block lg:col-start-2 lg:row-start-1">
             <Suspense fallback={<TrailerBoxSkeleton />}>
-              <TrailerBoxData
+              <TrailerBoxWithSession
+                sessionPromise={sessionPromise}
                 tmdbId={info.tmdbId ?? null}
                 movieTitle={info.movieTitle}
                 movieCd={info.movieCd}
                 isNowShowing={info.boxOffice !== null}
-                isAdmin={isAdmin}
               />
             </Suspense>
           </div>
@@ -179,38 +290,27 @@ export default async function CategoryRatePage({
             <div className="mb-4 lg:hidden">
               <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
             </div>
-            <CategoryRateForm
-              movieId={info.movieId}
-              movieCd={info.movieCd}
-              movieTitle={info.movieTitle}
-              moviePosterUrl={info.posterUrl}
-              movieGradient={info.gradient}
-              category={category}
-              isLoggedIn={Boolean(userId)}
-              userId={userId}
-              userName={session?.user?.name ?? null}
-              isAdmin={isAdmin}
-              reviews={{ SHORT: shortReviews, LONG: longReviews }}
-              myReviews={{ SHORT: myShortReview, LONG: myLongReview }}
-              followingIds={following.map((f) => f.followingId)}
-              alwaysShowSpoilers={prefs?.alwaysShowSpoilers ?? false}
-            />
+            <Suspense fallback={<ReviewsSkeleton />}>
+              <ReviewsSection dataPromise={reviewDataPromise} info={info} category={category} />
+            </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-2">
-            <RatingDistribution ratings={shortReviews.map((r) => r.rating)} />
+            <Suspense fallback={<RatingDistributionSkeleton />}>
+              <RatingDistributionData dataPromise={reviewDataPromise} />
+            </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-3">
             <Suspense fallback={null}>
-              <SimilarMoviesSection
+              <SimilarMoviesWithSession
+                sessionPromise={sessionPromise}
                 movieCd={info.movieCd}
                 movieTitle={info.movieTitle}
                 tmdbId={info.tmdbId ?? null}
                 directorName={info.director?.name ?? null}
                 leadActorName={info.cast[0]?.name ?? null}
                 genreAlt={info.genreAlt}
-                userId={userId}
               />
             </Suspense>
           </div>
