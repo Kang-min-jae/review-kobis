@@ -93,6 +93,29 @@ export const { handlers, signIn, signOut, auth, unstable_update } = NextAuth({
     }),
   ],
   session: { strategy: "jwt" },
+  // 기본 로그는 OAuth 제공자가 거절한 이유(예: 구글의 invalid_client)를 남기지 않아 원인을 알 수 없다.
+  // 기본과 같은 줄에 더해, 제공자가 돌려준 오류 코드·설명·HTTP 상태만 함께 남긴다(비밀값은 들어 있지 않다).
+  logger: {
+    error(error) {
+      const name = (error as { type?: string }).type ?? error.name;
+      console.error(`[auth][error] ${name}: ${error.message}`);
+      const cause = (error as { cause?: unknown }).cause;
+      const err = cause && typeof cause === "object" && "err" in cause ? (cause as { err: unknown }).err : cause;
+      if (err instanceof Error) {
+        console.error("[auth][cause]", err.stack);
+        const detail = err as Error & { error?: unknown; error_description?: unknown; status?: unknown };
+        if (detail.error !== undefined || detail.status !== undefined) {
+          console.error(
+            "[auth][provider-response]",
+            JSON.stringify({ error: detail.error, error_description: detail.error_description, status: detail.status }),
+          );
+        }
+      }
+      if (cause && typeof cause === "object" && "provider" in cause) {
+        console.error("[auth][details]", JSON.stringify({ provider: (cause as { provider: unknown }).provider }));
+      }
+    },
+  },
   callbacks: {
     async jwt({ token, user, trigger }) {
       if (user) {
