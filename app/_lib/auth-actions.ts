@@ -7,12 +7,12 @@ import { PENDING_CONSENT_COOKIE } from "./terms-consent";
 // 가입 화면에서 약관에 동의하고 소셜 버튼을 누른 경우 — OAuth 제공자를 다녀온 뒤 계정이 만들어질 때
 // auth.ts가 이 쿠키를 읽어 동의를 기록한다(10분 안에 돌아오지 않으면 만료). 로그인 화면에서 누르면
 // 동의 정보가 없어서, 새 계정이면 로그인 직후 동의 화면(/consent)으로 안내된다.
-type SocialConsent = { marketing: boolean };
+type SocialConsent = { agreed: true };
 
 async function rememberConsent(consent?: SocialConsent) {
   if (!consent) return;
   const store = await cookies();
-  store.set(PENDING_CONSENT_COOKIE, JSON.stringify({ marketing: consent.marketing === true }), {
+  store.set(PENDING_CONSENT_COOKIE, JSON.stringify({ agreed: true }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

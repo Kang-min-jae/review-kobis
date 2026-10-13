@@ -56,7 +56,6 @@ export async function signUpAction(
 
   // 필수 약관 동의는 화면의 버튼 비활성화만으로는 강제되지 않는다(직접 요청하면 우회됨) — 서버에서 확인한다.
   if (!hasRequiredConsent(formData)) return { error: "필수 약관(이용약관·개인정보 수집·이용·만 14세 이상)에 동의해 주세요." };
-  const marketingAgreed = formData.get("agree-marketing") === "on";
 
   if (!usernameInput) return { error: "아이디를 입력해 주세요." };
   if (usernameInput.length < 4) return { error: "아이디는 4자 이상이어야 해요." };
@@ -82,7 +81,7 @@ export async function signUpAction(
     const created = await db.user.create({ data: { username: usernameInput, password: passwordHash, nickname: nicknameInput } });
     // 동의 기록 저장에 실패해도(동의 표 마이그레이션 전 등) 가입은 막지 않는다 — 기록이 없으면 다음
     // 로그인 때 동의 화면에서 다시 동의를 받는다.
-    await recordConsent(created.id, marketingAgreed).catch((error) => console.warn("[signup] 약관 동의 기록 실패:", error));
+    await recordConsent(created.id).catch((error) => console.warn("[signup] 약관 동의 기록 실패:", error));
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { error: "이미 사용 중인 아이디 또는 닉네임이에요. 다시 시도해 주세요." };

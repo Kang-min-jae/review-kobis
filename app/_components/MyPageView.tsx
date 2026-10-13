@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import BackBar from "./BackBar";
 import {
@@ -12,7 +12,6 @@ import {
 
 // ── 소셜 로그인 연결 서버 액션 ──────────────────────────────────────────────
 import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth-actions";
-import { updateMarketingConsentAction } from "../_lib/consent-actions";
 
 type User = {
   id: string;
@@ -27,7 +26,6 @@ type Props = {
   user: User;
   linkedProviders: string[];
   ratingCount: number;
-  marketingConsent: boolean; // 서버에 기록된 마케팅 정보 수신 동의 여부
 };
 
 // 이메일을 일부 마스킹: "example@gmail.com" → "exa***@gmail.com"
@@ -194,27 +192,6 @@ function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── 토글 스위치 ──────────────────────────────────────────────────────────────
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={onToggle}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        on ? "bg-brand" : "bg-neutral-600"
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-          on ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
-  );
-}
-
 // ── 소셜 로그인 아이콘 ───────────────────────────────────────────────────────
 const SOCIAL_PROVIDERS = [
   {
@@ -299,33 +276,9 @@ function ChangeButton({ onClick }: { onClick: () => void }) {
 // ── 마이페이지 메인 ───────────────────────────────────────────────────────────
 type ModalType = "nickname" | "password" | "deleteAccount" | null;
 
-export default function MyPageView({ user, linkedProviders, ratingCount, marketingConsent }: Props) {
+export default function MyPageView({ user, linkedProviders, ratingCount }: Props) {
   const [modal, setModal] = useState<ModalType>(null);
   const close = () => setModal(null);
-
-  // 알림 설정은 localStorage에 저장
-  const [notifEmail, setNotifEmail] = useState(false);
-  const [notifFollow, setNotifFollow] = useState(false);
-  // 마케팅 수신 동의는 법적 동의 기록이라 브라우저가 아니라 서버(TermsConsent)에 저장한다.
-  const [notifMarketing, setNotifMarketing] = useState(marketingConsent);
-  const notifLoaded = useRef(false);
-
-  useEffect(() => {
-    if (notifLoaded.current) return;
-    notifLoaded.current = true;
-    try {
-      const saved = JSON.parse(localStorage.getItem("notif_settings") ?? "{}");
-      if (typeof saved.email === "boolean") setNotifEmail(saved.email);
-      if (typeof saved.follow === "boolean") setNotifFollow(saved.follow);
-    } catch {}
-  }, []);
-
-  function saveNotif(key: string, value: boolean) {
-    try {
-      const saved = JSON.parse(localStorage.getItem("notif_settings") ?? "{}");
-      localStorage.setItem("notif_settings", JSON.stringify({ ...saved, [key]: value }));
-    } catch {}
-  }
 
   const joinedAt = formatJoinDate(user.createdAt);
   const initial = (user.nickname ?? "U").slice(0, 1).toUpperCase();
@@ -444,57 +397,6 @@ export default function MyPageView({ user, linkedProviders, ratingCount, marketi
             );
           })}
         </div>
-      </Card>
-
-      {/* 알림 설정 */}
-      <Card>
-        <SectionTitle>알림 설정</SectionTitle>
-        <Row
-          label="이메일로 알림 받기"
-          action={
-            <Toggle
-              on={notifEmail}
-              onToggle={() => {
-                const next = !notifEmail;
-                setNotifEmail(next);
-                saveNotif("email", next);
-              }}
-            />
-          }
-        />
-        <Row
-          label="팔로우한 사람의 새 평점 알림"
-          action={
-            <Toggle
-              on={notifFollow}
-              onToggle={() => {
-                const next = !notifFollow;
-                setNotifFollow(next);
-                saveNotif("follow", next);
-              }}
-            />
-          }
-        />
-        <Row
-          label="마케팅 정보 수신"
-          action={
-            <Toggle
-              on={notifMarketing}
-              onToggle={() => {
-                const next = !notifMarketing;
-                setNotifMarketing(next);
-                updateMarketingConsentAction(next)
-                  .then(({ ok }) => {
-                    if (!ok) throw new Error("save failed");
-                  })
-                  .catch(() => {
-                    setNotifMarketing(!next);
-                    window.alert("수신 동의 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
-                  });
-              }}
-            />
-          }
-        />
       </Card>
 
       {/* 계정 탈퇴 */}

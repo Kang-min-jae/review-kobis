@@ -44,8 +44,7 @@ async function recordPendingConsent(userId: string) {
     const raw = store.get(PENDING_CONSENT_COOKIE)?.value;
     if (!raw) return;
     store.delete(PENDING_CONSENT_COOKIE);
-    const parsed = JSON.parse(raw) as { marketing?: unknown };
-    await recordConsent(userId, parsed.marketing === true);
+    await recordConsent(userId);
   } catch (error) {
     console.warn("[auth] 소셜 가입 약관 동의 기록 실패:", error);
   }

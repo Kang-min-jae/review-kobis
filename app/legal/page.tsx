@@ -1,6 +1,6 @@
 import SiteHeader from "../_components/SiteHeader";
 import BackBar from "../_components/BackBar";
-import { TERMS_OF_SERVICE, PRIVACY_POLICY, MARKETING_CONSENT, TERMS_VERSION } from "../_lib/legal-content";
+import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_VERSION } from "../_lib/legal-content";
 
 export const metadata = { title: "이용약관·개인정보 처리방침" };
 
@@ -10,7 +10,6 @@ export default function LegalPage() {
   const sections = [
     { id: "terms", title: "이용약관", body: TERMS_OF_SERVICE },
     { id: "privacy", title: "개인정보 처리방침", body: PRIVACY_POLICY },
-    { id: "marketing", title: "마케팅 정보 수신 동의(선택)", body: MARKETING_CONSENT },
   ];
   return (
     <main className="min-h-screen">

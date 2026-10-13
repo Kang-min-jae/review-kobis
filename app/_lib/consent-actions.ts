@@ -2,7 +2,6 @@
 
 import { redirect } from "next/navigation";
 import { auth, signOut, unstable_update } from "../../auth";
-import { db } from "./db";
 import { hasRequiredConsent, recordConsent } from "./terms-consent";
 
 export type ConsentResult = { error: string } | null;
@@ -20,7 +19,7 @@ export async function agreeToTermsAction(_prev: ConsentResult, formData: FormDat
   if (!hasRequiredConsent(formData)) return { error: "필수 약관(이용약관·개인정보 수집·이용·만 14세 이상)에 동의해 주세요." };
 
   try {
-    await recordConsent(session.user.id, formData.get("agree-marketing") === "on");
+    await recordConsent(session.user.id);
   } catch (error) {
     console.warn("[consent] 동의 기록 실패:", error);
     return { error: "동의를 저장하지 못했어요. 잠시 후 다시 시도해 주세요." };
@@ -33,20 +32,4 @@ export async function agreeToTermsAction(_prev: ConsentResult, formData: FormDat
 // 약관에 동의하지 않으면 로그아웃한다(서비스는 동의 없이 회원 기능을 제공하지 않는다).
 export async function declineTermsAction() {
   await signOut({ redirectTo: "/" });
-}
-
-// 마이페이지의 마케팅 정보 수신 동의/철회 — 동의 기록에 변경 시각과 함께 남긴다.
-export async function updateMarketingConsentAction(marketing: boolean): Promise<{ ok: boolean }> {
-  const session = await auth();
-  if (!session?.user?.id || typeof marketing !== "boolean") return { ok: false };
-  try {
-    const { count } = await db.termsConsent.updateMany({
-      where: { userId: session.user.id },
-      data: { marketing, marketingUpdatedAt: new Date() },
-    });
-    return { ok: count > 0 };
-  } catch (error) {
-    console.warn("[consent] 마케팅 수신 동의 변경 실패:", error);
-    return { ok: false };
-  }
 }

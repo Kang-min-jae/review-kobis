@@ -4,13 +4,12 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import TermsAgreement from "./TermsAgreement";
 import { agreeToTermsAction, declineTermsAction, type ConsentResult } from "../_lib/consent-actions";
-import { TERMS_OF_SERVICE, PRIVACY_CONSENT, AGE_CONSENT, MARKETING_CONSENT } from "../_lib/legal-content";
+import { TERMS_OF_SERVICE, PRIVACY_CONSENT, AGE_CONSENT } from "../_lib/legal-content";
 
 const TERMS_ITEMS = [
   { key: "terms", label: "이용약관 동의", required: true, content: TERMS_OF_SERVICE },
   { key: "privacy", label: "개인정보 수집·이용 동의", required: true, content: PRIVACY_CONSENT },
   { key: "age", label: "만 14세 이상입니다", required: true, content: AGE_CONSENT },
-  { key: "marketing", label: "마케팅 정보 수신 동의", required: false, content: MARKETING_CONSENT },
 ];
 
 export default function ConsentForm({ callbackUrl }: { callbackUrl: string }) {

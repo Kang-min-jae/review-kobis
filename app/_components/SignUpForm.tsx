@@ -6,7 +6,7 @@ import TermsAgreement from "./TermsAgreement";
 import ProviderButton from "./ProviderButton";
 import { signUpAction, type ActionResult } from "../_lib/credentials-actions";
 import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth-actions";
-import { TERMS_OF_SERVICE, PRIVACY_CONSENT, AGE_CONSENT, MARKETING_CONSENT } from "../_lib/legal-content";
+import { TERMS_OF_SERVICE, PRIVACY_CONSENT, AGE_CONSENT } from "../_lib/legal-content";
 
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-neutral-700 bg-bg px-4 py-3 text-sm text-text placeholder:text-muted focus:border-brand focus:outline-none";
@@ -15,7 +15,6 @@ const TERMS_ITEMS = [
   { key: "terms", label: "이용약관 동의", required: true, content: TERMS_OF_SERVICE },
   { key: "privacy", label: "개인정보 수집·이용 동의", required: true, content: PRIVACY_CONSENT },
   { key: "age", label: "만 14세 이상입니다", required: true, content: AGE_CONSENT },
-  { key: "marketing", label: "마케팅 정보 수신 동의", required: false, content: MARKETING_CONSENT },
 ];
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -108,7 +107,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   }, [username]);
 
   const requiredAgreed = TERMS_ITEMS.filter((item) => item.required).every((item) => agreed[item.key]);
-  const socialConsent = { marketing: !!agreed.marketing };
+  const socialConsent = { agreed: true } as const;
   const passwordMismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
 
   return (

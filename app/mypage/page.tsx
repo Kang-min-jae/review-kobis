@@ -3,7 +3,6 @@ import SiteHeader from "../_components/SiteHeader";
 import MyPageView from "../_components/MyPageView";
 import { auth } from "../../auth";
 import { db } from "../_lib/db";
-import { getMarketingConsent } from "../_lib/terms-consent";
 
 export const metadata = { title: "계정설정" };
 
@@ -13,7 +12,7 @@ export default async function MyPage() {
 
   const userId = session.user.id;
 
-  const [user, accounts, ratingCount, marketingConsent] = await Promise.all([
+  const [user, accounts, ratingCount] = await Promise.all([
     db.user.findUnique({
       where: { id: userId },
       select: {
@@ -34,7 +33,6 @@ export default async function MyPage() {
       distinct: ["movieCd"],
       select: { movieCd: true },
     }).then((rows) => rows.length),
-    getMarketingConsent(userId),
   ]);
 
   if (!user) redirect("/login");
@@ -55,7 +53,6 @@ export default async function MyPage() {
         }}
         linkedProviders={linkedProviders}
         ratingCount={ratingCount}
-        marketingConsent={marketingConsent}
       />
     </main>
   );

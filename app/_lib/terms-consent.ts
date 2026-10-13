@@ -18,8 +18,11 @@ export function hasRequiredConsent(formData: FormData): boolean {
   return REQUIRED_CONSENT_KEYS.every((key) => formData.get(`agree-${key}`) === "on");
 }
 
-export async function recordConsent(userId: string, marketing: boolean): Promise<void> {
+// 마케팅 정보 수신 동의는 받지 않는다 — 이 서비스는 회원 이메일·전화번호로 알림·광고를 보내지 않으므로
+// 항상 "미동의(false)"로 기록한다(DB 칸은 기존 기록 호환을 위해 남겨 둠).
+export async function recordConsent(userId: string): Promise<void> {
   const now = new Date();
+  const marketing = false;
   await db.termsConsent.upsert({
     where: { userId },
     create: { userId, termsVersion: TERMS_VERSION, agreedAt: now, marketing, marketingUpdatedAt: now },
@@ -36,14 +39,5 @@ export async function hasCurrentConsent(userId: string): Promise<boolean> {
   } catch (error) {
     console.warn("[terms] 동의 기록 조회 실패(마이그레이션 적용 전일 수 있음):", error);
     return true;
-  }
-}
-
-export async function getMarketingConsent(userId: string): Promise<boolean> {
-  try {
-    const consent = await db.termsConsent.findUnique({ where: { userId }, select: { marketing: true } });
-    return consent?.marketing ?? false;
-  } catch {
-    return false;
   }
 }
