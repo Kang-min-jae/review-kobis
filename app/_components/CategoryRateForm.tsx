@@ -7,7 +7,7 @@ import StarRating from "./StarRating";
 import { countSentences } from "../_lib/text";
 import { submitReviewAction, deleteReviewAction, adminDeleteReviewAction } from "../_lib/review-actions";
 import { toggleReviewVote, type VoteType } from "../_lib/social-actions";
-import { reportSpoilerAction, setAlwaysShowSpoilersAction } from "../_lib/spoiler-actions";
+import { setAlwaysShowSpoilersAction } from "../_lib/spoiler-actions";
 import { suggestsSpoiler } from "../_lib/spoiler";
 import type { RatingCategory } from "../_lib/category-ratings-store";
 import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
@@ -287,10 +287,6 @@ export default function CategoryRateForm({
   // 스포일러 리뷰 중 "눌러서 보기"로 펼친 것: id → 불러온 본문(새로고침하면 다시 가려진다).
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [revealLoading, setRevealLoading] = useState<Record<string, boolean>>({});
-  const [reportedIds, setReportedIds] = useState<Set<string>>(
-    () => new Set([...reviews.SHORT, ...reviews.LONG].filter((r) => r.spoilerReportedByMe).map((r) => r.id))
-  );
-  const [reportingId, setReportingId] = useState<string | null>(null);
 
   function handleRatingChange(value: string) {
     // 숫자와 소수점만 허용, 소수점 중복 방지
@@ -409,34 +405,6 @@ export default function CategoryRateForm({
       window.alert("설정을 저장하지 못했어요.");
     } finally {
       setSavingAlwaysShow(false);
-    }
-  }
-
-  async function handleReportSpoiler(review: ReviewWithAuthor) {
-    if (!isLoggedIn) {
-      goToSignIn();
-      return;
-    }
-    if (reportingId || reportedIds.has(review.id)) return;
-    setReportingId(review.id);
-    try {
-      const result = await reportSpoilerAction(review.id);
-      if (!result.ok) {
-        if (result.error === "login") goToSignIn();
-        return;
-      }
-      setReportedIds((prev) => new Set(prev).add(review.id));
-      if (result.flagged) {
-        const mark = (prev: ReviewWithAuthor[]) => prev.map((r) => (r.id === review.id ? { ...r, hasSpoiler: true } : r));
-        setLocalShortReviews(mark);
-        setLocalLongReviews(mark);
-        // 신고한 사람은 이미 본문을 봤으므로 펼친 상태로 둔다.
-        setRevealed((prev) => ({ ...prev, [review.id]: review.content }));
-      }
-    } catch {
-      window.alert("신고하지 못했어요. 잠시 후 다시 시도해 주세요.");
-    } finally {
-      setReportingId(null);
     }
   }
 
@@ -841,16 +809,6 @@ export default function CategoryRateForm({
                   initialMyVote={review.myVote}
                 />
                 <div className="flex items-center gap-1">
-                  {!isMine && hasBody && (!review.hasSpoiler || reportedIds.has(review.id)) && !review.id.startsWith("optimistic-") && (
-                    <button
-                      type="button"
-                      onClick={() => void handleReportSpoiler(review)}
-                      disabled={reportingId === review.id || reportedIds.has(review.id)}
-                      className="rounded px-2 py-1 text-xs text-muted transition-colors hover:text-text disabled:cursor-default disabled:opacity-60"
-                    >
-                      {reportedIds.has(review.id) ? "스포일러 신고됨" : reportingId === review.id ? "신고 중…" : "스포일러 신고"}
-                    </button>
-                  )}
                   {isMine && (
                     <button
                       type="button"

@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { HOME_HERO_TAG } from "./home-hero";
 import type { Session } from "next-auth";
 import { db } from "./db";
 import { auth } from "../../auth";
@@ -64,6 +65,8 @@ export async function toggleReviewVote(reviewId: string, type: VoteType) {
   }
   await db.$transaction(writes);
 
+  // 홈 히어로(좋아요 많은 한줄평·오늘의 한줄평)의 좋아요 수가 바로 맞도록 캐시를 지운다.
+  if (like !== 0) updateTag(HOME_HERO_TAG);
   // totalLikes가 바뀌었을 때만 리뷰 작성자의 마이페이지 캐시를 무효화한다.
   if (totalLikes !== 0) {
     revalidatePath("/my-list");

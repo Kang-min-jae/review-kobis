@@ -2,9 +2,11 @@
 //
 //  · 최근 인기 영화: 이 사이트 회원이 최근 30일 동안 남긴 "전체" 평점(CategoryRating, 1인 1편 1개) 개수가
 //    많은 순 → 같으면 더 최근에 평점이 달린 순.
+//  · 좋아요 많은 한줄평(영화 카드 아래 2개): 좋아요 순 → 같으면 글이 있는 리뷰 먼저 → 최근 순. 평점만 남긴
+//    리뷰도 포함한다(화면엔 "평점만 남김"으로 표시). 스포일러는 뺀다.
 //  · 오늘의 한줄평: 최근 7일 동안 받은 좋아요가 많은 한줄평 순 → 모자라면 최근 7일에 쓰인 한줄평 중
 //    좋아요 많은 순으로 채운다. 스포일러·빈 글·시리즈는 뺀다.
-// 성인물·DB에 없는(삭제된) 영화는 뺀다. 10분 캐시.
+// 성인물·DB에 없는(삭제된) 영화는 뺀다. 10분 캐시 — 좋아요·리뷰가 바뀌면 HOME_HERO_TAG로 바로 무효화한다.
 
 import { unstable_cache } from "next/cache";
 import { db } from "./db";
@@ -18,6 +20,8 @@ import { getBadge } from "./tier";
 export const HERO_WINDOW_DAYS = 30;
 export const HERO_MOVIE_COUNT = 5;
 export const TODAY_REVIEW_DAYS = 7;
+// 좋아요·리뷰 등록/수정/삭제 서버 액션이 updateTag(HOME_HERO_TAG)로 히어로 캐시를 바로 지운다.
+export const HOME_HERO_TAG = "home-hero";
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 export type HeroReview = {
@@ -82,12 +86,15 @@ async function loadRecentStats(): Promise<RecentStat[]> {
 
 async function topReviews(movieCd: string): Promise<HeroReview[]> {
   const rows = await db.review.findMany({
-    where: { movieCd, category: "전체", type: "SHORT", hasSpoiler: false, NOT: { content: "" } },
+    where: { movieCd, category: "전체", type: "SHORT", hasSpoiler: false },
     orderBy: [{ likeCount: "desc" }, { createdAt: "desc" }],
-    take: 2,
+    take: 10,
     include: { user: { select: { nickname: true, name: true, totalLikes: true } } },
   });
-  return rows.map((r) => ({
+  // 좋아요가 같으면 글이 있는 리뷰를 평점만 남긴 리뷰보다 앞에 둔다(정렬은 안정적이라 그 안에선 최근 순 유지).
+  const hasText = (content: string) => (content.trim() ? 1 : 0);
+  rows.sort((a, b) => b.likeCount - a.likeCount || hasText(b.content) - hasText(a.content));
+  return rows.slice(0, 2).map((r) => ({
     id: r.id,
     authorId: r.userId,
     authorName: r.user.nickname ?? r.user.name ?? "사용자",
@@ -211,4 +218,4 @@ async function loadHeroLists(): Promise<HeroLists> {
   return { popular: popularMovies, today };
 }
 
-export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v2"], { revalidate: 600 });
+export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v3"], { revalidate: 600, tags: [HOME_HERO_TAG] });

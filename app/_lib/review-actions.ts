@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { HOME_HERO_TAG } from "./home-hero";
 import { db } from "./db";
 import { auth } from "../../auth";
 
@@ -67,6 +68,7 @@ export async function submitCategoryRatingAction(
 
   revalidatePath(categoryPath(movieId, category));
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 // 무비 다이어리/나만의 영화 리스트의 "계정 평점"(전체 평점 남기기로 자동 기록된
@@ -85,6 +87,7 @@ export async function deleteAccountRatingAction(movieCd: string) {
 
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 // 한줄평/장문평 등록/수정. 같은 사람이 같은 영화·항목·타입에 이미 남긴 리뷰가
@@ -148,6 +151,7 @@ export async function submitReviewAction(input: {
 
   revalidatePath(categoryPath(input.movieId, input.category));
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 // 리뷰가 지워진 뒤 CategoryRating을 남은 리뷰와 맞춘다. submitReviewAction이 한줄평
@@ -195,6 +199,7 @@ export async function deleteReviewAction(input: {
   revalidatePath(categoryPath(input.movieId, input.category));
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 // 무비 다이어리에서 한 영화의 기록을 지울 때, 그 영화로 남긴 리뷰(항목·타입별)를
@@ -217,6 +222,7 @@ export async function deleteMyMovieReviewsAction(
 
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 export async function adminDeleteReviewAction(input: { reviewId: string }) {
@@ -235,6 +241,7 @@ export async function adminDeleteReviewAction(input: { reviewId: string }) {
   revalidatePath(`/users/${review.userId}`);
   revalidatePath("/my-list");
   revalidatePath("/", "layout");
+  updateTag(HOME_HERO_TAG);
 }
 
 export async function getAdminStats() {

@@ -72,7 +72,11 @@ function MoviePanel({ movie, mode }: { movie: HeroMovie; mode: Mode }) {
                   <span className="shrink-0 text-xs font-bold text-star">★ {r.rating.toFixed(1)}</span>
                   <span className="ml-auto shrink-0 text-xs text-brand">♥ {r.likeCount}</span>
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs text-text md:line-clamp-2">{r.content}</p>
+                {r.content.trim() ? (
+                  <p className="mt-1 line-clamp-1 text-xs text-text md:line-clamp-2">{r.content}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted">평점만 남김</p>
+                )}
               </div>
             ))
           )}
