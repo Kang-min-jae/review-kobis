@@ -23,21 +23,27 @@ import { getMovieAwardWins } from "../../../../../_lib/award-winners";
 import { getTrailerData } from "../../../../../_lib/trailers";
 import { safeDecode } from "../../../../../_lib/safe-decode";
 import { db } from "../../../../../_lib/db";
-import { BASE_OPEN_GRAPH, BASE_TWITTER } from "../../../../../_lib/site";
+import { BASE_OPEN_GRAPH, BASE_TWITTER, movieDetailPath } from "../../../../../_lib/site";
+import { cdToMovieId } from "../../../../../_lib/rating-input";
 
 export async function generateMetadata({
   params,
 }: PageProps<"/movies/[id]/rate/category/[category]">): Promise<Metadata> {
-  const { id } = await params;
+  const { id, category: categoryParam } = await params;
   const info = await resolveMovieRateInfo(id);
   if (!info) return {};
   const title = info.movieTitle;
   const description = `${title} 평점과 리뷰 — 연출, 연기, 각본, 음악, 편집 항목별 평가를 남겨보세요.`;
+  // 정식 주소 — 같은 영화가 다른 ID 표기(예: 숫자만, kobis-숫자)로 열려도 하나의 주소로 모은다.
+  const category = safeDecode(categoryParam);
+  const canonical = movieDetailPath(cdToMovieId(info.movieCd), isRatingCategory(category) ? category : "전체");
   return {
     title,
     description,
+    alternates: { canonical },
     openGraph: {
       ...BASE_OPEN_GRAPH,
+      url: canonical,
       title,
       description,
       ...(info.posterUrl ? { images: [{ url: info.posterUrl }] } : {}),
