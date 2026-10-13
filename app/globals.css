@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* Tailwind 4부터 버튼의 기본 커서가 화살표(default)라, 눌러지는 요소에 손가락 커서를 되돌린다.
+   base 레이어라 cursor-* 유틸리티 클래스를 직접 준 곳은 그 값이 우선한다. 비활성 버튼은 그대로 둔다. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="tab"],
+  [role="switch"],
+  [role="option"],
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  select:not(:disabled),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+}
+
 /* hover: 유틸리티를 실제 마우스/포인터가 지원되는 환경에서만 적용
    — 터치 기기에서 첫 번째 탭이 hover 상태를 선점해 click이 씹히는 현상 방지 */
 @custom-variant hover (@media (hover: hover) { &:hover });
