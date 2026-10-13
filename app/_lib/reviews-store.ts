@@ -28,6 +28,14 @@ export function initForUser(userId: string | null): void {
   cachedMyMovieRatings = null;
 }
 
+// 이미 화면에 그려진 컴포넌트까지 새 계정의 데이터로 다시 그리게 하는 버전 — 렌더 중이 아니라
+// effect에서만 부른다(헤더의 MyReviewsSync). 키가 바뀌었을 때만 알린다.
+export function switchToUser(userId: string | null): void {
+  const before = currentStorageKey;
+  initForUser(userId);
+  if (currentStorageKey !== before) emitChange();
+}
+
 const listeners = new Set<() => void>();
 
 export function subscribe(listener: () => void): () => void {
