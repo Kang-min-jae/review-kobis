@@ -46,7 +46,7 @@ import {
   LogoutIcon,
 } from "./MenuIcons";
 import NotificationPanel from "./NotificationPanel";
-import ContactEmailLink from "./ContactEmailLink";
+import ContactEmail from "./ContactEmail";
 
 export default function SideMenu({
   session,
@@ -328,7 +328,7 @@ export default function SideMenu({
               </Link>
             </p>
             <p className="mt-1.5 text-center text-[11px] text-muted">
-              문의 <ContactEmailLink />
+              문의 <ContactEmail />
             </p>
           </div>
         </>

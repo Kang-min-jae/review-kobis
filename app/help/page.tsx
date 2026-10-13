@@ -3,7 +3,7 @@ import { db } from "../_lib/db";
 import { auth } from "../../auth";
 import BackBar from "../_components/BackBar";
 import FaqAccordion from "../_components/FaqAccordion";
-import ContactEmailLink from "../_components/ContactEmailLink";
+import ContactEmail from "../_components/ContactEmail";
 
 export const metadata = { title: "고객센터" };
 
@@ -135,7 +135,7 @@ export default async function HelpPage() {
 
       {/* 메일 문의 */}
       <p className="mt-10 text-center text-xs leading-relaxed text-muted">
-        1:1 문의 외에 메일로도 문의하실 수 있어요: <ContactEmailLink />
+        1:1 문의 외에 메일로도 문의하실 수 있어요: <ContactEmail />
       </p>
     </div>
   );

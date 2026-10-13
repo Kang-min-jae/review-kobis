@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import NavHistoryTracker from "./_components/NavHistoryTracker";
 import TmdbLogo from "./_components/TmdbLogo";
-import ContactEmailLink from "./_components/ContactEmailLink";
+import ContactEmail from "./_components/ContactEmail";
 import { SITE_URL, SITE_NAME, SITE_TITLE, SITE_DESCRIPTION, BASE_OPEN_GRAPH, BASE_TWITTER } from "./_lib/site";
 import "./globals.css";
 // 가변(Variable) 폰트의 글자 범위별 조각 버전. 굵기별 통파일은 첫 방문에 수 MB를 받고,
@@ -92,7 +92,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </a>
           </p>
           <p className="mt-1">
-            문의 <ContactEmailLink />
+            문의 <ContactEmail />
           </p>
         </footer>
       </body>
