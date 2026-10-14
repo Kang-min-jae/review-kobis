@@ -63,6 +63,17 @@ async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]
 
 async function NowShowingRowData() {
   const movies = await safeMovieRows("getNowShowingRow", getNowShowingRow);
+  // 박스오피스(KOBIS)를 못 받아 온 데다 저장해 둔 목록도 없을 때 — 빈 화면 대신 안내를 보여준다.
+  if (movies.length === 0) {
+    return (
+      <section className="px-4 py-5 sm:px-5 sm:py-6">
+        <h2 className="text-lg font-bold text-text">현재 상영중인 영화</h2>
+        <p className="mt-3 rounded-xl border border-neutral-800 bg-surface p-4 text-sm text-muted">
+          박스오피스 정보를 잠시 불러오지 못했어요. 잠시 후 다시 확인해 주세요.
+        </p>
+      </section>
+    );
+  }
   return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} priorityCount={3} />;
 }
 

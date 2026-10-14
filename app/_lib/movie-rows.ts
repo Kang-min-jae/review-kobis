@@ -228,6 +228,9 @@ async function findKnownRereleaseMovieCds(movieCds: string[]): Promise<Set<strin
 
 // 현재 상영중인 영화: 최근 3일 일별 박스오피스를 합쳐 실제 상영관에 올라 있는 영화 15편.
 // 일별 TOP10씩 최대 3일치를 합산하면 중복 제거 후 최대 ~20편의 고유 영화가 나온다.
+// 받아 온 목록은 스냅샷(now_showing)으로 남겨 두고, KOBIS가 실패하면 마지막으로 받은 목록을 보여준다.
+const NOW_SHOWING_SNAPSHOT = "now_showing";
+
 async function _getNowShowingRow(limit = 15): Promise<RowMovie[]> {
   const [day1, day2, day3] = await Promise.all([
     getDailyBoxOfficeList(1),
@@ -236,7 +239,8 @@ async function _getNowShowingRow(limit = 15): Promise<RowMovie[]> {
   ]);
 
   const seen = new Set<string>();
-  const merged: KobisMovieSummary[] = [];
+  let merged: KobisMovieSummary[] = [];
+  const snapshot: RankingEntry[] = [];
   for (const entry of [...day1, ...day2, ...day3]) {
     if (!entry.movieCd || seen.has(entry.movieCd)) continue;
     seen.add(entry.movieCd);
@@ -250,6 +254,35 @@ async function _getNowShowingRow(limit = 15): Promise<RowMovie[]> {
       isForeign: false,
       director: null,
     });
+    snapshot.push({ rank: snapshot.length + 1, movieCd: entry.movieCd, movieTitle: entry.movieNm, audiAcc: entry.audiAcc });
+  }
+
+  if (merged.length > 0) {
+    await writeRankingSnapshot(NOW_SHOWING_SNAPSHOT, snapshot).catch((error) =>
+      console.warn("[movie-rows] 현재 상영작 스냅샷 저장 실패", error),
+    );
+  } else {
+    const stale = await readRankingSnapshot(NOW_SHOWING_SNAPSHOT, { allowStale: true });
+    // 스냅샷도 없으면 throw — 빈 행이 1시간 캐시되지 않고 다음 요청에서 다시 시도한다.
+    if (!stale) throw new Error("현재 상영작을 불러오지 못했습니다(KOBIS 응답 없음)");
+    const openDates = new Map(
+      (
+        await db.cachedMovie.findMany({
+          where: { movieCd: { in: stale.map((e) => e.movieCd) } },
+          select: { movieCd: true, releaseDate: true },
+        })
+      ).map((m) => [m.movieCd, m.releaseDate]),
+    );
+    merged = stale.map((e) => ({
+      movieCd: e.movieCd,
+      title: e.movieTitle,
+      titleEn: null,
+      openDate: openDates.get(e.movieCd) ?? null,
+      nationAlt: null,
+      genreAlt: null,
+      isForeign: false,
+      director: null,
+    }));
   }
 
   const rereleaseCds = await findKnownRereleaseMovieCds(merged.map((m) => m.movieCd));
@@ -384,14 +417,15 @@ const RANKING_SYNC_INTERVAL_MS = 1000 * 60 * 60 * 12;
 
 type RankingEntry = { rank: number; movieCd: string; movieTitle: string; audiAcc: number };
 
-async function readRankingSnapshot(listType: string): Promise<RankingEntry[] | null> {
+// allowStale: KOBIS가 실패했을 때 오래된 스냅샷이라도 쓰려고 만료 검사를 건너뛴다.
+async function readRankingSnapshot(listType: string, { allowStale = false } = {}): Promise<RankingEntry[] | null> {
   const rows = await db.rankingSnapshot.findMany({ where: { listType }, orderBy: { rank: "asc" } });
   if (rows.length === 0) return null;
   // 스냅샷이 만료된 순간 여러 요청이 동시에 "지우고 새로 쓰기"를 하면, 서로의 새 행을 못 본
   // 채 둘 다 저장돼 같은 순위가 두 벌(10위까지 20편) 남는다. 가장 최근에 저장된 한 벌만
   // 쓰고(한 번의 저장은 syncedAt이 모두 같다), 그래도 겹치는 영화는 한 번만 남긴다.
   const latest = Math.max(...rows.map((r) => r.syncedAt.getTime()));
-  if (Date.now() - latest >= RANKING_SYNC_INTERVAL_MS) return null;
+  if (!allowStale && Date.now() - latest >= RANKING_SYNC_INTERVAL_MS) return null;
   return dedupeRanking(rows.filter((r) => r.syncedAt.getTime() === latest));
 }
 
@@ -401,6 +435,8 @@ function dedupeRanking<T extends { movieCd: string }>(entries: T[]): T[] {
 }
 
 async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): Promise<void> {
+  // KOBIS 실패로 빈 순위가 오면 지난 스냅샷을 지우지 않는다(지우면 다음 성공 전까지 행이 통째로 빈다).
+  if (entries.length === 0) return;
   const syncedAt = new Date();
   await db.$transaction([
     db.rankingSnapshot.deleteMany({ where: { listType } }),
@@ -408,6 +444,21 @@ async function writeRankingSnapshot(listType: string, entries: RankingEntry[]): 
       data: dedupeRanking(entries).map((e) => ({ ...e, listType, syncedAt })),
     }),
   ]);
+}
+
+// 스냅샷이 신선하면 그대로, 만료됐으면 KOBIS에서 다시 받아 저장한다. KOBIS가 실패(빈 결과)하면 지난
+// 스냅샷을 그대로 쓰고, 그것도 없으면 throw한다 — 행 캐시(unstable_cache)에 빈 행이 저장되지 않게.
+async function loadRanking(listType: string, fetchFresh: () => Promise<RankingEntry[]>): Promise<RankingEntry[]> {
+  const fresh = await readRankingSnapshot(listType);
+  if (fresh) return fresh;
+  const fetched = await fetchFresh();
+  if (fetched.length > 0) {
+    await writeRankingSnapshot(listType, fetched);
+    return fetched;
+  }
+  const stale = await readRankingSnapshot(listType, { allowStale: true });
+  if (stale) return stale;
+  throw new Error(`${listType} 순위를 불러오지 못했습니다(KOBIS 응답 없음)`);
 }
 
 // 순위(랭킹 스냅샷)만으로 화면 카드를 만든다. 포스터는 movie-rate-info.ts의
@@ -449,11 +500,7 @@ async function fetchWeeklyBoxOfficeRanking(): Promise<RankingEntry[]> {
 }
 
 async function _getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
-  let ranking = await readRankingSnapshot("weekly_box_office");
-  if (!ranking) {
-    ranking = await fetchWeeklyBoxOfficeRanking();
-    await writeRankingSnapshot("weekly_box_office", ranking);
-  }
+  const ranking = await loadRanking("weekly_box_office", fetchWeeklyBoxOfficeRanking);
   return rankingRowsToCards(
     ranking,
     (e) => `${e.rank}위 · 누적 ${e.audiAcc.toLocaleString("ko-KR")}명`
@@ -513,11 +560,7 @@ async function fetchMonthlyBestRanking(limit: number): Promise<RankingEntry[]> {
 }
 
 async function _getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
-  let ranking = await readRankingSnapshot("monthly_best");
-  if (!ranking) {
-    ranking = await fetchMonthlyBestRanking(limit);
-    await writeRankingSnapshot("monthly_best", ranking);
-  }
+  const ranking = await loadRanking("monthly_best", () => fetchMonthlyBestRanking(limit));
   return rankingRowsToCards(ranking, () => "");
 }
 export const getMonthlyBestRow = unstable_cache(

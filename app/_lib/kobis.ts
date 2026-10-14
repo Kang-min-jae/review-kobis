@@ -16,6 +16,7 @@
 //   - 인물(감독/배우) 상세 API가 없다 — 영화 상세 안에 이름만 존재한다. 인물 페이지는
 //     감독명으로 영화 목록을 재검색하는 방식으로 대체한다.
 
+import { unstable_cache } from "next/cache";
 import { isAdultContent } from "./adult-content";
 
 const KOBIS_API_BASE = "https://kobis.or.kr/kobisopenapi/webservice/rest";
@@ -551,25 +552,65 @@ export type KoficBoxOffice = {
   rank: number | null; // 일별 박스오피스 순위 (상세 페이지 "박스오피스 N위" 배지)
 };
 
-async function fetchDailyBoxOffice(targetDt: string, key: string): Promise<DailyBoxOfficeItem[]> {
-  const url = new URL(`${KOBIS_API_BASE}/boxoffice/searchDailyBoxOfficeList.json`);
+// KOBIS는 키 오류·하루 호출 한도 초과 같은 실패도 HTTP 200 + {"faultInfo": {...}} 본문으로 돌려준다.
+function kobisFault(data: unknown): string | null {
+  const fault = (data as { faultInfo?: { errorCode?: string; message?: string } } | null)?.faultInfo;
+  return fault ? `${fault.errorCode ?? ""} ${fault.message ?? ""}`.trim() || "faultInfo" : null;
+}
+
+class EmptyBoxOfficeError extends Error {}
+
+type BoxOfficeKind = "daily" | "weekly";
+
+// 박스오피스(일별·주간) 응답은 성공한 것만 6시간 캐시한다. 예전엔 fetch 캐시(next.revalidate)를 썼는데,
+// 그건 HTTP 200이면 faultInfo 오류 본문까지 그대로 6시간 저장해서 KOBIS가 잠깐만 실패해도
+// "현재 상영중인 영화"·"이번주 박스오피스"가 반나절 동안 통째로 비었다. 실패는 throw해서 캐시에 남기지 않는다.
+async function fetchBoxOfficeList(kind: BoxOfficeKind, targetDt: string): Promise<DailyBoxOfficeItem[]> {
+  const key = apiKey();
+  if (!key) return [];
+  const endpoint = kind === "daily" ? "searchDailyBoxOfficeList" : "searchWeeklyBoxOfficeList";
+  const url = new URL(`${KOBIS_API_BASE}/boxoffice/${endpoint}.json`);
   url.searchParams.set("key", key);
   url.searchParams.set("targetDt", targetDt);
+  if (kind === "weekly") url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) }).catch(
-    (error) => {
-      console.warn(`[kobis] 일별 박스오피스(${targetDt}) 요청 오류:`, error);
-      return null;
-    }
-  );
-  if (!res) return [];
-  if (!res.ok) {
-    console.warn(`[kobis] 일별 박스오피스(${targetDt}) 조회 실패: HTTP ${res.status}`);
+  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json().catch(() => null)) as {
+    boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[]; weeklyBoxOfficeList?: DailyBoxOfficeItem[] };
+  } | null;
+  const fault = kobisFault(data);
+  if (fault) throw new Error(fault);
+  const list = kind === "daily" ? data?.boxOfficeResult?.dailyBoxOfficeList : data?.boxOfficeResult?.weeklyBoxOfficeList;
+  // 아직 집계 전인 날·주(이번 주 등)는 빈 목록이 온다 — 오류는 아니지만 캐시하지 않는다.
+  if (!Array.isArray(list) || list.length === 0) throw new EmptyBoxOfficeError("빈 목록");
+  return list;
+}
+
+const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 6 });
+
+// 실패 직후 잠깐은 KOBIS를 다시 부르지 않는다 — 상세 페이지마다 10초 타임아웃을 기다리거나, 한도 초과 상태에서
+// 호출을 더 쌓지 않게(서버 인스턴스 단위).
+const BOX_OFFICE_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
+let boxOfficeFailedAt = 0;
+
+async function getBoxOfficeItems(kind: BoxOfficeKind, targetDt: string): Promise<DailyBoxOfficeItem[]> {
+  if (!apiKey()) return [];
+  if (Date.now() - boxOfficeFailedAt < BOX_OFFICE_FAIL_COOLDOWN_MS) return [];
+  try {
+    // Next 서버 밖(scripts/를 tsx로 실행)에는 캐시 저장소가 없어 바로 부른다.
+    return process.env.NEXT_RUNTIME
+      ? await cachedBoxOfficeList(kind, targetDt)
+      : await fetchBoxOfficeList(kind, targetDt);
+  } catch (error) {
+    if (error instanceof EmptyBoxOfficeError) return [];
+    boxOfficeFailedAt = Date.now();
+    console.warn(
+      `[kobis] ${kind === "daily" ? "일별" : "주간"} 박스오피스(${targetDt}) 조회 실패:`,
+      error instanceof Error ? error.message : error,
+    );
     return [];
   }
-
-  const data = (await res.json().catch(() => null)) as { boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[] } } | null;
-  return data?.boxOfficeResult?.dailyBoxOfficeList ?? [];
 }
 
 export type KoficWeeklyEntry = {
@@ -619,48 +660,25 @@ export async function getWeeklyBoxOffice(
   limit = 10,
   targetMonday?: Date
 ): Promise<KoficWeeklyEntry[]> {
-  const key = apiKey();
-  if (!key) return [];
-
   const monday = targetMonday ?? getLastConfirmedMonday();
-
-  const url = new URL(`${KOBIS_API_BASE}/boxoffice/searchWeeklyBoxOfficeList.json`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("targetDt", toDateStamp(monday));
-  url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
-
-  try {
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    if (!res.ok) {
-      console.warn(`[kobis] 주간 박스오피스 조회 실패: HTTP ${res.status}`);
-      return [];
-    }
-    const data: { boxOfficeResult?: { weeklyBoxOfficeList?: DailyBoxOfficeItem[] } } =
-      await res.json();
-    const list = data.boxOfficeResult?.weeklyBoxOfficeList ?? [];
-    return list.slice(0, limit).map((item, index) => ({
-      rank: index + 1,
-      movieCd: item.movieCd ?? null,
-      movieNm: item.movieNm ?? "제목 없음",
-      openYear: extractYear(item.openDt),
-      openDate: item.openDt ?? null,
-      audiAcc: Number(item.audiAcc ?? 0),
-      salesAcc: Number(item.salesAcc ?? 0),
-    }));
-  } catch (error) {
-    console.warn(`[kobis] 주간 박스오피스 요청 중 오류:`, error);
-    return [];
-  }
+  const list = await getBoxOfficeItems("weekly", toDateStamp(monday));
+  return list.slice(0, limit).map((item, index) => ({
+    rank: index + 1,
+    movieCd: item.movieCd ?? null,
+    movieNm: item.movieNm ?? "제목 없음",
+    openYear: extractYear(item.openDt),
+    openDate: item.openDt ?? null,
+    audiAcc: Number(item.audiAcc ?? 0),
+    salesAcc: Number(item.salesAcc ?? 0),
+  }));
 }
 
 // 특정 날(오늘로부터 daysAgo일 전) 일별 박스오피스 목록 — 현재 상영중인 영화 파악에 사용.
 export async function getDailyBoxOfficeList(daysAgo: number): Promise<KoficWeeklyEntry[]> {
-  const key = apiKey();
-  if (!key) return [];
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
   try {
-    const items = await fetchDailyBoxOffice(toDateStamp(date), key);
+    const items = await getBoxOfficeItems("daily", toDateStamp(date));
     return items
       .filter((item): item is DailyBoxOfficeItem & { movieCd: string; movieNm: string } =>
         Boolean(item.movieCd && item.movieNm)
@@ -693,7 +711,7 @@ export async function getKoficBoxOfficeByTitle(title: string): Promise<KoficBoxO
       date.setDate(date.getDate() - daysAgo);
       const targetDt = toDateStamp(date);
 
-      const list = await fetchDailyBoxOffice(targetDt, key);
+      const list = await getBoxOfficeItems("daily", targetDt);
       const match = list.find((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
       if (match) {
         return {
