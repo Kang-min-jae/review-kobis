@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath, updateTag } from "next/cache";
-// 평점·리뷰가 바뀌면 그 영화 페이지, 내 리스트, 홈 히어로만 바로 갱신한다. 예전엔 revalidatePath("/", "layout")로
-// 사이트 전체 캐시(박스오피스·Best 행·수상작 등)를 매번 지워, 평점 하나마다 다음 방문자가 모든 행을 처음부터
-// 다시 계산했다(서버 CPU 사용량의 큰 원인). 홈 행의 사이트 평균은 각 행의 캐시 주기(15분~6시간)에 맞춰 갱신된다.
+// 평점·리뷰가 바뀌면 그 영화 페이지, 내 리스트, 홈 히어로, 카드의 평균 별점(RATING_AVERAGES_TAG)만 바로 갱신한다.
+// 예전엔 revalidatePath("/", "layout")로 사이트 전체 캐시(박스오피스·Best 행·수상작 등)를 매번 지워, 평점 하나마다
+// 다음 방문자가 모든 행을 처음부터 다시 계산했다(서버 CPU 사용량의 큰 원인). 이제 행 목록은 그대로 두고 숫자만 다시 읽는다.
 import { HOME_HERO_TAG } from "./home-hero";
+import { RATING_AVERAGES_TAG } from "./fresh-ratings";
 import { db } from "./db";
 import { auth } from "../../auth";
 import { cdToMovieId } from "./rating-input";
@@ -73,6 +74,7 @@ export async function submitCategoryRatingAction(
 
   revalidatePath(categoryPath(movieId, category));
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 // 무비 다이어리/나만의 영화 리스트의 "계정 평점"(전체 평점 남기기로 자동 기록된
@@ -91,6 +93,7 @@ export async function deleteAccountRatingAction(movieCd: string) {
 
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 // 한줄평/장문평 등록/수정. 같은 사람이 같은 영화·항목·타입에 이미 남긴 리뷰가
@@ -154,6 +157,7 @@ export async function submitReviewAction(input: {
 
   revalidatePath(categoryPath(input.movieId, input.category));
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 // 리뷰가 지워진 뒤 CategoryRating을 남은 리뷰와 맞춘다. submitReviewAction이 한줄평
@@ -201,6 +205,7 @@ export async function deleteReviewAction(input: {
   revalidatePath(categoryPath(input.movieId, input.category));
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 // 무비 다이어리에서 한 영화의 기록을 지울 때, 그 영화로 남긴 리뷰(항목·타입별)를
@@ -223,6 +228,7 @@ export async function deleteMyMovieReviewsAction(
 
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 export async function adminDeleteReviewAction(input: { reviewId: string }) {
@@ -241,6 +247,7 @@ export async function adminDeleteReviewAction(input: { reviewId: string }) {
   revalidatePath(`/users/${review.userId}`);
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);
+  updateTag(RATING_AVERAGES_TAG);
 }
 
 export async function getAdminStats() {

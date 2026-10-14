@@ -41,10 +41,17 @@ import HomeHero from "../_components/HomeHero";
 import { getHeroLists } from "../_lib/home-hero";
 import { auth } from "../../auth";
 import { db } from "../_lib/db";
+import { withFreshRatings } from "../_lib/fresh-ratings";
+import type { RowMovie } from "../_lib/movie-rows";
 
 
 // 행 하나의 데이터 조회가 throw하면 Suspense는 잡지 못하고 app/error.tsx까지 올라가
 // 홈 화면 전체가 "오류"로 바뀐다. 실패한 행만 빈 배열로 숨기고 나머지는 그대로 보여준다.
+// 행 카드의 평균 별점은 행 캐시와 따로 최신 값으로 덮어쓴다(fresh-ratings.ts) — 평점을 남기면 바로 반영된다.
+async function safeMovieRows<T extends RowMovie>(label: string, load: () => Promise<T[]>): Promise<T[]> {
+  return withFreshRatings(await safeRows(label, load));
+}
+
 async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]> {
   try {
     return await load();
@@ -55,17 +62,17 @@ async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]
 }
 
 async function NowShowingRowData() {
-  const movies = await safeRows("getNowShowingRow", getNowShowingRow);
+  const movies = await safeMovieRows("getNowShowingRow", getNowShowingRow);
   return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} priorityCount={3} />;
 }
 
 async function RereleaseRowData() {
-  const movies = await safeRows("getRereleaseRow", getRereleaseRow);
+  const movies = await safeMovieRows("getRereleaseRow", getRereleaseRow);
   return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} priorityCount={3} />;
 }
 
 async function WeeklyBoxOfficeRowData2() {
-  const movies = await safeRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow);
+  const movies = await safeMovieRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow);
   return <MovieRow title="이번주 박스오피스 TOP 10" subtitle="국내 실제 관객수 기준" movies={movies} priorityCount={3} />;
 }
 
@@ -91,24 +98,24 @@ function NowShowingSection() {
 }
 
 async function WeeklyBoxOfficeRowData() {
-  const movies = await safeRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow);
+  const movies = await safeMovieRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow);
   return (
     <BoxOfficeCoverflow title="이번주 박스오피스 TOP 10" subtitle="국내 실제 관객수 기준" movies={movies} />
   );
 }
 
 async function RecentMoviesRowData() {
-  const movies = await safeRows("getRecentMoviesRow", getRecentMoviesRow);
+  const movies = await safeMovieRows("getRecentMoviesRow", getRecentMoviesRow);
   return <MovieRow title="최근 영화" subtitle="최근 3달 이내 국내 개봉한 영화" movies={movies} priorityCount={3} />;
 }
 
 async function MonthlyBestRowData() {
-  const movies = await safeRows("getMonthlyBestRow", getMonthlyBestRow);
+  const movies = await safeMovieRows("getMonthlyBestRow", getMonthlyBestRow);
   return <MovieRow title="이 달의 Best" subtitle="이번 달 국내 누적 관객수 기준" movies={movies} />;
 }
 
 async function YearlyBestRowData() {
-  const movies = await safeRows("getYearlyBestRow", getYearlyBestRow);
+  const movies = await safeMovieRows("getYearlyBestRow", getYearlyBestRow);
   return (
     <MovieRow
       title="올해의 Best"
@@ -119,7 +126,7 @@ async function YearlyBestRowData() {
 }
 
 async function Best3YearsRowData() {
-  const movies = await safeRows("getBestOf3YearsRow", getBestOf3YearsRow);
+  const movies = await safeMovieRows("getBestOf3YearsRow", getBestOf3YearsRow);
   return (
     <MovieRow
       title="3년 Best"
@@ -130,7 +137,7 @@ async function Best3YearsRowData() {
 }
 
 async function Best5YearsRowData() {
-  const movies = await safeRows("getBestOf5YearsRow", getBestOf5YearsRow);
+  const movies = await safeMovieRows("getBestOf5YearsRow", getBestOf5YearsRow);
   return (
     <MovieRow
       title="5년 Best"
@@ -141,7 +148,7 @@ async function Best5YearsRowData() {
 }
 
 async function AllTimeBestRowData() {
-  const movies = await safeRows("getAllTimeBestRow", getAllTimeBestRow);
+  const movies = await safeMovieRows("getAllTimeBestRow", getAllTimeBestRow);
   return (
     <RatingSortedMovieRow
       title="역대 Best"
@@ -152,7 +159,7 @@ async function AllTimeBestRowData() {
 }
 
 async function InternationalBestRowData() {
-  const movies = await safeRows("getInternationalBestRow", getInternationalBestRow);
+  const movies = await safeMovieRows("getInternationalBestRow", getInternationalBestRow);
   return (
     <RatingSortedMovieRow
       title="해외 Best"
@@ -164,7 +171,7 @@ async function InternationalBestRowData() {
 
 
 async function UserPopularMoviesRowData({ genre }: { genre?: string }) {
-  const movies = await safeRows("getUserPopularMoviesRow", () => getUserPopularMoviesRow(genre, 10));
+  const movies = await safeMovieRows("getUserPopularMoviesRow", () => getUserPopularMoviesRow(genre, 10));
   if (movies.length < 3) return null; // 평점 데이터가 충분하지 않으면 행 숨김
   return (
     <MovieRow
@@ -184,33 +191,37 @@ async function AwardWinnersData() {
     safeRows("getLatestVeniceWinnerRows", getLatestVeniceWinnerRows),
   ]);
 
+  const [academy, cannes, berlin, venice] = await Promise.all(
+    [academyRows, cannesRows, berlinRows, veniceRows].map((rows) => withFreshRatings(rows.map((r) => r.movie))),
+  );
+
   const tabs: AwardTab[] = [
     {
       id: "academy",
       name: "아카데미 시상식",
       icon: "trophy",
-      movies: academyRows.map((r) => r.movie),
+      movies: academy,
       edition: ceremonyLabel("academy", academyRows),
     },
     {
       id: "cannes",
       name: "칸 영화제",
       icon: "star",
-      movies: cannesRows.map((r) => r.movie),
+      movies: cannes,
       edition: ceremonyLabel("cannes", cannesRows),
     },
     {
       id: "berlin",
       name: "베를린 영화제",
       icon: "star",
-      movies: berlinRows.map((r) => r.movie),
+      movies: berlin,
       edition: ceremonyLabel("berlin", berlinRows),
     },
     {
       id: "venice",
       name: "베니스 영화제",
       icon: "star",
-      movies: veniceRows.map((r) => r.movie),
+      movies: venice,
       edition: ceremonyLabel("venice", veniceRows),
     },
   ].filter((tab) => tab.movies.length > 0) as AwardTab[];
@@ -288,19 +299,19 @@ function MovieCategorySection() {
 }
 
 async function CuratedSeriesSection() {
-  const movies = await safeRows("getCuratedSeriesRow", getCuratedSeriesRow);
+  const movies = await safeMovieRows("getCuratedSeriesRow", getCuratedSeriesRow);
   if (movies.length === 0) return null;
   return <MovieRow title="추천 시리즈물" subtitle="사용자 평점순" movies={movies} />;
 }
 
 async function PopularSeriesSection() {
-  const movies = await safeRows("getPopularSeriesRow", getPopularSeriesRow);
+  const movies = await safeMovieRows("getPopularSeriesRow", getPopularSeriesRow);
   if (movies.length === 0) return null;
   return <MovieRow title="Best 시리즈물" subtitle="사용자 평점 높은 순" movies={movies} />;
 }
 
 async function Top10SeriesData() {
-  const movies = await safeRows("getTop10PopularSeriesRow", getTop10PopularSeriesRow);
+  const movies = await safeMovieRows("getTop10PopularSeriesRow", getTop10PopularSeriesRow);
   if (movies.length === 0) return null;
   return <CoverflowCarousel movies={movies} hint="카드를 드래그하거나 화살표로 넘겨보세요" />;
 }
@@ -337,22 +348,22 @@ function TvSeriesSection() {
 }
 
 async function GenreRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await safeRows("getGenreRow", () => getGenreRow(genre, 0, 20));
+  const movies = await safeMovieRows("getGenreRow", () => getGenreRow(genre, 0, 20));
   return <GenreMovieRow genre={genre} initialMovies={movies} />;
 }
 
 async function GenrePopularRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await safeRows("getGenrePopularRow", () => getGenrePopularRow(genre));
+  const movies = await safeMovieRows("getGenrePopularRow", () => getGenrePopularRow(genre));
   return <MovieRow title="사용자 인기영화" subtitle={`${genre} 장르 · 평점이 많이 달린 순 15편`} movies={movies} />;
 }
 
 async function GenreYearlyBestRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await safeRows("getGenreYearlyBestRow", () => getGenreYearlyBestRow(genre));
+  const movies = await safeMovieRows("getGenreYearlyBestRow", () => getGenreYearlyBestRow(genre));
   return <MovieRow title="올해의 Best" subtitle={`${genre} 장르 · 올해 개봉작 평점 높은 순 10편`} movies={movies} />;
 }
 
 async function GenreAllTimeBestRowData({ genre }: { genre: GenreLabel }) {
-  const movies = await safeRows("getGenreAllTimeBestRow", () => getGenreAllTimeBestRow(genre));
+  const movies = await safeMovieRows("getGenreAllTimeBestRow", () => getGenreAllTimeBestRow(genre));
   return <MovieRow title="역대 Best" subtitle={`${genre} 장르 · 평점 높은 순 20편`} movies={movies} />;
 }
 

@@ -10,6 +10,7 @@ import {
   ceremonyLabel,
 } from "../_lib/award-winners";
 import { auth } from "../../auth";
+import { withFreshRatings } from "../_lib/fresh-ratings";
 
 export const metadata = { title: "수상작 투표" };
 
@@ -33,7 +34,7 @@ async function AcademySection() {
     <BoxOfficeCoverflow
       title="🏆 아카데미 시상식 수상작"
       subtitle={`${ceremonyLabel("academy", rows) ?? "최근"} 수상작`}
-      movies={rows.map((r) => r.movie)}
+      movies={await withFreshRatings(rows.map((r) => r.movie))}
     />
   );
 }
@@ -45,7 +46,7 @@ async function CannesSection() {
     <BoxOfficeCoverflow
       title="🌴 칸 영화제 수상작"
       subtitle={`${ceremonyLabel("cannes", rows) ?? "최근"} 수상작`}
-      movies={rows.map((r) => r.movie)}
+      movies={await withFreshRatings(rows.map((r) => r.movie))}
     />
   );
 }
@@ -57,7 +58,7 @@ async function BerlinSection() {
     <BoxOfficeCoverflow
       title="🐻 베를린 영화제 수상작"
       subtitle={`${ceremonyLabel("berlin", rows) ?? "최근"} 수상작`}
-      movies={rows.map((r) => r.movie)}
+      movies={await withFreshRatings(rows.map((r) => r.movie))}
     />
   );
 }
@@ -69,7 +70,7 @@ async function VeniceSection() {
     <BoxOfficeCoverflow
       title="🦁 베니스 영화제 수상작"
       subtitle={`${ceremonyLabel("venice", rows) ?? "최근"} 수상작`}
-      movies={rows.map((r) => r.movie)}
+      movies={await withFreshRatings(rows.map((r) => r.movie))}
     />
   );
 }
