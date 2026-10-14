@@ -498,7 +498,7 @@ async function fuzzySearchDb(query: string): Promise<{ movies: MovieHit[]; peopl
 }
 
 // ── GET /api/search-movies?q=... ─────────────────────────────────────────────
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim() ?? "";
 
@@ -709,4 +709,11 @@ export async function GET(request: Request) {
   const empty = { movies: [], series: [], people: [], correctedQuery: null };
   setCache(cacheKey, empty);
   return NextResponse.json(empty);
+}
+
+// 검색 결과는 사람마다 같다 — 같은 검색어는 CDN이 10분 동안 바로 돌려준다(서버 함수·외부 API·AI 호출 없음).
+export async function GET(request: Request) {
+  const res = await handleGet(request);
+  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
+  return res;
 }

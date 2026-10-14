@@ -31,10 +31,20 @@ const FESTIVAL_FILTERS: Record<FestivalType, string> = {
 };
 
 // ── SPARQL fetch (429 재시도 포함) ──────────────────────────────────────────
-async function sparqlFetch(
+type SparqlRows = Record<string, { value: string }>[];
+type SparqlOptions = { timeoutMs?: number; maxRetries?: number };
+
+// 실패(네트워크·시간 초과·HTTP 오류)면 빈 배열 — 영화제 목록처럼 실패해도 계속 진행하는 곳에서 쓴다.
+async function sparqlFetch(query: string, options?: SparqlOptions): Promise<SparqlRows> {
+  return (await sparqlFetchStrict(query, options)) ?? [];
+}
+
+// 실패면 null, 정상 응답이면(결과가 0건이어도) 배열 — "정말 결과가 없다"를 캐시할 때 실패와 구분하려고 쓴다.
+async function sparqlFetchStrict(
   query: string,
+  { timeoutMs = 40_000, maxRetries = 3 }: SparqlOptions = {},
   attempt = 1,
-): Promise<Record<string, { value: string }>[]> {
+): Promise<SparqlRows | null> {
   const url = new URL(SPARQL_ENDPOINT);
   url.searchParams.set("query", query);
   url.searchParams.set("format", "json");
@@ -46,36 +56,36 @@ async function sparqlFetch(
         Accept: "application/sparql-results+json",
         "User-Agent": "review-kobis/1.0 (https://github.com/Kang-min-jae/review-kobis)",
       },
-      signal: AbortSignal.timeout(40_000),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store", // DB에서 캐싱하므로 fetch 캐시는 끈다
     });
   } catch (err) {
     console.warn(`[wikidata] SPARQL 네트워크 오류 (시도 ${attempt}):`, err);
-    return [];
+    return null;
   }
 
   if (res.status === 429) {
-    if (attempt > 3) {
+    if (attempt > maxRetries) {
       console.warn("[wikidata] 429 재시도 초과 — 포기");
-      return [];
+      return null;
     }
     const retryAfter = parseInt(res.headers.get("Retry-After") ?? "0", 10);
     const waitMs = retryAfter > 0 ? retryAfter * 1000 : 3 ** attempt * 1000;
-    console.warn(`[wikidata] 429 — ${waitMs}ms 후 재시도 (${attempt}/3)`);
+    console.warn(`[wikidata] 429 — ${waitMs}ms 후 재시도 (${attempt}/${maxRetries})`);
     await new Promise((r) => setTimeout(r, waitMs));
-    return sparqlFetch(query, attempt + 1);
+    return sparqlFetchStrict(query, { timeoutMs, maxRetries }, attempt + 1);
   }
 
   if (!res.ok) {
     console.warn(`[wikidata] SPARQL 요청 실패: HTTP ${res.status}`);
-    return [];
+    return null;
   }
 
   try {
-    const json = (await res.json()) as { results?: { bindings?: Record<string, { value: string }>[] } };
+    const json = (await res.json()) as { results?: { bindings?: SparqlRows } };
     return json.results?.bindings ?? [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -594,6 +604,14 @@ const movieAwardsMemCache = gMovieAwards.__movieAwardsCache;
 // 캐시된 수상 이력도 이 기간이 지나면 다시 조회한다 — 신작은 Wikidata에 수상 기록이
 // 나중에 추가되는 경우가 많은데, 예전엔 한 번 저장되면 영원히 갱신되지 않았다.
 const MOVIE_AWARD_DB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// "수상 기록 없음"도 이 기간 동안은 믿는다 — 예전엔 빈 결과를 캐시하지 않아, 수상 이력이 없는 대부분의
+// 영화가 상세 페이지를 열 때마다(검색봇 수집 포함) Wikidata에 최대 3번씩 다시 물어봤다.
+const MOVIE_AWARD_EMPTY_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+// 상세 페이지 배너용 조회는 짧게 끝낸다(기본 40초 대기·429 재시도는 서버 함수를 오래 붙잡는다).
+const MOVIE_AWARD_SPARQL: SparqlOptions = { timeoutMs: 8_000, maxRetries: 0 };
+// 조회가 실패한 영화는 잠시(10분) 다시 묻지 않는다 — Wikidata가 느리거나 막혔을 때 방문마다 기다리지 않게.
+const MOVIE_AWARD_FAIL_COOLDOWN_MS = 10 * 60 * 1000;
+const movieAwardFailedAt = new Map<string, number>();
 
 export async function fetchMovieAwardWins(
   tmdbId: string | null,
@@ -611,7 +629,7 @@ export async function fetchMovieAwardWins(
 
   // 1) 메모리 캐시 — 빈 결과는 잘못된 tmdbId로 인한 캐시일 수 있어 재조회
   const mem = movieAwardsMemCache.get(cacheKey);
-  if (mem && mem.data.length > 0 && Date.now() - mem.at < MOVIE_AWARD_MEM_TTL_MS) return mem.data;
+  if (mem && Date.now() - mem.at < (mem.data.length > 0 ? MOVIE_AWARD_MEM_TTL_MS : MOVIE_AWARD_EMPTY_TTL_MS)) return mem.data;
 
   // 2) DB 캐시 (CachedAwardWinners 테이블 재사용). 빈 결과는 신뢰하지 않고 재조회하고,
   // 오래된 결과는 다시 조회하되 새 조회가 비면 기존 값을 그대로 쓴다.
@@ -620,6 +638,10 @@ export async function fetchMovieAwardWins(
     const cached = await db.cachedAwardWinners.findUnique({ where: { id: cacheKey } });
     if (cached) {
       const data = cached.winners as unknown as MovieAwardEntry[];
+      if (data.length === 0 && Date.now() - cached.updatedAt.getTime() < MOVIE_AWARD_EMPTY_TTL_MS) {
+        movieAwardsMemCache.set(cacheKey, { data, at: cached.updatedAt.getTime() });
+        return data;
+      }
       if (data.length > 0) {
         if (Date.now() - cached.updatedAt.getTime() < MOVIE_AWARD_DB_TTL_MS) {
           movieAwardsMemCache.set(cacheKey, { data, at: Date.now() });
@@ -633,13 +655,28 @@ export async function fetchMovieAwardWins(
   }
 
   // 3) Wikidata SPARQL — TMDB ID → 영문 제목 → 한국어 제목 순으로, 결과가 나올 때까지
-  let rows: Record<string, { value: string }>[] = [];
-  if (tmdbId) rows = await sparqlFetch(buildMovieAwardsQuery(tmdbId));
-  if (rows.length === 0 && titleEn) rows = await sparqlFetch(buildMovieAwardsByTitleQuery(titleEn));
-  if (rows.length === 0 && titleKo) rows = await sparqlFetch(buildMovieAwardsByKoTitleQuery(titleKo));
+  const failedAt = movieAwardFailedAt.get(cacheKey);
+  if (failedAt && Date.now() - failedAt < MOVIE_AWARD_FAIL_COOLDOWN_MS) return stale;
+
+  // 하나라도 실패하면(failed) "기록 없음"으로 저장하지 않는다 — 잠시 뒤 다시 확인한다.
+  let rows: SparqlRows = [];
+  let failed = false;
+  const tryQuery = async (query: string) => {
+    const result = await sparqlFetchStrict(query, MOVIE_AWARD_SPARQL);
+    if (result === null) failed = true;
+    return result ?? [];
+  };
+  if (tmdbId) rows = await tryQuery(buildMovieAwardsQuery(tmdbId));
+  if (rows.length === 0 && titleEn) rows = await tryQuery(buildMovieAwardsByTitleQuery(titleEn));
+  if (rows.length === 0 && titleKo) rows = await tryQuery(buildMovieAwardsByKoTitleQuery(titleKo));
 
   const fresh = parseMovieAwardRows(rows);
   const data = fresh.length > 0 ? fresh : stale;
+  if (failed) {
+    if (movieAwardFailedAt.size > 5000) movieAwardFailedAt.clear();
+    movieAwardFailedAt.set(cacheKey, Date.now());
+    if (data.length === 0) return data;
+  }
 
   // 4) DB 캐시 저장
   try {

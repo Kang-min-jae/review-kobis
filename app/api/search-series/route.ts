@@ -39,7 +39,7 @@ function toRowMovies(series: TmdbSeriesDetails[]) {
   }));
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim() ?? "";
   const genre = searchParams.get("genre")?.trim() ?? "";
@@ -135,4 +135,11 @@ export async function GET(request: Request) {
     results: toRowMovies(merged),
     foundPerson: foundPersonName,
   });
+}
+
+// 검색 결과는 사람마다 같다 — 같은 검색어는 CDN이 10분 동안 바로 돌려준다.
+export async function GET(request: Request) {
+  const res = await handleGet(request);
+  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
+  return res;
 }

@@ -24,7 +24,7 @@ function isValidMovieCd(cd: string | null): cd is string {
   return /^(\d{1,20}|tmdb-(tv-)?\d{1,12}|kmdb-[A-Za-z0-9_-]{1,40}|wikidata-Q\d{1,12})$/.test(cd);
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   const { searchParams } = new URL(request.url);
   const movieCd = searchParams.get("movieCd");
   if (!isValidMovieCd(movieCd)) {
@@ -52,4 +52,11 @@ export async function GET(request: Request) {
   }));
 
   return NextResponse.json({ reviews });
+}
+
+// 모든 방문자에게 같은 결과라 CDN에 1분 캐시한다 — 박스오피스 카드를 넘길 때마다 서버 함수가 돌지 않게.
+export async function GET(request: Request) {
+  const res = await handleGet(request);
+  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  return res;
 }

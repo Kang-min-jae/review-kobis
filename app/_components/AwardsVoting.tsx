@@ -2,7 +2,6 @@
 
 import { useState, useTransition, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
-import { posterLoader } from "../_lib/poster-loader";
 import Link from "next/link";
 import { submitAwardVoteAction, deleteAwardVoteAction, getAwardVotes, getOfficialWinner, type AwardVoteResult, type OfficialWinner } from "../_lib/award-vote-actions";
 
@@ -197,7 +196,7 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
             <div className="mb-4 flex items-center gap-3 rounded-xl bg-star/10 px-4 py-3">
               {myVote.posterUrl && (
                 <div className="relative h-10 w-7 shrink-0 overflow-hidden rounded">
-                  <Image src={myVote.posterUrl} alt="" fill sizes="96px" loader={posterLoader} className="object-cover" />
+                  <Image src={myVote.posterUrl} alt="" fill sizes="96px" className="object-cover" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
@@ -242,7 +241,7 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
                 <div className="flex items-center gap-3 px-4 py-3">
                   {officialWinner.posterUrl ? (
                     <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded border border-yellow-400/40">
-                      <Image src={officialWinner.posterUrl} alt="" fill sizes="96px" loader={posterLoader} className="object-cover" />
+                      <Image src={officialWinner.posterUrl} alt="" fill sizes="96px" className="object-cover" />
                     </div>
                   ) : (
                     <div className="h-16 w-11 shrink-0 rounded bg-neutral-700" />
@@ -299,7 +298,7 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
                     >
                       {movie.posterUrl ? (
                         <div className="relative h-12 w-8 shrink-0 overflow-hidden rounded">
-                          <Image src={movie.posterUrl} alt="" fill sizes="96px" loader={posterLoader} className="object-cover" />
+                          <Image src={movie.posterUrl} alt="" fill sizes="96px" className="object-cover" />
                         </div>
                       ) : (
                         <div className="h-12 w-8 shrink-0 rounded bg-neutral-700" />
@@ -377,7 +376,7 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
                       </span>
                       {v.posterUrl && (
                         <div className="relative h-10 w-7 shrink-0 overflow-hidden rounded">
-                          <Image src={v.posterUrl} alt="" fill sizes="96px" loader={posterLoader} className="object-cover" />
+                          <Image src={v.posterUrl} alt="" fill sizes="96px" className="object-cover" />
                         </div>
                       )}
                       <div className="min-w-0 flex-1">

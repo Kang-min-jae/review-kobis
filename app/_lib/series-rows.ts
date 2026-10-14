@@ -1,6 +1,7 @@
 // "추천 시리즈" 홈 행과 TV 탭을 위한 데이터 레이어.
 // KOBIS/KMDb가 아닌 TMDB TV 엔드포인트를 사용하고, CachedSeries에 캐시한다.
 
+import { unstable_cache } from "next/cache";
 import { db } from "./db";
 import { getTmdbSeriesDetails, getTmdbPopularSeries } from "./tmdb";
 import { splitGenres } from "./movie-rows";
@@ -95,7 +96,7 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
   };
 }
 
-export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
+async function _getCuratedSeriesRow(): Promise<RowMovie[]> {
   const results = await Promise.all(CURATED_SERIES_IDS.map(getOrFetchSeries));
   const rows = results.filter((r): r is RowMovie => r !== null && r.posterUrl !== null);
   const avgMap = await getBulkMovieRatingAverages(rows.map((r) => r.id));
@@ -106,7 +107,7 @@ export async function getCuratedSeriesRow(): Promise<RowMovie[]> {
 }
 
 // 사용자 평균 평점(전체) 기준 Best 시리즈 행 — 데이터 부족 시 TMDB 인기 순으로 폴백.
-export async function getPopularSeriesRow(): Promise<RowMovie[]> {
+async function _getPopularSeriesRow(): Promise<RowMovie[]> {
   let topRated: { movieCd: string; _avg: { score: number | null } }[] = [];
   try {
     // @ts-expect-error Prisma 7 groupBy type overload mismatch
@@ -172,7 +173,7 @@ export async function getPopularSeriesRow(): Promise<RowMovie[]> {
 
 // 사용자 평점 등록 수 기준 TOP 10 시리즈 — TV 탭 캐러셀용.
 // 평점 데이터가 부족(3개 미만)하면 TMDB 인기 목록 → 큐레이션 순으로 폴백.
-export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
+async function _getTop10PopularSeriesRow(): Promise<RowMovie[]> {
   // 1. DB에서 평점 수 많은 순으로 tmdb-tv-* movieCd 조회
   let topRated: { movieCd: string; _count: { movieCd: number } }[] = [];
   try {
@@ -245,3 +246,8 @@ export async function getTop10PopularSeriesRow(): Promise<RowMovie[]> {
     .slice(0, 10)
     .map((r, i) => ({ ...r, badge: `${i + 1}위` }));
 }
+
+// TV 탭 행은 방문마다 DB·TMDB를 다시 읽지 않도록 10분 캐시한다(모든 방문자에게 같은 결과).
+export const getCuratedSeriesRow = unstable_cache(_getCuratedSeriesRow, ["series-curated-row"], { revalidate: 600 });
+export const getPopularSeriesRow = unstable_cache(_getPopularSeriesRow, ["series-popular-row"], { revalidate: 600 });
+export const getTop10PopularSeriesRow = unstable_cache(_getTop10PopularSeriesRow, ["series-top10-row"], { revalidate: 600 });

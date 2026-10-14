@@ -1,9 +1,13 @@
 "use server";
 
 import { revalidatePath, updateTag } from "next/cache";
+// 평점·리뷰가 바뀌면 그 영화 페이지, 내 리스트, 홈 히어로만 바로 갱신한다. 예전엔 revalidatePath("/", "layout")로
+// 사이트 전체 캐시(박스오피스·Best 행·수상작 등)를 매번 지워, 평점 하나마다 다음 방문자가 모든 행을 처음부터
+// 다시 계산했다(서버 CPU 사용량의 큰 원인). 홈 행의 사이트 평균은 각 행의 캐시 주기(15분~6시간)에 맞춰 갱신된다.
 import { HOME_HERO_TAG } from "./home-hero";
 import { db } from "./db";
 import { auth } from "../../auth";
+import { cdToMovieId } from "./rating-input";
 
 // ── 입력 검증 ─────────────────────────────────────────────────────────────
 // 서버 액션은 밖에서 직접 호출할 수 있다 — 화면을 거치지 않고 점수 1000점, 없는 항목 이름,
@@ -28,7 +32,8 @@ function assertScore(score: unknown, max: number): asserts score is number {
 }
 
 function categoryPath(movieId: string, category: string): string {
-  return `/movies/${movieId}/rate/category/${encodeURIComponent(category)}`;
+  const base = movieId.startsWith("tmdb-tv-") ? "/series" : "/movies";
+  return `${base}/${movieId}/rate/category/${encodeURIComponent(category)}`;
 }
 
 // 항목별 빠른 별점(글 없는 숫자만) 등록/수정. 1인 1표 — 같은 사람이 같은 영화의
@@ -67,7 +72,6 @@ export async function submitCategoryRatingAction(
   }
 
   revalidatePath(categoryPath(movieId, category));
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
@@ -86,7 +90,6 @@ export async function deleteAccountRatingAction(movieCd: string) {
   });
 
   revalidatePath("/my-list");
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
@@ -150,7 +153,6 @@ export async function submitReviewAction(input: {
   }
 
   revalidatePath(categoryPath(input.movieId, input.category));
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
@@ -198,7 +200,6 @@ export async function deleteReviewAction(input: {
 
   revalidatePath(categoryPath(input.movieId, input.category));
   revalidatePath("/my-list");
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
@@ -221,7 +222,6 @@ export async function deleteMyMovieReviewsAction(
   }
 
   revalidatePath("/my-list");
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
@@ -237,10 +237,9 @@ export async function adminDeleteReviewAction(input: { reviewId: string }) {
 
   await db.review.delete({ where: { id: input.reviewId } });
 
-  revalidatePath(categoryPath(`kobis-${review.movieCd}`, review.category));
+  revalidatePath(categoryPath(cdToMovieId(review.movieCd), review.category));
   revalidatePath(`/users/${review.userId}`);
   revalidatePath("/my-list");
-  revalidatePath("/", "layout");
   updateTag(HOME_HERO_TAG);
 }
 
