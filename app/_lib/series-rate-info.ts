@@ -5,6 +5,8 @@
 // ID 형식: "tmdb-tv-{tmdbId}" (예: "tmdb-tv-128064")
 // 리뷰·평점 DB의 movieCd 키로도 이 ID를 그대로 사용한다.
 
+import { cache } from "react";
+import { after } from "next/server";
 import { db } from "./db";
 import { getTmdbSeriesDetails } from "./tmdb";
 import { splitGenres } from "./movie-rows";
@@ -68,7 +70,12 @@ async function fetchAndCacheSeriesMeta(tmdbId: string): Promise<ResolvedSeriesIn
   };
 }
 
-export async function resolveSeriesRateInfo(id: string): Promise<ResolvedSeriesInfo | null> {
+// 정보가 3일이 지나 오래됐어도 저장된 값으로 바로 그리고, TMDB 갱신은 응답을 보낸 뒤 뒤에서 한다
+// (예전엔 갱신을 기다렸고, 그때 TMDB가 실패하면 저장된 정보가 있어도 404가 났다).
+// generateMetadata와 페이지 본문이 같은 요청에서 함께 부르므로 요청 단위로 한 번만 계산한다.
+export const resolveSeriesRateInfo = cache(resolveSeriesRateInfoUncached);
+
+async function resolveSeriesRateInfoUncached(id: string): Promise<ResolvedSeriesInfo | null> {
   if (!id.startsWith("tmdb-tv-")) return null;
   const tmdbId = id.slice("tmdb-tv-".length);
   if (!tmdbId) return null;
@@ -76,7 +83,10 @@ export async function resolveSeriesRateInfo(id: string): Promise<ResolvedSeriesI
   const cached = await db.cachedSeries.findUnique({ where: { tmdbId } });
   const isStale = !cached || Date.now() - cached.updatedAt.getTime() > CACHE_TTL_MS;
 
-  if (cached && !isStale) {
+  if (cached) {
+    if (isStale) {
+      after(() => fetchAndCacheSeriesMeta(tmdbId).catch(() => null));
+    }
     return {
       seriesId: id,
       movieCd: id,

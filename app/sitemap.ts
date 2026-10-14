@@ -8,7 +8,7 @@ import { isAdultContent } from "./_lib/adult-content";
 import { cdToMovieId } from "./_lib/rating-input";
 import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 
-// /sitemap.xml — 누구나 볼 수 있는 고정 페이지 + 영화 상세(평점) 페이지.
+// /sitemap.xml — 누구나 볼 수 있는 고정 페이지 + 영화·시리즈 상세(평점) 페이지.
 // 홈 탭(?category=…)은 정식 주소(canonical)가 홈이라 넣지 않는다. 로그인이 필요한 페이지(/login, /my-list,
 // /mypage 등)는 robots.ts에서 막고 여기에도 넣지 않는다.
 //
@@ -17,8 +17,9 @@ import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 //   1) 박스오피스(최근 3일 일별 TOP10) — 현재 상영작
 //   2) 회원 평점·리뷰가 있는 영화 — 최근 활동 순
 //   3) 최근 개봉작(지난 RECENT_RELEASE_DAYS일 안 개봉, DB에 정보가 있는 영화)
-// 성인물, 시리즈(별도 경로), TMDB 연결 검증 전인 수상작 항목(wikidata-*)은 뺀다.
-// lastModified = 그 영화의 마지막 평점·리뷰 시각과 영화 정보 갱신 시각 중 가장 늦은 것.
+// 성인물, TMDB 연결 검증 전인 수상작 항목(wikidata-*)은 뺀다.
+// 시리즈 상세(/series/<id>/rate)는 회원 평점·리뷰가 있는 시리즈만 최근 활동 순으로 최대 SERIES_URL_LIMIT편.
+// lastModified = 그 작품의 마지막 평점·리뷰 시각과 작품 정보 갱신 시각 중 가장 늦은 것.
 //
 // 한 사이트맵 파일은 URL 5만 개가 한도다. 고정 페이지 + MOVIE_URL_LIMIT이 그보다 훨씬 작아 파일 하나로
 // 충분하다. 한도를 5만 근처까지 올려야 하면 generateSitemaps로 나누고 robots.ts에 각 파일을 적어야 한다.
@@ -29,6 +30,7 @@ import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 const SITEMAP_URL_MAX = 50_000;
 // 상세 페이지는 요청마다 새로 그리는 무거운 페이지라 검색봇 수집량을 고려해 우선 2,000편까지만 싣는다.
 const MOVIE_URL_LIMIT = 2_000;
+const SERIES_URL_LIMIT = 500;
 const RECENT_RELEASE_DAYS = 90;
 
 const STATIC_PAGES: { path: string; changeFrequency: "daily" | "weekly" | "monthly"; priority: number }[] = [
@@ -49,34 +51,37 @@ async function loadBoxOfficeCds(): Promise<string[]> {
   return cds;
 }
 
-async function loadSitemapMovies(): Promise<MovieEntry[]> {
-  const limit = Math.min(MOVIE_URL_LIMIT, SITEMAP_URL_MAX - STATIC_PAGES.length);
-  const notSeries = { NOT: { movieCd: { startsWith: "tmdb-tv-" } } };
-
-  const [boxOfficeCds, ratingActivity, reviewActivity] = await Promise.all([
-    loadBoxOfficeCds(),
+// 작품별 마지막 평점·리뷰 시각 — where로 영화/시리즈를 고른다.
+async function loadActivity(where: object, take: number): Promise<Map<string, number>> {
+  const [ratingActivity, reviewActivity] = await Promise.all([
     db.categoryRating.groupBy({
       by: ["movieCd"],
-      where: notSeries,
+      where,
       _max: { updatedAt: true },
       orderBy: { _max: { updatedAt: "desc" } },
-      take: limit,
+      take,
     }),
     db.review.groupBy({
       by: ["movieCd"],
-      where: notSeries,
+      where,
       _max: { updatedAt: true },
       orderBy: { _max: { updatedAt: "desc" } },
-      take: limit,
+      take,
     }),
   ]);
-
-  // 영화별 마지막 평점·리뷰 시각
   const activity = new Map<string, number>();
   for (const row of [...ratingActivity, ...reviewActivity]) {
     const t = row._max.updatedAt?.getTime() ?? 0;
     if (t > (activity.get(row.movieCd) ?? 0)) activity.set(row.movieCd, t);
   }
+  return activity;
+}
+
+async function loadSitemapMovies(): Promise<MovieEntry[]> {
+  const limit = Math.min(MOVIE_URL_LIMIT, SITEMAP_URL_MAX - STATIC_PAGES.length);
+  const notSeries = { NOT: { movieCd: { startsWith: "tmdb-tv-" } } };
+
+  const [boxOfficeCds, activity] = await Promise.all([loadBoxOfficeCds(), loadActivity(notSeries, limit)]);
   const activeCds = [...activity.keys()].sort((a, b) => activity.get(b)! - activity.get(a)!);
 
   const sinceIso = new Date(Date.now() - RECENT_RELEASE_DAYS * 86_400_000).toISOString().slice(0, 10);
@@ -116,7 +121,32 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   return result;
 }
 
-const getSitemapMovies = unstable_cache(loadSitemapMovies, ["sitemap-movies-v1"], { revalidate: 3600 });
+// 회원 평점·리뷰가 있는 시리즈 — 상세 페이지를 바로 그릴 수 있는(CachedSeries에 정보가 있는) 것만.
+async function loadSitemapSeries(): Promise<MovieEntry[]> {
+  const activity = await loadActivity({ movieCd: { startsWith: "tmdb-tv-" } }, SERIES_URL_LIMIT);
+  const ids = [...activity.keys()];
+  const infos = await db.cachedSeries.findMany({
+    where: { tmdbId: { in: ids.map((cd) => cd.slice("tmdb-tv-".length)) } },
+    select: { tmdbId: true, name: true, genreAlt: true, updatedAt: true },
+  });
+  const infoById = new Map(infos.map((s) => [`tmdb-tv-${s.tmdbId}`, s]));
+
+  const result: MovieEntry[] = [];
+  for (const cd of ids.sort((a, b) => activity.get(b)! - activity.get(a)!)) {
+    const info = infoById.get(cd);
+    if (!info || isAdultContent({ title: info.name, genreAlt: info.genreAlt })) continue;
+    const last = Math.max(activity.get(cd) ?? 0, info.updatedAt.getTime());
+    result.push({ movieId: cd, lastModified: new Date(last).toISOString(), boxOffice: false });
+  }
+  return result;
+}
+
+async function loadSitemapEntries(): Promise<MovieEntry[]> {
+  const [movies, series] = await Promise.all([loadSitemapMovies(), loadSitemapSeries().catch(() => [])]);
+  return [...movies, ...series];
+}
+
+const getSitemapEntries = unstable_cache(loadSitemapEntries, ["sitemap-entries-v2"], { revalidate: 3600 });
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   await connection();
@@ -130,9 +160,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let movies: MovieEntry[] = [];
   try {
-    movies = await getSitemapMovies();
+    movies = await getSitemapEntries();
   } catch (error) {
-    console.warn("[sitemap] 영화 목록을 불러오지 못해 고정 페이지만 내보냅니다:", error);
+    console.warn("[sitemap] 영화·시리즈 목록을 불러오지 못해 고정 페이지만 내보냅니다:", error);
   }
 
   return [

@@ -28,7 +28,9 @@ export const CONTACT_EMAIL = "contact@stilltheater.com";
 // 영화 상세(평점) 페이지의 정식 주소. "전체" 항목은 짧은 /movies/<id>/rate 를 쓴다 — next.config.ts의
 // rewrite가 리다이렉트 없이 /rate/category/전체 페이지를 그대로 보여준다. 사이트맵과 상세 페이지의
 // canonical이 같은 주소를 쓰도록 여기 한곳에서 만든다.
+// 시리즈(tmdb-tv-*)는 /series/<id>/rate.
 export function movieDetailPath(movieId: string, category = "전체"): string {
-  const base = `/movies/${encodeURIComponent(movieId)}/rate`;
+  const section = movieId.startsWith("tmdb-tv-") ? "series" : "movies";
+  const base = `/${section}/${encodeURIComponent(movieId)}/rate`;
   return category === "전체" ? base : `${base}/category/${encodeURIComponent(category)}`;
 }
