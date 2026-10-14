@@ -9,6 +9,9 @@ import {
 } from "../../_lib/tmdb";
 import type { TmdbSeriesDetails, TmdbMultiHit } from "../../_lib/tmdb";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 // TmdbMultiHit(TV)를 TmdbSeriesDetails 형태로 변환 — searchTmdbSeries 폴백용
 function multiHitToSeriesDetails(h: TmdbMultiHit): TmdbSeriesDetails {
   return {

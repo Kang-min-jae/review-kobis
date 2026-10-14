@@ -26,6 +26,9 @@ import {
 } from "../../_lib/affinity-data";
 import { createCfScorer } from "../../_lib/cf-data";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 // 수상작 항목(wikidata-*) 중 TMDB 연결 검증 전인 것은 다른 영화의 포스터·장르가 붙어

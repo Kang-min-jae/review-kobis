@@ -3,6 +3,9 @@ import { db } from "../../../_lib/db";
 import { getBadge } from "../../../_lib/tier";
 import { SPOILER_PLACEHOLDER } from "../../../_lib/spoiler";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 export type TopReview = {
   id: string;
   authorId: string;

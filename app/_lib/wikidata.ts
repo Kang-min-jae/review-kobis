@@ -255,13 +255,16 @@ function rowsToMap(rows: RawRow[], map: Map<string, FestivalWinner>) {
   }
 }
 
+const FESTIVAL_SPARQL: SparqlOptions = { timeoutMs: 25_000, maxRetries: 1 };
+
 async function fetchFestivalWinnersRaw(
   festivalFilter: string,
   sinceYear: number,
 ): Promise<FestivalWinner[]> {
+  // 페이지 렌더 중에 불리므로 함수 실행 시간 상한(layout.tsx의 maxDuration) 안에 끝나게 대기를 줄인다.
   const [filmRows, personRows] = await Promise.all([
-    sparqlFetch(buildFilmLevelQuery(festivalFilter, sinceYear)),
-    sparqlFetch(buildPersonLevelQuery(festivalFilter, sinceYear)),
+    sparqlFetch(buildFilmLevelQuery(festivalFilter, sinceYear), FESTIVAL_SPARQL),
+    sparqlFetch(buildPersonLevelQuery(festivalFilter, sinceYear), FESTIVAL_SPARQL),
   ]);
 
   const byAward = new Map<string, FestivalWinner>();

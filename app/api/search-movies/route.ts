@@ -8,6 +8,9 @@ import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
 import { FILMOGRAPHY_VALID_SINCE, warmPersonFilmography } from "../../_lib/person-filmography";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 // ── 결과 타입 ─────────────────────────────────────────────────────────────────
 
 type MovieHit = KobisSearchHit & { posterUrl: string | null };

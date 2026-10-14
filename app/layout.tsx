@@ -11,6 +11,10 @@ import "./globals.css";
 // 가변 폰트는 조각 92개가 모든 굵기를 담아 CSS 13KB, 폰트 요청 수도 훨씬 적다.
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
+// 모든 페이지(와 그 페이지의 서버 액션)의 서버 실행 시간 상한(초). 외부 API가 멈춰도 함수가 기본 최대치까지
+// 붙잡혀 메모리·CPU 사용량을 키우지 않게 한다 — 정상 렌더는 몇 초 안에 끝난다.
+export const maxDuration = 60;
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {

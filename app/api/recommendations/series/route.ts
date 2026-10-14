@@ -9,6 +9,9 @@ import { sanitizeCategoryRatings, sanitizeRatings, type RatingInput } from "../.
 import { recencyDecay } from "../../../_lib/calculateAffinity";
 import { buildTasteContext, loadQualityStats, scoreAffinity, type TasteContext } from "../../../_lib/affinity-data";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 // 다른 행의 카드처럼 사이트 평점(한줄평·장문평 평균과 평가 인원)을 붙인다.
 async function withRatings(results: RowMovie[]): Promise<RowMovie[]> {
   const avgMap = await getBulkMovieRatingAverages(results.map((r) => r.id));

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getGenreRow, GENRE_KEYWORDS, type RowMovie } from "../../_lib/movie-rows";
 import { withFreshRatings } from "../../_lib/fresh-ratings";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 // "더 보기"로 불러올 수 있는 최대 위치 — 임의의 큰 값·문자열이 오면 DB 조회가 실패하거나
 // 요청마다 새 캐시 항목이 쌓여, 알려진 장르와 정수 범위만 받는다.
 const MAX_OFFSET = 400;

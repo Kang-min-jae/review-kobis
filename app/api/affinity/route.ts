@@ -9,6 +9,9 @@ import { movieIdToCd, sanitizeCategoryRatings, sanitizeRatings } from "../../_li
 import { buildTasteContext, loadQualityStats, loadTasteMetas, scoreAffinityWithCf } from "../../_lib/affinity-data";
 import { createCfScorer } from "../../_lib/cf-data";
 
+// 외부 API·AI 응답이 늦어도 이 시간 안에 끝낸다(함수가 오래 붙잡혀 사용량이 늘지 않게).
+export const maxDuration = 30;
+
 // 한 번에 계산할 카드 수 상한 — 브라우저는 이보다 작게 나눠 보낸다.
 const MAX_TARGET_IDS = 300;
 
