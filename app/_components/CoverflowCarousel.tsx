@@ -12,6 +12,11 @@ const SPACING_PX = 160;
 const MAX_VISIBLE_OFFSET = 3;
 const DRAG_ADVANCE_THRESHOLD_PX = 60;
 const DRAG_MOVE_THRESHOLD_PX = 6;
+// 짧게 "툭" 튕긴 스와이프도 넘어가게 하는 기준 — 손을 떼기 직전 속도(px/ms)와 최소 이동 거리.
+const FLICK_VELOCITY = 0.35;
+const FLICK_MIN_PX = 20;
+// 한 번에 넘길 수 있는 최대 장수(길게 끌면 끈 거리만큼 여러 장을 넘긴다).
+const MAX_STEPS_PER_SWIPE = 3;
 
 function circularOffset(index: number, active: number, length: number): number {
   let diff = index - active;
@@ -21,30 +26,48 @@ function circularOffset(index: number, active: number, length: number): number {
 }
 
 function cardStyle(offset: number, dragOffsetPx: number, transitionEnabled: boolean): CSSProperties {
-  const abs = Math.abs(offset);
-  if (abs > MAX_VISIBLE_OFFSET) {
+  // 드래그 중에는 손가락이 움직인 만큼(카드 간격 비율로) 위치를 연속으로 옮겨 회전·크기·투명도가
+  // 함께 자연스럽게 바뀐다 — 예전엔 위치만 평행 이동하고 각도는 손을 뗄 때 한 번에 바뀌어 뻣뻣했다.
+  const pos = offset + dragOffsetPx / SPACING_PX;
+  const abs = Math.abs(pos);
+  const transition = transitionEnabled ? "transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.45s ease-out" : "none";
+  if (abs > MAX_VISIBLE_OFFSET + 1) {
     // 숨은 카드도 화면 밖 가장자리(보이는 마지막 자리 바로 바깥)에 둔다 — 예전엔 위치 없이 가운데에 숨어
     // 있다가, 다시 보일 때 가운데에서 옆으로 날아가며 회전판이 거꾸로 도는 것처럼 보였다.
-    const edge = Math.sign(offset) * (MAX_VISIBLE_OFFSET + 1);
+    const edge = Math.sign(pos) * (MAX_VISIBLE_OFFSET + 1);
     return {
-      transform: `translateX(${edge * SPACING_PX + dragOffsetPx}px) translateZ(${-(MAX_VISIBLE_OFFSET + 1) * 90}px) scale(0.4)`,
+      transform: `translateX(${edge * SPACING_PX}px) translateZ(${-(MAX_VISIBLE_OFFSET + 1) * 90}px) scale(0.4)`,
       opacity: 0,
       pointerEvents: "none",
       zIndex: 0,
-      transition: transitionEnabled ? "transform 0.5s ease-out, opacity 0.5s ease-out" : "none",
+      transition,
     };
   }
   const scale = Math.max(1 - abs * 0.22, 0.4);
-  const rotateY = Math.max(-50, Math.min(50, -offset * 26));
-  const translateX = offset * SPACING_PX + dragOffsetPx;
+  const rotateY = Math.max(-50, Math.min(50, -pos * 26));
+  const translateX = pos * SPACING_PX;
   const translateZ = -abs * 90;
-  const opacity = Math.max(1 - abs * 0.3, 0.15);
+  // 보이는 마지막 자리 너머(MAX ~ MAX+1)에서는 서서히 사라진다.
+  const opacity = abs <= MAX_VISIBLE_OFFSET ? Math.max(1 - abs * 0.3, 0.15) : 0.15 * (MAX_VISIBLE_OFFSET + 1 - abs);
   return {
     transform: `translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`,
     opacity,
-    zIndex: 100 - abs,
-    transition: transitionEnabled ? "transform 0.5s ease-out, opacity 0.5s ease-out" : "none",
+    zIndex: 100 - Math.round(abs * 2),
+    pointerEvents: abs > MAX_VISIBLE_OFFSET ? "none" : undefined,
+    transition,
   };
+}
+
+// 손을 뗐을 때 몇 장 넘길지 — 끈 거리를 카드 간격으로 나눠 반올림(길게 끌면 여러 장), 짧아도
+// 기준 거리를 넘었거나 빠르게 튕겼으면 한 장. 왼쪽으로 끌면(delta < 0) 다음(+) 카드.
+function swipeSteps(delta: number, samples: { x: number; t: number }[], upTime: number): number {
+  const dir = delta < 0 ? 1 : -1;
+  const byDistance = Math.min(MAX_STEPS_PER_SWIPE, Math.round(Math.abs(delta) / SPACING_PX));
+  if (byDistance > 0) return dir * byDistance;
+  const [a, b] = samples.length >= 2 ? samples : [samples[0], samples[0]];
+  const velocity = a && b && b.t > a.t && upTime - b.t < 100 ? Math.abs(b.x - a.x) / (b.t - a.t) : 0;
+  if (Math.abs(delta) > DRAG_ADVANCE_THRESHOLD_PX || (Math.abs(delta) > FLICK_MIN_PX && velocity > FLICK_VELOCITY)) return dir;
+  return 0;
 }
 
 function parseBadge(badge: string | undefined): { primary: string | null; secondary: string | null } {
@@ -149,6 +172,8 @@ export default function CoverflowCarousel({
   const directionRef = useRef<"h" | "v" | null>(null);
   const draggedRef = useRef(false);
   const pressedCardRef = useRef<{ index: number; offset: number } | null>(null);
+  // 손을 떼기 직전 속도를 재기 위한 최근 두 지점(x, 시각).
+  const samplesRef = useRef<{ x: number; t: number }[]>([]);
 
   const length = movies.length;
 
@@ -185,6 +210,7 @@ export default function CoverflowCarousel({
     }
     dragStartXRef.current = e.clientX;
     dragStartYRef.current = e.clientY;
+    samplesRef.current = [{ x: e.clientX, t: e.timeStamp }];
     directionRef.current = null;
     draggedRef.current = false;
     const cardEl = (e.target as HTMLElement).closest<HTMLElement>("[data-card-index]");
@@ -214,6 +240,7 @@ export default function CoverflowCarousel({
     }
     if (directionRef.current !== "h") return;
     if (Math.abs(deltaX) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
+    samplesRef.current = [...samplesRef.current.slice(-1), { x: e.clientX, t: e.timeStamp }];
     setDragOffsetPx(deltaX);
   };
   // 브라우저가 터치를 가져가면(세로 스크롤 시작 등) pointercancel이 온다. 이때 좌표는 0일 수 있어
@@ -234,8 +261,10 @@ export default function CoverflowCarousel({
     directionRef.current = null;
     setDragging(false);
     setDragOffsetPx(0);
-    if (Math.abs(delta) > DRAG_ADVANCE_THRESHOLD_PX) {
-      go(delta > 0 ? -1 : 1);
+    const steps = swipeSteps(delta, samplesRef.current, e.timeStamp);
+    samplesRef.current = [];
+    if (steps !== 0) {
+      go(steps);
     } else if (!draggedRef.current && pressedCardRef.current) {
       handleCardPress(pressedCardRef.current.index, pressedCardRef.current.offset);
     }
