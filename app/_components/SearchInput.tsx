@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
 
@@ -128,6 +128,9 @@ export default function SearchInput() {
     }
   }
 
+  // 타이머가 끝났을 때 항상 최신 runSearch를 부른다(effect는 query가 바뀔 때만 다시 건다).
+  const searchAfterPause = useEffectEvent((q: string) => runSearch(q));
+
   // 입력을 멈추면 300ms 후 자동으로 검색한다 (실시간 검색).
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -136,7 +139,7 @@ export default function SearchInput() {
     if (!trimmed) return;
 
     debounceRef.current = setTimeout(() => {
-      runSearch(query);
+      searchAfterPause(query);
     }, 300);
 
     return () => {

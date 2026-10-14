@@ -10,7 +10,14 @@ import { getToken } from "next-auth/jwt";
 const SESSION_COOKIE = "authjs.session-token";
 const SECURE_SESSION_COOKIE = `__Secure-${SESSION_COOKIE}`;
 
+// AI 학습용 수집봇 — robots.txt(app/robots.ts)로도 막지만, 규칙을 무시하는 봇도 이름을 밝히고 오면
+// 페이지를 그리기 전에 바로 돌려보낸다(서버 렌더 비용 없음). 사람이 쓰는 AI 검색·브라우징 봇은 막지 않는다.
+const BLOCKED_BOTS = /GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot/i;
+
 export async function proxy(request: NextRequest) {
+  if (BLOCKED_BOTS.test(request.headers.get("user-agent") ?? "")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
   const cookieNames = request.cookies.getAll().map((c) => c.name);
   const secureCookie = cookieNames.some((name) => name.startsWith(SECURE_SESSION_COOKIE));
   if (!secureCookie && !cookieNames.some((name) => name.startsWith(SESSION_COOKIE))) return NextResponse.next();

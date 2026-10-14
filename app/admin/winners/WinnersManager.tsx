@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useTransition } from "react";
+import Image from "next/image";
 import { saveOfficialWinnerAction, deleteOfficialWinnerAction, listOfficialWinnersAction } from "../../_lib/admin-winner-actions";
 
 import { FESTIVAL_AWARDS, type FestivalId } from "../../_lib/festival-awards";
@@ -35,18 +36,19 @@ export default function WinnersManager() {
   const [winners, setWinners] = useState<WinnerRow[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // reset category when festival changes
-  useEffect(() => {
-    setCategory(FESTIVAL_AWARDS[festival][0]);
+  // 영화제를 바꾸면 부문·선택·검색을 처음으로 되돌린다.
+  function handleFestivalChange(next: FestivalId) {
+    setFestival(next);
+    setCategory(FESTIVAL_AWARDS[next][0]);
     setSelected(null);
     setHits([]);
     setQuery("");
-  }, [festival]);
+  }
 
   // debounced movie search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setHits([]); return; }
+    if (!query.trim()) return; // 검색어가 비면 결과는 화면에서 숨긴다(visibleHits)
     // 입력이 바뀐 뒤 도착한 이전 검색 결과는 버린다(늦은 응답이 새 결과를 덮어쓰지 않게).
     let cancelled = false;
     debounceRef.current = setTimeout(async () => {
@@ -69,14 +71,22 @@ export default function WinnersManager() {
     };
   }, [query]);
 
-  async function loadWinners() {
-    try {
-      const rows = await listOfficialWinnersAction();
-      setWinners(rows as WinnerRow[]);
-    } catch { /* ignore */ }
+  // 검색어가 비면 이전 결과·진행 표시는 숨긴다.
+  const hasQuery = query.trim() !== "";
+  const visibleHits = hasQuery ? hits : [];
+  const visibleSearching = searching && hasQuery;
+
+  function loadWinners() {
+    return listOfficialWinnersAction()
+      .then((rows) => setWinners(rows as WinnerRow[]))
+      .catch(() => { /* ignore */ });
   }
 
-  useEffect(() => { loadWinners(); }, []);
+  useEffect(() => {
+    listOfficialWinnersAction()
+      .then((rows) => setWinners(rows as WinnerRow[]))
+      .catch(() => { /* ignore */ });
+  }, []);
 
   function handleSave() {
     if (!selected) return;
@@ -136,7 +146,7 @@ export default function WinnersManager() {
             <label className="text-xs text-muted">영화제</label>
             <select
               value={festival}
-              onChange={(e) => setFestival(e.target.value as FestivalId)}
+              onChange={(e) => handleFestivalChange(e.target.value as FestivalId)}
               className="rounded-lg bg-bg border border-border px-3 py-2 text-sm text-text"
             >
               {FESTIVALS.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -166,10 +176,10 @@ export default function WinnersManager() {
         </div>
 
         {/* 검색 결과 드롭다운 */}
-        {(searching || hits.length > 0) && !selected && (
+        {(visibleSearching || visibleHits.length > 0) && !selected && (
           <div className="rounded-lg border border-border bg-bg divide-y divide-border max-h-64 overflow-y-auto">
-            {searching && <p className="px-3 py-2 text-xs text-muted">검색 중...</p>}
-            {hits.map((h) => (
+            {visibleSearching && <p className="px-3 py-2 text-xs text-muted">검색 중...</p>}
+            {visibleHits.map((h) => (
               <button
                 key={h.movieCd}
                 type="button"
@@ -177,7 +187,7 @@ export default function WinnersManager() {
                 className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface transition-colors"
               >
                 {h.posterUrl ? (
-                  <img src={h.posterUrl} alt="" className="w-8 h-12 object-cover rounded shrink-0" />
+                  <Image src={h.posterUrl} alt="" width={32} height={48} className="w-8 h-12 object-cover rounded shrink-0" />
                 ) : (
                   <div className="w-8 h-12 rounded bg-surface flex items-center justify-center shrink-0">
                     <span className="text-xs text-muted">?</span>
@@ -193,7 +203,7 @@ export default function WinnersManager() {
         {selected && (
           <div className="flex items-center gap-3 rounded-lg border border-brand/40 bg-brand/5 px-3 py-2">
             {selected.posterUrl ? (
-              <img src={selected.posterUrl} alt="" className="w-8 h-12 object-cover rounded shrink-0" />
+              <Image src={selected.posterUrl} alt="" width={32} height={48} className="w-8 h-12 object-cover rounded shrink-0" />
             ) : (
               <div className="w-8 h-12 rounded bg-surface shrink-0" />
             )}
@@ -230,7 +240,7 @@ export default function WinnersManager() {
             {winners.map((w) => (
               <div key={w.id} className="flex items-center gap-3 rounded-xl bg-surface p-3">
                 {w.posterUrl ? (
-                  <img src={w.posterUrl} alt="" className="w-8 h-12 object-cover rounded shrink-0" />
+                  <Image src={w.posterUrl} alt="" width={32} height={48} className="w-8 h-12 object-cover rounded shrink-0" />
                 ) : (
                   <div className="w-8 h-12 rounded bg-bg shrink-0" />
                 )}

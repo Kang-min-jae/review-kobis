@@ -29,16 +29,13 @@ function NoticeTab() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchNotices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/notice");
-      if (res.ok) setNotices(await res.json());
-    } catch {
-      // 네트워크 오류 — 목록은 그대로 두고 로딩만 끝낸다
-    } finally {
-      setLoading(false);
-    }
+  // 목록을 받아 반영하고 로딩을 끝낸다. 네트워크 오류면 목록은 그대로 둔다.
+  // (처음 화면은 loading=true로 시작하고, 다시 불러올 때는 호출하는 쪽이 로딩을 켠다.)
+  const fetchNotices = useCallback(() => {
+    return fetch("/api/admin/notice")
+      .then(async (res) => (res.ok ? setNotices(await res.json()) : undefined))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { fetchNotices(); }, [fetchNotices]);
@@ -61,6 +58,7 @@ function NoticeTab() {
     setTitle("");
     setContent("");
     setIsNew(true);
+    setLoading(true);
     fetchNotices();
   }
 

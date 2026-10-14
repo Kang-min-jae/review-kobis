@@ -73,13 +73,13 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
   const { query, results, loading: searching, search, clear } = useMovieSearch();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // 부문 선택 시 투표 현황 + 공식 수상작 로드
+  // 부문 선택 시 투표 현황 + 공식 수상작 로드. 이전 결과 비우기·"불러오는 중" 표시는 부문을 고르는
+  // 핸들러(handleFestivalSelect / handleAwardSelect)가 한다.
   useEffect(() => {
-    if (!festival || !award) { setVotes([]); setOfficialWinner(null); return; }
+    if (!festival || !award) return;
     // 부문을 빠르게 바꾸면 이전 부문의 응답이 늦게 도착해 새 부문 화면을 덮어쓸 수 있다 —
     // 이 effect가 정리(다른 부문 선택)된 뒤 도착한 응답은 버린다.
     let cancelled = false;
-    setLoadingVotes(true);
     Promise.all([
       getAwardVotes(festival, award),
       getOfficialWinner(festival, award),
@@ -94,11 +94,18 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
     setFestival(id);
     setAward(null);
     setVotes([]);
+    setOfficialWinner(null);
+    setLoadingVotes(false);
     clear();
   };
 
   const handleAwardSelect = (a: string) => {
-    setAward(a);
+    if (a !== award) {
+      setAward(a);
+      setVotes([]);
+      setOfficialWinner(null);
+      setLoadingVotes(true);
+    }
     clear();
     setTimeout(() => searchRef.current?.focus(), 100);
   };

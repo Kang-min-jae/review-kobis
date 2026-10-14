@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
+import { useHydrated } from "../_lib/use-hydrated";
 import MovieCard from "./MovieCard";
 import { subscribe, getReviewsVersion, getAverageRating } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
@@ -15,8 +15,7 @@ export default function FilmographyGrid({ movies }: { movies: RowMovie[] }) {
   // 정렬 순서가 달라져 Hydration Mismatch가 발생한다. mounted가 true가 되는 시점(첫
   // useEffect 이후)은 항상 하이드레이션이 완료된 뒤이므로, 그전까지는 서버와 동일하게
   // 원본 순서를 그대로 유지한다.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useHydrated();
 
   const version = useSyncExternalStore(subscribe, getReviewsVersion, getReviewsVersion);
 

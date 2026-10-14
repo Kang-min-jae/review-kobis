@@ -27,16 +27,12 @@ export default function InquiryManager() {
   const [submitting, setSubmitting] = useState(false);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("전체");
 
-  const fetchInquiries = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/inquiry");
-      if (res.ok) setInquiries(await res.json());
-    } catch {
-      // 네트워크 오류 — 목록은 그대로 두고 로딩만 끝낸다
-    } finally {
-      setLoading(false);
-    }
+  // 목록을 받아 반영하고 로딩을 끝낸다(처음 화면은 loading=true로 시작). 네트워크 오류면 목록은 그대로 둔다.
+  const fetchInquiries = useCallback(() => {
+    return fetch("/api/admin/inquiry")
+      .then(async (res) => (res.ok ? setInquiries(await res.json()) : undefined))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { fetchInquiries(); }, [fetchInquiries]);

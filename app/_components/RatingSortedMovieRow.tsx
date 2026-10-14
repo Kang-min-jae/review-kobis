@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
+import { useHydrated } from "../_lib/use-hydrated";
 import MovieRow from "./MovieRow";
 import { subscribe, getReviewsVersion, getCombinedRatingSnapshot } from "../_lib/reviews-store";
 import type { RowMovie } from "../_lib/movie-rows";
@@ -23,8 +24,7 @@ export default function RatingSortedMovieRow({
   movies: RowMovie[];
   priorityCount?: number;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useHydrated();
 
   const version = useSyncExternalStore(subscribe, getReviewsVersion, getReviewsVersion);
 

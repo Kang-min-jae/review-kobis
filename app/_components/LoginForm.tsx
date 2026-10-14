@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import ProviderButton from "./ProviderButton";
 import { signInWithCredentialsAction, type ActionResult } from "../_lib/credentials-actions";
 import { signInWithGoogle, signInWithKakao, signInWithNaver } from "../_lib/auth-actions";
+import { useHydrated } from "../_lib/use-hydrated";
 
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-neutral-700 bg-bg px-4 py-3 text-sm text-text placeholder:text-muted focus:border-brand focus:outline-none";
@@ -12,32 +13,36 @@ const inputClass =
 const STORAGE_KEY = "login_email";
 const REMEMBER_KEY = "login_remember";
 
+function readSavedLogin(): { remember: boolean; email: string } {
+  try {
+    const remember = localStorage.getItem(REMEMBER_KEY) === "1";
+    return { remember, email: remember ? localStorage.getItem(STORAGE_KEY) ?? "" : "" };
+  } catch {
+    return { remember: false, email: "" };
+  }
+}
+
 export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     signInWithCredentialsAction,
     null
   );
-  const [email, setEmail] = useState("");
-  const [remember, setRemember] = useState(false);
-
-  useEffect(() => {
-    try {
-      const savedRemember = localStorage.getItem(REMEMBER_KEY) === "1";
-      setRemember(savedRemember);
-      if (savedRemember) {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) setEmail(saved);
-      }
-    } catch {}
-  }, []);
+  // "아이디 기억하기"로 저장해 둔 값은 브라우저에서만 읽을 수 있다 — 하이드레이션 뒤에 읽고,
+  // 사용자가 입력·체크를 바꾸면 그 값(null이 아닌 상태)이 우선한다.
+  const hydrated = useHydrated();
+  const saved = hydrated ? readSavedLogin() : { remember: false, email: "" };
+  const [emailInput, setEmailInput] = useState<string | null>(null);
+  const [rememberInput, setRememberInput] = useState<boolean | null>(null);
+  const email = emailInput ?? saved.email;
+  const remember = rememberInput ?? saved.remember;
 
   function handleEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setEmail(e.target.value);
+    setEmailInput(e.target.value);
   }
 
   function handleRememberChange(e: React.ChangeEvent<HTMLInputElement>) {
     const checked = e.target.checked;
-    setRemember(checked);
+    setRememberInput(checked);
     try {
       if (checked) {
         localStorage.setItem(REMEMBER_KEY, "1");

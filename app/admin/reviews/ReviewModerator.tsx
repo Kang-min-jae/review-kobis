@@ -20,24 +20,26 @@ export default function ReviewModerator() {
   // 검색어를 빠르게 바꾸면 이전 검색 결과가 늦게 도착해 새 결과를 덮어쓸 수 있어, 가장 최근
   // 요청의 응답만 반영한다. 조회 실패도 잡아서 로딩 표시가 멈추지 않게 한다.
   const latestRequest = useRef(0);
-  const fetchReviews = useCallback(async (q: string) => {
+  // 로딩 표시는 처음 화면(loading=true)과 검색 핸들러가 켜고, 여기서는 가장 최근 요청이 끝날 때 끈다.
+  const fetchReviews = useCallback((q: string) => {
     const requestId = ++latestRequest.current;
-    setLoading(true);
-    try {
-      const data = await getAllReviewsForAdmin({ search: q || undefined });
-      if (requestId === latestRequest.current) setReviews(data);
-    } catch (error) {
-      console.warn("[admin] 목록 조회 실패:", error);
-    } finally {
-      if (requestId === latestRequest.current) setLoading(false);
-    }
+    return getAllReviewsForAdmin({ search: q || undefined })
+      .then((data) => {
+        if (requestId === latestRequest.current) setReviews(data);
+      })
+      .catch((error) => console.warn("[admin] 목록 조회 실패:", error))
+      .finally(() => {
+        if (requestId === latestRequest.current) setLoading(false);
+      });
   }, []);
 
   useEffect(() => { fetchReviews(query); }, [fetchReviews, query]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    setQuery(search.trim());
+    const next = search.trim();
+    if (next !== query) setLoading(true);
+    setQuery(next);
   }
 
   function handleDelete(review: AdminReview) {

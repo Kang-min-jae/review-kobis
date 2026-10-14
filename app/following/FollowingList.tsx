@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { useHydrated } from "../_lib/use-hydrated";
 import Link from "next/link";
 import { getBadge, TIER_STYLES, type Tier } from "../_lib/tier";
 
@@ -30,20 +31,17 @@ function saveFavorites(favorites: Set<string>) {
 }
 
 export default function FollowingList({ users }: { users: FollowingUser[] }) {
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    setFavorites(loadFavorites());
-  }, []);
+  // 즐겨찾기는 브라우저(localStorage)에만 있다 — 하이드레이션 뒤에 읽고, 바꾸면 그 값(상태)이 우선한다.
+  const hydrated = useHydrated();
+  const [changed, setChanged] = useState<Set<string> | null>(null);
+  const favorites = useMemo(() => changed ?? (hydrated ? loadFavorites() : new Set<string>()), [changed, hydrated]);
 
   function toggleFavorite(id: string) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      saveFavorites(next);
-      return next;
-    });
+    const next = new Set(favorites);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    saveFavorites(next);
+    setChanged(next);
   }
 
   const sorted = [...users].sort((a, b) => {

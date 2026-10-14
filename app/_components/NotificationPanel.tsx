@@ -48,21 +48,23 @@ export default function NotificationPanel({
   open: boolean;
   onClose: () => void;
 }) {
+  // 열 때마다 본문을 새로 만들어(마운트) 처음부터 "불러오는 중"으로 시작하고 알림을 새로 받는다.
+  if (!open) return null;
+  return <NotificationPanelBody onClose={onClose} />;
+}
+
+function NotificationPanelBody({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<Notifications | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
-    setLoading(true);
     getNotifications()
       .then((next) => { if (!cancelled) setData(next); })
       .catch(() => { /* 알림을 못 불러와도 패널은 연다(빈 목록) */ })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open]);
-
-  if (!open) return null;
+  }, []);
 
   const FOLLOWER_SHOW = 3;
 

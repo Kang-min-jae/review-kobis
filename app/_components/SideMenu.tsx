@@ -60,10 +60,10 @@ export default function SideMenu({
   followerCount?: number;
 }) {
   const [open, setOpen] = useState(false);
-  // 서버 prop(monthlyRatingCount)을 초기값으로 쓰되, 메뉴 열 때마다 실시간 fetch로 갱신한다.
-  const [liveMonthlyCount, setLiveMonthlyCount] = useState<number | undefined>(monthlyRatingCount);
-  // 서버 prop이 바뀌면(layout 재렌더) 로컬 상태도 동기화
-  useEffect(() => { setLiveMonthlyCount(monthlyRatingCount); }, [monthlyRatingCount]);
+  // 서버 prop(monthlyRatingCount)을 기본으로 쓰되, 메뉴를 열 때 받아온 최신 값이 있으면 그걸 쓴다.
+  // 받아온 값은 그때의 prop과 함께 기억해 두고, prop이 바뀌면(layout 재렌더) 다시 prop을 따른다.
+  const [fetchedCount, setFetchedCount] = useState<{ base: number | undefined; count: number } | null>(null);
+  const liveMonthlyCount = fetchedCount && fetchedCount.base === monthlyRatingCount ? fetchedCount.count : monthlyRatingCount;
   const close = () => setOpen(false);
   const [notifOpen, setNotifOpen] = useState(false);
 
@@ -116,9 +116,9 @@ export default function SideMenu({
     if (!open || !session?.user?.id) return;
     fetch("/api/user/monthly-count")
       .then((r) => r.json())
-      .then(({ count }: { count: number }) => setLiveMonthlyCount(count))
+      .then(({ count }: { count: number }) => setFetchedCount({ base: monthlyRatingCount, count }))
       .catch(() => {});
-  }, [open, session?.user?.id]);
+  }, [open, session?.user?.id, monthlyRatingCount]);
 
   const now = new Date();
   const thisMonthLocalCount = myReviews.filter((r) => {

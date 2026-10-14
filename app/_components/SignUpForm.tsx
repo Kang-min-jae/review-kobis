@@ -40,6 +40,22 @@ type FieldStatus = "idle" | "checking" | "available" | "taken" | "too_short" | "
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{4,20}$/;
 
+// 서버에 묻지 않고도 알 수 있는 상태(비었음·너무 짧음/김·형식 오류). null이면 서버 중복 확인이 필요하다.
+function localNicknameStatus(trimmed: string): FieldStatus | null {
+  if (trimmed.length === 0) return "idle";
+  if (trimmed.length < 2) return "too_short";
+  if (trimmed.length > 20) return "too_long";
+  return null;
+}
+
+function localUsernameStatus(trimmed: string): FieldStatus | null {
+  if (trimmed.length === 0) return "idle";
+  if (trimmed.length < 4) return "too_short";
+  if (trimmed.length > 20) return "too_long";
+  if (!USERNAME_RE.test(trimmed)) return "invalid";
+  return null;
+}
+
 export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(signUpAction, null);
   const [showPassword, setShowPassword] = useState(false);
@@ -47,19 +63,26 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
   const [nickname, setNickname] = useState("");
-  const [nicknameStatus, setNicknameStatus] = useState<FieldStatus>("idle");
   const [username, setUsername] = useState("");
-  const [usernameStatus, setUsernameStatus] = useState<FieldStatus>("idle");
+  // 서버 중복 확인 결과 — 어느 값에 대한 결과인지 함께 기억해, 입력이 바뀌면 자동으로 "확인 중"이 된다.
+  const [nicknameCheck, setNicknameCheck] = useState<{ value: string; status: FieldStatus } | null>(null);
+  const [usernameCheck, setUsernameCheck] = useState<{ value: string; status: FieldStatus } | null>(null);
   const nicknameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const nicknameTrimmed = nickname.trim();
+  const usernameTrimmed = username.trim();
+  const nicknameLocal = localNicknameStatus(nicknameTrimmed);
+  const usernameLocal = localUsernameStatus(usernameTrimmed);
+  const nicknameStatus: FieldStatus =
+    nicknameLocal ?? (nicknameCheck?.value === nicknameTrimmed ? nicknameCheck.status : "checking");
+  const usernameStatus: FieldStatus =
+    usernameLocal ?? (usernameCheck?.value === usernameTrimmed ? usernameCheck.status : "checking");
 
   useEffect(() => {
     if (nicknameDebounce.current) clearTimeout(nicknameDebounce.current);
     const trimmed = nickname.trim();
-    if (trimmed.length === 0) { setNicknameStatus("idle"); return; }
-    if (trimmed.length < 2) { setNicknameStatus("too_short"); return; }
-    if (trimmed.length > 20) { setNicknameStatus("too_long"); return; }
-    setNicknameStatus("checking");
+    if (localNicknameStatus(trimmed) !== null) return;
     // 입력이 바뀐 뒤 도착한 이전 값의 중복 확인 결과는 버린다 — 늦게 온 응답이 새 값의 상태를
     // 덮어써 이미 쓰는 이름이 "사용 가능"으로 보일 수 있었다.
     let cancelled = false;
@@ -68,9 +91,9 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
         const res = await fetch(`/api/check-nickname?nickname=${encodeURIComponent(trimmed)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { available?: boolean };
-        if (!cancelled) setNicknameStatus(data.available === true ? "available" : data.available === false ? "taken" : "idle");
+        if (!cancelled) setNicknameCheck({ value: trimmed, status: data.available === true ? "available" : data.available === false ? "taken" : "idle" });
       } catch {
-        if (!cancelled) setNicknameStatus("idle");
+        if (!cancelled) setNicknameCheck({ value: trimmed, status: "idle" });
       }
     }, 400);
     return () => {
@@ -82,11 +105,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
   useEffect(() => {
     if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
     const trimmed = username.trim();
-    if (trimmed.length === 0) { setUsernameStatus("idle"); return; }
-    if (trimmed.length < 4) { setUsernameStatus("too_short"); return; }
-    if (trimmed.length > 20) { setUsernameStatus("too_long"); return; }
-    if (!USERNAME_RE.test(trimmed)) { setUsernameStatus("invalid"); return; }
-    setUsernameStatus("checking");
+    if (localUsernameStatus(trimmed) !== null) return;
     // 입력이 바뀐 뒤 도착한 이전 값의 중복 확인 결과는 버린다 — 늦게 온 응답이 새 값의 상태를
     // 덮어써 이미 쓰는 이름이 "사용 가능"으로 보일 수 있었다.
     let cancelled = false;
@@ -95,9 +114,9 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
         const res = await fetch(`/api/check-username?username=${encodeURIComponent(trimmed)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { available?: boolean };
-        if (!cancelled) setUsernameStatus(data.available === true ? "available" : data.available === false ? "taken" : "idle");
+        if (!cancelled) setUsernameCheck({ value: trimmed, status: data.available === true ? "available" : data.available === false ? "taken" : "idle" });
       } catch {
-        if (!cancelled) setUsernameStatus("idle");
+        if (!cancelled) setUsernameCheck({ value: trimmed, status: "idle" });
       }
     }, 400);
     return () => {
