@@ -94,7 +94,7 @@ function UserReviewBottomSheet({
             <p className="mt-4 text-sm text-muted">아직 남긴 리뷰가 없어요.</p>
           )}
 
-          <Link
+          <Link prefetch={false}
             href={href}
             className="mt-4 block w-full rounded-full bg-brand/20 py-3 text-center text-sm font-semibold text-brand ring-1 ring-inset ring-brand/40 transition-colors hover:bg-brand/30"
           >
@@ -165,7 +165,7 @@ function UserMovieSearch({
             const reviews = reviewMap.get(movieCdFromId(movie.id)) ?? [];
             const shortReview = reviews.find((r) => r.type === "SHORT" && r.content.trim());
             return (
-              <Link
+              <Link prefetch={false}
                 key={movie.id}
                 href={href}
                 className="flex items-center gap-3 border-b border-neutral-800 p-3 transition-colors last:border-b-0 hover:bg-black/30"
@@ -268,7 +268,7 @@ function ReadOnlyMovieCard({
           movedRef.current = false;
         }}
       >
-        <Link
+        <Link prefetch={false}
           href={href}
           draggable={false}
           onDragStart={(e) => e.preventDefault()}

@@ -196,7 +196,7 @@ function AwardCacheSection() {
         <p className="mt-1 text-xs text-muted">
           영화제별 부문 수상작을 직접 등록하거나 삭제합니다.
         </p>
-        <Link
+        <Link prefetch={false}
           href="/admin/winners"
           className="mt-4 inline-block rounded-full bg-surface-hover px-5 py-2 text-sm font-semibold text-text transition-opacity hover:opacity-80"
         >

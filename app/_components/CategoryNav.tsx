@@ -46,7 +46,7 @@ export default function CategoryNav({
     <div>
       {/* 탭들이 남는 폭을 똑같이 나눠 가져(grow) 화면 끝까지 같은 간격으로 퍼진다 — 좁은 화면에선 글자 폭을 유지하고 가로 스크롤 */}
       <nav className="no-scrollbar flex items-center overflow-x-auto border-b border-neutral-800 pt-1">
-        <Link
+        <Link prefetch={false}
           href="/my-list"
           className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "my-list"
@@ -57,7 +57,7 @@ export default function CategoryNav({
           나만의 영화 리스트
         </Link>
         {tabCategories.map((category) => (
-          <Link
+          <Link prefetch={false}
             key={category}
             href={`/?category=${encodeURIComponent(category)}`}
             className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
@@ -69,7 +69,7 @@ export default function CategoryNav({
             {category}
           </Link>
         ))}
-        <Link
+        <Link prefetch={false}
           href="/awards"
           className={`grow shrink-0 whitespace-nowrap border-b-2 px-4 pb-2.5 text-center text-sm transition-colors ${
             active === "awards"
@@ -87,7 +87,7 @@ export default function CategoryNav({
             {genreLabels.map((genre) => {
               const isActive = activeGenre === genre;
               return (
-                <Link
+                <Link prefetch={false}
                   key={genre}
                   href={`/?category=${encodeURIComponent(active)}&genre=${encodeURIComponent(genre)}`}
                   className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${

@@ -142,7 +142,7 @@ async function NamesakeNotice({ name, role, personId }: { name: string; role: Ro
       )}
       <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
         {(isDisambiguated ? others : candidates).map((c) => (
-          <Link key={c.kmdbId} href={candidateHref(name, c.role, c.kmdbId)} className="underline hover:no-underline">
+          <Link prefetch={false} key={c.kmdbId} href={candidateHref(name, c.role, c.kmdbId)} className="underline hover:no-underline">
             {isDisambiguated ? "다른 후보" : "선택"}: 참여작 {c.creditCount}편
             {c.latestYear ? ` · ${c.latestYear}년 최근작` : ""}
           </Link>

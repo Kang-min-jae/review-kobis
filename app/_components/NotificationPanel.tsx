@@ -101,7 +101,7 @@ export default function NotificationPanel({
                     <li key={n.id} className="flex items-start gap-2.5">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-text">
-                          <Link
+                          <Link prefetch={false}
                             href={`/${n.movieCd.startsWith("tmdb-tv-") ? "series" : "movies"}/${cdToMovieId(n.movieCd)}/rate/category/${encodeURIComponent(n.category)}`}
                             onClick={onClose}
                             className="text-brand hover:underline"
@@ -128,12 +128,12 @@ export default function NotificationPanel({
                 <ul className="space-y-3">
                   {data.likes.map((n) => (
                     <li key={n.id} className="flex items-start gap-2.5">
-                      <Link href={`/user/${n.likerId}`} onClick={onClose}>
+                      <Link prefetch={false} href={`/user/${n.likerId}`} onClick={onClose}>
                         <Avatar name={n.likerName} image={n.likerImage} size={8} />
                       </Link>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-text">
-                          <Link
+                          <Link prefetch={false}
                             href={`/user/${n.likerId}`}
                             onClick={onClose}
                             className="font-semibold hover:underline"
@@ -141,7 +141,7 @@ export default function NotificationPanel({
                             {n.likerName}
                           </Link>
                           님이{" "}
-                          <Link
+                          <Link prefetch={false}
                             href={`/movies/${n.movieCd}/rate`}
                             onClick={onClose}
                             className="text-brand hover:underline"
@@ -170,11 +170,11 @@ export default function NotificationPanel({
                   <ul className="space-y-3">
                     {data.followers.slice(0, FOLLOWER_SHOW).map((f) => (
                       <li key={f.id} className="flex items-center gap-2.5">
-                        <Link href={`/user/${f.userId}`} onClick={onClose}>
+                        <Link prefetch={false} href={`/user/${f.userId}`} onClick={onClose}>
                           <Avatar name={f.name} image={f.image} size={8} />
                         </Link>
                         <div className="min-w-0 flex-1">
-                          <Link
+                          <Link prefetch={false}
                             href={`/user/${f.userId}`}
                             onClick={onClose}
                             className="text-xs font-semibold text-text hover:underline"
@@ -205,12 +205,12 @@ export default function NotificationPanel({
                 <ul className="space-y-3">
                   {data.followingActivity.map((a) => (
                     <li key={a.id} className="flex items-start gap-2.5">
-                      <Link href={`/user/${a.userId}`} onClick={onClose}>
+                      <Link prefetch={false} href={`/user/${a.userId}`} onClick={onClose}>
                         <Avatar name={a.userName} image={a.userImage} size={8} />
                       </Link>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-text">
-                          <Link
+                          <Link prefetch={false}
                             href={`/user/${a.userId}`}
                             onClick={onClose}
                             className="font-semibold hover:underline"
@@ -218,7 +218,7 @@ export default function NotificationPanel({
                             {a.userName}
                           </Link>
                           님이{" "}
-                          <Link
+                          <Link prefetch={false}
                             href={`/movies/${a.movieCd}/rate`}
                             onClick={onClose}
                             className="text-brand hover:underline"

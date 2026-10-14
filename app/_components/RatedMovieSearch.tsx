@@ -122,7 +122,7 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
             const hasOverall = !categoryOnlyIds.has(movie.id);
             return (
               <div key={movie.id} className="border-b border-neutral-800 last:border-b-0">
-                <Link href={base} className="flex items-center gap-3 p-3 transition-colors hover:bg-black/30">
+                <Link prefetch={false} href={base} className="flex items-center gap-3 p-3 transition-colors hover:bg-black/30">
                   <div
                     className={`relative h-12 w-9 shrink-0 overflow-hidden rounded ${
                       movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
@@ -151,7 +151,7 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
                   <ul className="pb-2 pl-[60px] pr-3">
                     {categoryEntries.map((entry) => (
                       <li key={entry.category}>
-                        <Link
+                        <Link prefetch={false}
                           href={`${base}/category/${encodeURIComponent(entry.category)}`}
                           className="flex items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-black/30"
                         >

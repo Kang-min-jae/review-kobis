@@ -194,7 +194,7 @@ export default function DiaryDayDetailModal({
             return (
               <div key={row.movieId} className="flex items-start gap-3 rounded-lg bg-black/20 p-2">
                 {isRatable ? (
-                  <Link href={rateHrefFor(row.movieId)} aria-label={`${row.title} 정보 보기`}>
+                  <Link prefetch={false} href={rateHrefFor(row.movieId)} aria-label={`${row.title} 정보 보기`}>
                     {poster}
                   </Link>
                 ) : (

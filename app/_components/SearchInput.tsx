@@ -227,7 +227,7 @@ export default function SearchInput() {
                   const isAmbiguous =
                     people.filter((p) => p.name === person.name && p.role === person.role).length > 1;
                   return (
-                    <Link
+                    <Link prefetch={false}
                       key={`${person.tmdbId ?? person.kmdbId}-${idx}`}
                       href={(() => {
                         const params = new URLSearchParams({ role: person.role });
@@ -263,7 +263,7 @@ export default function SearchInput() {
               <div className="border-b border-neutral-700 py-1">
                 <p className="px-3 py-1 text-[10px] font-semibold text-muted">시리즈</p>
                 {series.map((hit) => (
-                  <Link
+                  <Link prefetch={false}
                     key={hit.tmdbId}
                     href={`/series/tmdb-tv-${hit.tmdbId}/rate`}
                     onClick={() => setOpen(false)}
@@ -292,7 +292,7 @@ export default function SearchInput() {
               <div className="py-1">
                 {(people.length > 0 || series.length > 0) && <p className="px-3 py-1 text-[10px] font-semibold text-muted">영화</p>}
                 {movies.map((hit) => (
-                  <Link
+                  <Link prefetch={false}
                     key={hit.movieCd}
                     href={`/movies/kobis-${hit.movieCd}/rate`}
                     onClick={() => setOpen(false)}

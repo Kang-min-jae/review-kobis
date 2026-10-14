@@ -37,7 +37,7 @@ export default function TopReviewsList({
         <div key={r.id} className="rounded bg-neutral-800/60 px-2 py-1.5">
           <div className="flex items-center justify-between gap-1">
             <div className="flex min-w-0 items-center gap-1">
-              <Link href={`/users/${r.authorId}`} className="truncate text-[10px] font-semibold text-text hover:underline">
+              <Link prefetch={false} href={`/users/${r.authorId}`} className="truncate text-[10px] font-semibold text-text hover:underline">
                 {r.authorName}
               </Link>
               <TierBadge tier={r.authorTier} />

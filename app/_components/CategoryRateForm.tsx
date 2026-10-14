@@ -744,7 +744,7 @@ export default function CategoryRateForm({
             return (
             <li key={review.id} className="rounded-xl bg-surface px-3.5 py-3">
               <div className="flex items-center gap-2.5">
-                <Link
+                <Link prefetch={false}
                   href={`/users/${review.authorId}`}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-bold text-text hover:opacity-80"
                 >
@@ -752,7 +752,7 @@ export default function CategoryRateForm({
                 </Link>
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <Link href={`/users/${review.authorId}`} className="truncate text-sm font-semibold text-text hover:underline">
+                    <Link prefetch={false} href={`/users/${review.authorId}`} className="truncate text-sm font-semibold text-text hover:underline">
                       {review.authorName}
                     </Link>
                     <TierBadge tier={review.authorTier} />

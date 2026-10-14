@@ -98,7 +98,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
             <label htmlFor="password" className="text-xs text-muted">
               비밀번호
             </label>
-            <Link href="/forgot-password" className="text-xs font-semibold text-brand hover:underline">
+            <Link prefetch={false} href="/forgot-password" className="text-xs font-semibold text-brand hover:underline">
               아이디·비밀번호 찾기
             </Link>
           </div>
@@ -123,7 +123,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         </button>
       </form>
 
-      <Link
+      <Link prefetch={false}
         href={`/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`}
         className="mt-3 block w-full rounded-full border border-neutral-700 py-3 text-center text-sm font-semibold text-text transition-colors hover:border-brand"
       >

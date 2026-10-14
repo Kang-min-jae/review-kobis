@@ -54,7 +54,7 @@ export default function UserStyleReport({
                 ? `/series/${movie.id}/rate`
                 : `/movies/${movie.id}/rate`;
               return (
-                <Link
+                <Link prefetch={false}
                   key={movie.id}
                   href={href}
                   className="flex items-center gap-3 rounded-lg bg-black/30 p-2.5 transition-colors hover:bg-black/50"

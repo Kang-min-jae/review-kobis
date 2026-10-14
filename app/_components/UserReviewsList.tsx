@@ -25,7 +25,7 @@ export default function UserReviewsList({ reviews }: { reviews: UserReview[] }) 
             {short.map((r) => (
               <div key={r.id} className="rounded-xl bg-surface px-4 py-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <Link
+                  <Link prefetch={false}
                     href={`/movies/${r.movieCd}/rate/category/${encodeURIComponent(r.category)}`}
                     className="text-sm font-semibold text-text hover:underline truncate max-w-[70%]"
                   >
@@ -53,7 +53,7 @@ export default function UserReviewsList({ reviews }: { reviews: UserReview[] }) 
             {long.map((r) => (
               <div key={r.id} className="rounded-xl bg-surface px-4 py-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <Link
+                  <Link prefetch={false}
                     href={`/movies/${r.movieCd}/rate/category/${encodeURIComponent(r.category)}`}
                     className="text-sm font-semibold text-text hover:underline truncate max-w-[70%]"
                   >

@@ -22,7 +22,7 @@ export default function ConsentForm({ callbackUrl }: { callbackUrl: string }) {
       <h1 className="text-lg font-bold text-text">약관 동의</h1>
       <p className="mt-1 text-xs leading-relaxed text-muted">
         서비스를 이용하려면 아래 약관에 동의해 주세요. 전문은{" "}
-        <Link href="/legal" className="underline underline-offset-2 hover:text-text" target="_blank">
+        <Link prefetch={false} href="/legal" className="underline underline-offset-2 hover:text-text" target="_blank">
           이용약관·개인정보 처리방침
         </Link>
         에서도 볼 수 있어요.

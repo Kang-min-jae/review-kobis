@@ -114,7 +114,7 @@ export default function SeriesKeywordSearch() {
           )}
           <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [scrollbar-width:thin]">
             {results.map((movie) => (
-              <Link
+              <Link prefetch={false}
                 key={movie.id}
                 href={`/series/${movie.id}/rate`}
                 className="group shrink-0"

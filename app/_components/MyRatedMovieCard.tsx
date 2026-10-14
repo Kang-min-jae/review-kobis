@@ -94,7 +94,7 @@ function MyReviewBottomSheet({
             <p className="mt-4 text-sm text-muted">아직 남긴 리뷰가 없어요.</p>
           )}
 
-          <Link
+          <Link prefetch={false}
             href={rateHref}
             className="mt-4 block w-full rounded-full bg-brand/20 py-3 text-center text-sm font-semibold text-brand ring-1 ring-inset ring-brand/40 transition-colors hover:bg-brand/30"
           >
@@ -183,7 +183,7 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
           movedRef.current = false;
         }}
       >
-        <Link
+        <Link prefetch={false}
           href={rateHref}
           draggable={false}
           onDragStart={(e) => e.preventDefault()}

@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
       fallback: [],
     };
   },
+  // 이미지 최적화(/_next/image)는 무료 플랜 한도(월 5천 건 변환)를 넘겨 사이트가 멈춘 원인이었다.
+  // 포스터는 poster-loader.ts가 TMDB·KMDb 원본 주소로 바로 받고, 사이트 자체 이미지도 unoptimized로 둔다.
   images: {
     // 포스터 URL은 이미지가 바뀌면 경로 자체가 바뀌므로 오래 캐시해도 안전하다(기본 4시간).
     // 최적화된 포스터를 31일간 재사용해 재방문·다른 사용자 요청 때 변환 대기를 없앤다.

@@ -37,13 +37,14 @@ export default function SearchBar() {
       </Suspense>
 
       {/* 로고 — 홈 히어로와 같은 극장 의자 사진 + STILL THEATER. 좁은 화면에선 사진만 보인다. */}
-      <Link href="/" aria-label="STILL THEATER 홈" className="flex shrink-0 items-center gap-2 rounded-md">
+      <Link prefetch={false} href="/" aria-label="STILL THEATER 홈" className="flex shrink-0 items-center gap-2 rounded-md">
         <Image
           src="/images/hero-theater.webp"
           alt=""
           width={72}
           height={40}
           priority
+          unoptimized
           className="h-9 w-14 rounded-md object-cover object-[60%_55%] sm:h-10 sm:w-[72px]"
         />
         <span className="hidden whitespace-nowrap text-base font-black tracking-[0.08em] text-text md:inline">STILL THEATER</span>

@@ -249,7 +249,7 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
 
       <p className="mt-4 text-center text-xs text-muted">
         이미 계정이 있나요?{" "}
-        <Link href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="font-semibold text-brand hover:underline">
+        <Link prefetch={false} href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="font-semibold text-brand hover:underline">
           로그인
         </Link>
       </p>

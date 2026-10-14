@@ -37,7 +37,7 @@ export default async function AdminPage() {
       {/* 바로가기 타일 */}
       <div className="grid grid-cols-2 gap-3">
         {TILES.map((t) => (
-          <Link
+          <Link prefetch={false}
             key={t.href}
             href={t.href}
             className="rounded-xl bg-surface p-4 flex flex-col gap-2 hover:bg-surface-hover transition-colors"

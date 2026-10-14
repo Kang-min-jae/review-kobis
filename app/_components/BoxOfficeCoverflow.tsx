@@ -302,7 +302,7 @@ export default function BoxOfficeCoverflow({
 
                       <div className="mt-2 flex gap-1.5" data-no-drag>
                         {movie.isNowShowing && (
-                          <Link
+                          <Link prefetch={false}
                             href={`/theaters?movie=${movie.id}`}
                             className="flex-1 whitespace-nowrap rounded-full border border-brand px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
                           >
@@ -310,7 +310,7 @@ export default function BoxOfficeCoverflow({
                           </Link>
                         )}
                         {isRatableMovieId(movie.id) ? (
-                          <Link
+                          <Link prefetch={false}
                             href={rateHrefFor(movie.id)}
                             className="flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
                           >
@@ -332,7 +332,7 @@ export default function BoxOfficeCoverflow({
 
         <div className="mt-5 text-center">
           {isCurrentRatable ? (
-            <Link
+            <Link prefetch={false}
               href={rateHrefFor(current.id)}
               className="text-lg font-bold text-text hover:underline"
             >

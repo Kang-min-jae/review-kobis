@@ -223,7 +223,7 @@ export default function MyListView({
             {reviewedMovies.length === 0 ? (
               <>
                 평점을 남긴 영화가 아직 없어요. 영화에{" "}
-                <Link href="/" className="text-brand hover:underline">
+                <Link prefetch={false} href="/" className="text-brand hover:underline">
                   평점을 남기면
                 </Link>{" "}
                 나만의 리스트에 추가할 수 있어요.
@@ -287,7 +287,7 @@ export default function MyListView({
               const tier = getBadge(user.totalLikes ?? 0);
               const tierStyle = TIER_STYLES[tier as Tier];
               return (
-                <Link
+                <Link prefetch={false}
                   key={user.id}
                   href={`/users/${user.id}`}
                   className="flex items-center gap-3 rounded-lg bg-surface p-3 transition-colors hover:bg-surface/80"

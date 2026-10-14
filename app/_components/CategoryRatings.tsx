@@ -23,7 +23,7 @@ export default function CategoryRatings({
 
       <div className="mt-2 space-y-0.5">
         {averages.map(({ category, average, count }) => (
-          <Link
+          <Link prefetch={false}
             key={category}
             href={`${base}/${encodeURIComponent(category)}`}
             className={`flex items-center justify-between rounded-lg px-1.5 py-1 text-xs transition-colors ${

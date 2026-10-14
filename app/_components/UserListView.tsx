@@ -8,7 +8,7 @@ function ReadOnlyMovieCard({ movie }: { movie: MyRatedMovie }) {
   const href = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
   return (
     <div className="w-32 shrink-0">
-      <Link
+      <Link prefetch={false}
         href={href}
         className={`relative block aspect-2/3 overflow-hidden rounded-lg ${
           movie.posterUrl ? "bg-surface" : `bg-gradient-to-br ${movie.gradient}`

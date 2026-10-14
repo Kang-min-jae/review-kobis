@@ -196,7 +196,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
         >
           <div className="flex gap-1.5 p-2">
             {movie.isNowShowing && (
-              <Link
+              <Link prefetch={false}
                 href={`/theaters?movie=${movie.id}`}
                 className="flex-1 whitespace-nowrap rounded-full border border-brand bg-black/50 px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
               >
@@ -204,7 +204,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
               </Link>
             )}
             {isRatable ? (
-              <Link
+              <Link prefetch={false}
                 href={rateHref}
                 className={`flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold transition-colors hover:bg-star hover:text-black ${
                   myMovieRating !== null ? "bg-star/25 text-star" : "bg-black/50 text-star"

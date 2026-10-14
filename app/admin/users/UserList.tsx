@@ -69,7 +69,7 @@ export default function UserList() {
             const tier = getBadge(u.totalLikes);
             const ts = TIER_STYLES[tier as Tier];
             return (
-              <Link
+              <Link prefetch={false}
                 key={u.id}
                 href={`/users/${u.id}`}
                 className="flex items-center gap-3 rounded-xl bg-surface p-4 hover:bg-surface-hover transition-colors"

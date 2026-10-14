@@ -120,7 +120,7 @@ function ListMovieCard({
         ✕
       </button>
       {isRatable ? (
-        <Link href={rateHref} draggable={false}>
+        <Link prefetch={false} href={rateHref} draggable={false}>
           {poster}
         </Link>
       ) : (

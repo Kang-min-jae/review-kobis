@@ -40,7 +40,7 @@ export default function BackBar() {
         ← 뒤로
       </button>
       <span className="h-3 w-px bg-neutral-700" />
-      <Link href="/" className="cursor-pointer text-muted hover:text-text">
+      <Link prefetch={false} href="/" className="cursor-pointer text-muted hover:text-text">
         홈
       </Link>
     </div>

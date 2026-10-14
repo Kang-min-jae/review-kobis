@@ -30,7 +30,7 @@ export default async function MyInquiriesPage() {
       {inquiries.length === 0 ? (
         <div className="mt-10 text-center">
           <p className="text-sm text-muted">아직 문의 내역이 없어요.</p>
-          <Link
+          <Link prefetch={false}
             href="/help/inquiry"
             className="mt-3 inline-block rounded-xl bg-surface px-5 py-2.5 text-sm text-text hover:bg-surface-hover"
           >

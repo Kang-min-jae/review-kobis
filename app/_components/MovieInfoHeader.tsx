@@ -74,7 +74,7 @@ export default function MovieInfoHeader({
             {director && (
               <>
                 감독{" "}
-                <Link href={personHref(director, "감독")} className="text-text hover:underline">
+                <Link prefetch={false} href={personHref(director, "감독")} className="text-text hover:underline">
                   {director.name}
                 </Link>
               </>
@@ -85,7 +85,7 @@ export default function MovieInfoHeader({
                 출연{" "}
                 {cast.slice(0, DISPLAY_CAST_LIMIT).map((member, i, shown) => (
                   <span key={member.name}>
-                    <Link href={personHref(member, "배우")} className="text-text hover:underline">
+                    <Link prefetch={false} href={personHref(member, "배우")} className="text-text hover:underline">
                       {member.name}
                     </Link>
                     {i < shown.length - 1 ? ", " : ""}

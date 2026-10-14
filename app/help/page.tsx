@@ -50,7 +50,7 @@ export default async function HelpPage() {
 
       {/* 관리자 전용 진입 카드 */}
       {isAdmin && (
-        <Link
+        <Link prefetch={false}
           href="/admin/inquiries"
           className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 transition hover:bg-red-500/20"
         >
@@ -71,7 +71,7 @@ export default async function HelpPage() {
 
       {/* 빠른 이동 카드 */}
       <div className={`${isAdmin ? "mt-3" : "mt-5"} grid grid-cols-2 gap-3`}>
-        <Link
+        <Link prefetch={false}
           href="/help/inquiry"
           className="rounded-xl bg-surface p-4 transition hover:bg-surface-hover"
         >
@@ -81,7 +81,7 @@ export default async function HelpPage() {
           <p className="text-sm font-semibold text-text">1:1 문의 / 오류 제보</p>
           <p className="mt-0.5 text-xs text-muted">포스터 오류, 수상 정보 오류 등을 알려주세요</p>
         </Link>
-        <Link
+        <Link prefetch={false}
           href="/help/my-inquiries"
           className="rounded-xl bg-surface p-4 transition hover:bg-surface-hover"
         >
@@ -108,7 +108,7 @@ export default async function HelpPage() {
             <h2 className="flex items-center gap-1.5 text-sm font-semibold text-muted">
               <span>📢</span> 공지사항
             </h2>
-            <Link href="/help/notices" className="text-xs text-muted hover:text-text">
+            <Link prefetch={false} href="/help/notices" className="text-xs text-muted hover:text-text">
               전체보기 →
             </Link>
           </div>

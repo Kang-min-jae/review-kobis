@@ -27,7 +27,8 @@ import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 // 영화 목록은 1시간 캐시하고, DB 오류가 나면 고정 페이지만 내보낸다.
 
 const SITEMAP_URL_MAX = 50_000;
-const MOVIE_URL_LIMIT = 5_000;
+// 상세 페이지는 요청마다 새로 그리는 무거운 페이지라 검색봇 수집량을 고려해 우선 2,000편까지만 싣는다.
+const MOVIE_URL_LIMIT = 2_000;
 const RECENT_RELEASE_DAYS = 90;
 
 const STATIC_PAGES: { path: string; changeFrequency: "daily" | "weekly" | "monthly"; priority: number }[] = [

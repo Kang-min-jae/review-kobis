@@ -147,7 +147,7 @@ export default function AddToListButton({
               만들기
             </button>
           </form>
-          <Link href="/my-list#collections" className="mt-2 block text-right text-[11px] text-muted hover:text-text">
+          <Link prefetch={false} href="/my-list#collections" className="mt-2 block text-right text-[11px] text-muted hover:text-text">
             나만의 영화 리스트 보기 →
           </Link>
         </div>

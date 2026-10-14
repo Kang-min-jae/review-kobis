@@ -187,7 +187,7 @@ export default function SideMenu({
 
             <p className="mt-6 px-2 text-xs font-semibold text-muted">내 활동</p>
             <nav className="mt-2 space-y-1">
-              <Link
+              <Link prefetch={false}
                 href="/diary"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
@@ -195,7 +195,7 @@ export default function SideMenu({
                 <DiaryIcon />
                 다이어리
               </Link>
-              <Link
+              <Link prefetch={false}
                 href="/collection"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
@@ -203,7 +203,7 @@ export default function SideMenu({
                 <CollectionIcon />
                 컬렉션
               </Link>
-              <Link
+              <Link prefetch={false}
                 href="/following"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
@@ -215,7 +215,7 @@ export default function SideMenu({
 
             <p className="mt-6 px-2 text-xs font-semibold text-muted">설정</p>
             <nav className="mt-2 space-y-1">
-              <Link
+              <Link prefetch={false}
                 href="/mypage"
                 onClick={close}
                 className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-text transition-colors hover:bg-black/30"
@@ -286,7 +286,7 @@ export default function SideMenu({
               </div>
 
               {session?.user?.role === "ADMIN" && (
-                <Link
+                <Link prefetch={false}
                   href="/admin"
                   onClick={close}
                   className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm font-semibold text-red-400 transition-colors hover:bg-black/30"
@@ -295,7 +295,7 @@ export default function SideMenu({
                   관리자 대시보드
                 </Link>
               )}
-              <Link
+              <Link prefetch={false}
                 href="/help"
                 onClick={close}
                 className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm text-muted transition-colors hover:bg-black/30 hover:text-text"
@@ -319,11 +319,11 @@ export default function SideMenu({
             </nav>
 
             <p className="mt-8 text-center text-[11px] text-muted">
-              <Link href="/legal#terms" onClick={close} className="hover:text-text hover:underline">
+              <Link prefetch={false} href="/legal#terms" onClick={close} className="hover:text-text hover:underline">
                 이용약관
               </Link>
               {" · "}
-              <Link href="/legal#privacy" onClick={close} className="font-semibold hover:text-text hover:underline">
+              <Link prefetch={false} href="/legal#privacy" onClick={close} className="font-semibold hover:text-text hover:underline">
                 개인정보 처리방침
               </Link>
             </p>

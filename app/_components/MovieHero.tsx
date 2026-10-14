@@ -87,7 +87,7 @@ export default function MovieHero({
           {(director || shownCast.length > 0) && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               {director && (
-                <Link
+                <Link prefetch={false}
                   href={personHref(director, "감독")}
                   className="rounded-full border border-neutral-700 px-3 py-1 text-xs text-text transition-colors hover:border-star hover:text-star"
                 >
@@ -95,7 +95,7 @@ export default function MovieHero({
                 </Link>
               )}
               {shownCast.map((member) => (
-                <Link
+                <Link prefetch={false}
                   key={member.name}
                   href={personHref(member, "배우")}
                   className="rounded-full border border-neutral-700 px-3 py-1 text-xs text-text transition-colors hover:border-star hover:text-star"

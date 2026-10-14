@@ -38,7 +38,7 @@ export default function ProfileView({ authorId }: { authorId: string }) {
             return (
               <div key={review.id} className="rounded-lg bg-surface p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <Link
+                  <Link prefetch={false}
                     href={`/movies/${review.movieId}/rate/category/${encodeURIComponent(category)}`}
                     className="truncate text-sm font-semibold text-text hover:underline"
                   >

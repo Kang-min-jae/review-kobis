@@ -130,7 +130,7 @@ function CardBack({ movie, currentRatable }: { movie: RowMovie; currentRatable: 
 
       <div className="mt-2 flex gap-1.5" data-no-drag>
         {movie.isNowShowing && (
-          <Link
+          <Link prefetch={false}
             href={`/theaters?movie=${movie.id}`}
             className="flex-1 whitespace-nowrap rounded-full border border-brand px-1 py-1.5 text-center text-[10px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
           >
@@ -138,7 +138,7 @@ function CardBack({ movie, currentRatable }: { movie: RowMovie; currentRatable: 
           </Link>
         )}
         {currentRatable ? (
-          <Link
+          <Link prefetch={false}
             href={rateHref(movie)}
             className="flex-1 whitespace-nowrap rounded-full border border-star px-1 py-1.5 text-center text-[10px] font-semibold text-star transition-colors hover:bg-star hover:text-black"
           >
@@ -370,7 +370,7 @@ export default function CoverflowCarousel({
       {/* 현재 카드 제목 + 배지 */}
       <div className="mt-5 text-center">
         {currentRatable ? (
-          <Link href={rateHref(current)} className="text-lg font-bold text-text hover:underline">
+          <Link prefetch={false} href={rateHref(current)} className="text-lg font-bold text-text hover:underline">
             {current.title}
           </Link>
         ) : (

@@ -77,7 +77,7 @@ export default function FollowingList({ users }: { users: FollowingUser[] }) {
                 <span className="text-muted">☆</span>
               )}
             </button>
-            <Link
+            <Link prefetch={false}
               href={`/users/${user.id}`}
               className="flex flex-1 items-center gap-3 rounded-lg bg-surface px-4 py-3 transition-colors hover:bg-surface-hover"
             >

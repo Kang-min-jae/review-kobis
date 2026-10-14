@@ -39,7 +39,7 @@ export default function ForgotPasswordForm() {
       {resetSuccess ? (
         <>
           <p className="mt-4 text-sm text-text">비밀번호가 변경됐어요.</p>
-          <Link
+          <Link prefetch={false}
             href="/login"
             className="mt-6 block w-full rounded-full bg-brand py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
           >
@@ -139,7 +139,7 @@ export default function ForgotPasswordForm() {
       )}
 
       <p className="mt-4 text-center text-xs text-muted">
-        <Link href="/login" className="font-semibold text-brand hover:underline">
+        <Link prefetch={false} href="/login" className="font-semibold text-brand hover:underline">
           로그인으로 돌아가기
         </Link>
       </p>

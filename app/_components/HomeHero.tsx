@@ -30,7 +30,7 @@ function TierBadge({ tier }: { tier: string }) {
 function MoviePanel({ movie, mode }: { movie: HeroMovie; mode: Mode }) {
   return (
     <div key={`${mode}-${movie.movieId}`} className="flex h-full min-h-0 gap-4 motion-safe:animate-[heroFadeIn_.35s_ease] md:gap-6">
-      <Link
+      <Link prefetch={false}
         href={`/movies/${movie.movieId}/rate`}
         className={`relative aspect-2/3 w-24 shrink-0 self-start overflow-hidden rounded-xl sm:w-32 md:w-auto md:self-stretch ${
           movie.posterUrl ? "bg-black" : `bg-gradient-to-br ${movie.gradient}`
@@ -42,7 +42,7 @@ function MoviePanel({ movie, mode }: { movie: HeroMovie; mode: Mode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <p className="text-[11px] font-bold text-star">{MODE_LABELS[mode].caption}</p>
-        <Link href={`/movies/${movie.movieId}/rate`} className="mt-1 line-clamp-2 text-xl font-bold text-text hover:underline md:text-2xl">
+        <Link prefetch={false} href={`/movies/${movie.movieId}/rate`} className="mt-1 line-clamp-2 text-xl font-bold text-text hover:underline md:text-2xl">
           {movie.title}
         </Link>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -103,7 +103,7 @@ function TodayReviewPanel({ review }: { review: HeroTodayReview }) {
       <span aria-hidden="true" className="mt-1 -mb-2 h-8 font-serif text-5xl leading-none text-star">“</span>
       <blockquote className="line-clamp-3 text-lg font-bold leading-snug text-text md:text-2xl">{review.content}</blockquote>
       <div className="mt-3 flex min-w-0 items-center gap-2 text-xs">
-        <Link href={`/users/${review.authorId}`} className="flex min-w-0 items-center gap-2 hover:underline">
+        <Link prefetch={false} href={`/users/${review.authorId}`} className="flex min-w-0 items-center gap-2 hover:underline">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-star text-[11px] font-bold text-black">
             {Array.from(review.authorName)[0]}
           </span>
@@ -113,7 +113,7 @@ function TodayReviewPanel({ review }: { review: HeroTodayReview }) {
         <span className="shrink-0 font-bold text-star">★ {review.rating.toFixed(1)}</span>
         <span className="shrink-0 text-muted">· {timeAgo(review.createdAt)}</span>
       </div>
-      <Link
+      <Link prefetch={false}
         href={`/movies/${review.movieId}/rate`}
         className="mt-3 flex w-full max-w-sm items-center gap-3 rounded-xl border border-neutral-800 bg-black/30 p-2.5 transition-colors hover:border-neutral-600"
       >
@@ -218,7 +218,7 @@ export default function HomeHero({
           active ? "-translate-x-1/3 opacity-0" : "translate-x-0 opacity-100"
         }`}
       >
-        <Image src="/images/hero-theater.webp" alt="" fill priority sizes="100vw" className="object-cover object-[70%_50%]" />
+        <Image src="/images/hero-theater.webp" alt="" fill priority unoptimized sizes="100vw" className="object-cover object-[70%_50%]" />
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent md:via-black/40" />
       </div>
 
@@ -292,7 +292,7 @@ export default function HomeHero({
 
         <div className="mt-3 flex items-center justify-between gap-3">
           {movie ? (
-            <Link
+            <Link prefetch={false}
               href={`/movies/${movie.movieId}/rate`}
               className="rounded-xl bg-star px-4 py-2.5 text-sm font-bold text-black transition-opacity hover:opacity-90"
             >
@@ -301,7 +301,7 @@ export default function HomeHero({
           ) : review ? (
             <div className="flex flex-wrap items-center gap-2">
               <LikeButton key={review.id} review={review} isLoggedIn={isLoggedIn} initiallyLiked={likedReviewIds.includes(review.id)} />
-              <Link
+              <Link prefetch={false}
                 href={`/movies/${review.movieId}/rate`}
                 className="flex h-10 items-center rounded-xl bg-star px-4 text-sm font-bold text-black transition-opacity hover:opacity-90"
               >
