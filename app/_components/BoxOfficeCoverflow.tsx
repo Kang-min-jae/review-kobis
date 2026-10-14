@@ -37,7 +37,16 @@ function circularOffset(index: number, active: number, length: number): number {
 function cardStyle(offset: number, dragOffsetPx: number, transitionEnabled: boolean): CSSProperties {
   const abs = Math.abs(offset);
   if (abs > MAX_VISIBLE_OFFSET) {
-    return { opacity: 0, pointerEvents: "none" };
+    // 숨은 카드도 화면 밖 가장자리(보이는 마지막 자리 바로 바깥)에 둔다 — 예전엔 위치 없이 가운데에 숨어
+    // 있다가, 다시 보일 때 가운데에서 옆으로 날아가며 회전판이 거꾸로 도는 것처럼 보였다.
+    const edge = Math.sign(offset) * (MAX_VISIBLE_OFFSET + 1);
+    return {
+      transform: `translateX(${edge * SPACING_PX + dragOffsetPx}px) translateZ(${-(MAX_VISIBLE_OFFSET + 1) * 90}px) scale(0.4)`,
+      opacity: 0,
+      pointerEvents: "none",
+      zIndex: 0,
+      transition: transitionEnabled ? "transform 0.5s ease-out, opacity 0.5s ease-out" : "none",
+    };
   }
   const scale = Math.max(1 - abs * 0.22, 0.4);
   const rotateY = Math.max(-50, Math.min(50, -offset * 26));
@@ -70,6 +79,8 @@ export default function BoxOfficeCoverflow({
   movies: RowMovie[];
 }) {
   const [active, setActive] = useState(0);
+  // 바로 전 중심 — 순환 목록의 끝에서 반대편으로 넘어가는 카드를 찾아 그 카드만 애니메이션 없이 옮긴다.
+  const [prevActive, setPrevActive] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
@@ -85,10 +96,14 @@ export default function BoxOfficeCoverflow({
 
   // 중심(active)이 바뀌는 모든 경로(화살표, 드래그, 다른 카드 클릭, 점 인디케이터)가
   // 공통으로 거치는 함수 — 뒤집혀 있던 카드는 중심이 바뀌기 전에 항상 앞면으로 되돌린다.
-  const changeActive = useCallback((next: number) => {
-    setFlipped(false);
-    setActive(next);
-  }, []);
+  const changeActive = useCallback(
+    (next: number) => {
+      setFlipped(false);
+      setPrevActive(active);
+      setActive(next);
+    },
+    [active]
+  );
 
   const go = useCallback(
     (delta: number) => {
@@ -143,6 +158,16 @@ export default function BoxOfficeCoverflow({
     if (Math.abs(deltaX) > DRAG_MOVE_THRESHOLD_PX) draggedRef.current = true;
     setDragOffsetPx(deltaX);
   };
+  // 브라우저가 터치를 가져가면(세로 스크롤 시작 등) pointercancel이 온다. 이때 좌표는 0일 수 있어
+  // 손 뗌(pointerup)처럼 처리하면 엉뚱한 방향으로 넘어갔다 — 드래그만 취소하고 제자리로 돌린다.
+  const onPointerCancel = () => {
+    dragStartXRef.current = null;
+    dragStartYRef.current = null;
+    directionRef.current = null;
+    pressedCardRef.current = null;
+    setDragging(false);
+    setDragOffsetPx(0);
+  };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     if (dragStartXRef.current === null) return;
     const delta = e.clientX - dragStartXRef.current;
@@ -191,11 +216,14 @@ export default function BoxOfficeCoverflow({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={onPointerCancel}
         >
           <div className="relative h-[350px] w-[230px] [transform-style:preserve-3d]">
             {movies.map((movie, i) => {
               const offset = circularOffset(i, active, length);
+              // 중심이 shift칸 움직였는데 이 카드가 그만큼이 아니라 반대편 끝으로 건너뛰었으면(순환) 애니메이션을 끈다.
+              const shift = circularOffset(active, prevActive, length);
+              const wrapped = circularOffset(i, prevActive, length) - shift !== offset;
               const { rank } = parseBadge(movie.badge);
               const isActiveCard = offset === 0;
               const isFlippedCard = isActiveCard && flipped;
@@ -206,7 +234,7 @@ export default function BoxOfficeCoverflow({
                   data-card-index={i}
                   data-card-offset={offset}
                   className="absolute inset-0 cursor-pointer"
-                  style={cardStyle(offset, dragOffsetPx, !dragging)}
+                  style={cardStyle(offset, dragOffsetPx, !dragging && !wrapped)}
                 >
                   {/* 뒤집기 전용 안쪽 래퍼 — 위치/각도(캐러셀) 트랜스폼과는 별개로,
                       Y축 180도 회전만 담당한다. */}
