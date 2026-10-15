@@ -675,6 +675,36 @@ export async function getTmdbMovieVideos(tmdbId: string, lang: "ko-KR" | "en-US"
 }
 
 // GET /movie/{movie_id}/recommendations — "비슷한 영화" 폴백에 쓰는 TMDB 추천작 ID 목록(1페이지).
+// TMDB TV 장르 ID → 이름(ko-KR 응답과 같은 표기). 추천 목록은 장르를 ID로만 준다.
+const TV_GENRE_NAMES: Record<number, string> = {
+  10759: "액션 & 어드벤처", 16: "애니메이션", 35: "코미디", 80: "범죄", 99: "다큐멘터리", 18: "드라마",
+  10751: "가족", 10762: "Kids", 9648: "미스터리", 10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy",
+  10766: "Soap", 10767: "Talk", 10768: "War & Politics", 37: "서부",
+};
+
+type RawTmdbTvListItem = RawTmdbTvSearchResult & { genre_ids?: number[]; adult?: boolean };
+
+// 시리즈 상세 "비슷한 시리즈" — TMDB의 추천(recommendations)을 먼저, 모자라면 비슷한 작품(similar)으로 채운다.
+// 응답은 다른 TMDB 조회처럼 하루 동안 캐시된다(tmdbFetch).
+export async function getTmdbSeriesRecommendations(tmdbId: string): Promise<TmdbSeriesDetails[]> {
+  if (!/^\d{1,12}$/.test(tmdbId)) return [];
+  const [recs, similar] = await Promise.all([
+    tmdbFetch<{ results?: RawTmdbTvListItem[] }>(`/tv/${tmdbId}/recommendations`, { page: "1" }),
+    tmdbFetch<{ results?: RawTmdbTvListItem[] }>(`/tv/${tmdbId}/similar`, { page: "1" }),
+  ]);
+  const seen = new Set<string>();
+  const out: TmdbSeriesDetails[] = [];
+  for (const r of [...(recs?.results ?? []), ...(similar?.results ?? [])]) {
+    if (r.adult === true || !(r.name || r.original_name)) continue;
+    const id = String(r.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const genres = (r.genre_ids ?? []).map((g) => TV_GENRE_NAMES[g]).filter((g): g is string => Boolean(g));
+    out.push({ ...rawToSeriesDetails(r), genre: genres.length > 0 ? genres.join(",") : null });
+  }
+  return out;
+}
+
 export async function getTmdbMovieRecommendationIds(tmdbId: string): Promise<string[]> {
   if (!/^\d{1,12}$/.test(tmdbId)) return [];
   const data = await tmdbFetch<{ results?: { id?: number }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });

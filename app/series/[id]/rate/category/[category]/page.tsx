@@ -1,15 +1,24 @@
-import { Suspense } from "react";
+import { Suspense, type ComponentProps } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import type { Session } from "next-auth";
 import { auth } from "../../../../../../auth";
 import { resolveSeriesRateInfo } from "../../../../../_lib/series-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../../../../_lib/category-ratings-store";
 import { getAllCategoryAverages } from "../../../../../_lib/review-data";
 import SiteHeader from "../../../../../_components/SiteHeader";
 import BackBar from "../../../../../_components/BackBar";
-import MovieInfoHeader from "../../../../../_components/MovieInfoHeader";
+import MovieHero from "../../../../../_components/MovieHero";
+import AddToListButton from "../../../../../_components/AddToListButton";
+import SimilarSeriesSection from "../../../../../_components/SimilarSeriesSection";
 import CategoryRatings from "../../../../../_components/CategoryRatings";
-import { loadReviewData, ReviewsSection, ReviewsSkeleton } from "../../../../../_components/DetailReviews";
+import {
+  loadReviewData,
+  RatingDistributionData,
+  RatingDistributionSkeleton,
+  ReviewsSection,
+  ReviewsSkeleton,
+} from "../../../../../_components/DetailReviews";
 import { safeDecode } from "../../../../../_lib/safe-decode";
 import { BASE_OPEN_GRAPH, BASE_TWITTER, movieDetailPath } from "../../../../../_lib/site";
 
@@ -17,9 +26,10 @@ function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
 
-// 시리즈 상세(평점) 페이지 — 영화 상세 페이지와 같은 구조다. 제목·포스터·줄거리·평점 요약은 로딩 화면 없이
-// 처음 HTML에 바로 그리고(이 경로엔 loading.tsx를 두지 않는다), 로그인 정보·리뷰처럼 사람마다 다르거나 느린
-// 부분만 <Suspense>로 늦게 불러온다.
+// 시리즈 상세(평점) 페이지 — 영화 상세 페이지와 같은 화면(맨 위 카드 MovieHero, 왼쪽 리뷰, 오른쪽 별점 분포·
+// 비슷한 시리즈)에서 공식 예고편·예매 박스만 뺐다. 제목·포스터·줄거리·평점 요약은 로딩 화면 없이 처음 HTML에
+// 바로 그리고(이 경로엔 loading.tsx를 두지 않는다), 로그인 정보·리뷰처럼 사람마다 다르거나 느린 부분만
+// <Suspense>로 늦게 불러온다.
 export async function generateMetadata({
   params,
 }: PageProps<"/series/[id]/rate/category/[category]">): Promise<Metadata> {
@@ -46,6 +56,14 @@ export async function generateMetadata({
   };
 }
 
+async function SimilarSeriesWithSession(
+  props: Omit<ComponentProps<typeof SimilarSeriesSection>, "userId"> & { sessionPromise: Promise<Session | null> },
+) {
+  const { sessionPromise, ...rest } = props;
+  const session = await sessionPromise;
+  return <SimilarSeriesSection {...rest} userId={session?.user?.id ?? null} />;
+}
+
 export default async function SeriesCategoryRatePage({
   params,
 }: PageProps<"/series/[id]/rate/category/[category]">) {
@@ -62,45 +80,74 @@ export default async function SeriesCategoryRatePage({
     notFound();
   }
   const averages = await getAllCategoryAverages(info.movieCd);
+  const overall = averages.find((a) => a.category === "전체");
   const reviewDataPromise = loadReviewData(info.movieCd, category, sessionPromise);
+  // 두 Suspense 영역이 같이 기다리는 promise — 한쪽이 렌더되기 전에 실패해도 처리되지 않은 거부로 남지 않게 한다.
   reviewDataPromise.catch(() => {});
-
-  // 시즌 수가 있으면 "(시즌 N개)" 형태로 정보 표시
-  const seasonNote = info.seasonCount ? `시즌 ${info.seasonCount}개` : null;
 
   return (
     <main>
       <SiteHeader />
-      <div className="px-5 py-6">
+      <div className="px-4 py-5 sm:px-5 sm:py-6">
         <BackBar />
 
-        <MovieInfoHeader
+        <MovieHero
           movieTitle={info.title}
           description={info.description}
           posterUrl={info.posterUrl}
           gradient={info.gradient}
-          releaseDate={info.firstAirDate ? `${info.firstAirDate.slice(0, 4)}년 첫 방영` : null}
+          releaseDate={info.firstAirDate}
           rereleaseDate={null}
           runtimeMinutes={null}
+          genreAlt={info.genre}
           director={null}
           cast={[]}
           boxOffice={null}
+          memberAverage={overall?.average ?? null}
+          memberCount={overall?.count ?? 0}
+          yearLabel="년 첫 방영"
+          extraMeta={info.seasonCount ? [`시즌 ${info.seasonCount}개`] : []}
+          showWatchButton={false}
+          actions={<AddToListButton movieId={info.seriesId} title={info.title} posterUrl={info.posterUrl} gradient={info.gradient} />}
         >
           <CategoryRatings movieId={info.seriesId} averages={averages} activeCategory={category} />
-        </MovieInfoHeader>
+        </MovieHero>
 
-        {seasonNote && (
-          <p className="mt-2 text-xs text-muted">{seasonNote}</p>
-        )}
+        {/* 영화 상세와 같은 배치에서 예고편·예매 박스만 뺐다.
+            모바일(1열): 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 시리즈 순서.
+            넓은 화면(2열): 왼쪽에 평점, 오른쪽에 별점 분포 / 비슷한 시리즈. */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]">
+          <div id="rate" className="min-w-0 scroll-mt-20 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+            <div className="mb-4 lg:hidden">
+              <CategoryRatings movieId={info.seriesId} averages={averages} activeCategory={category} />
+            </div>
+            <Suspense fallback={<ReviewsSkeleton />}>
+              <ReviewsSection
+                dataPromise={reviewDataPromise}
+                movie={{ movieId: info.seriesId, movieCd: info.movieCd, title: info.title, posterUrl: info.posterUrl, gradient: info.gradient }}
+                category={category}
+              />
+            </Suspense>
+          </div>
 
-        <div className="mt-6">
-          <Suspense fallback={<ReviewsSkeleton />}>
-            <ReviewsSection
-              dataPromise={reviewDataPromise}
-              movie={{ movieId: info.seriesId, movieCd: info.movieCd, title: info.title, posterUrl: info.posterUrl, gradient: info.gradient }}
-              category={category}
-            />
-          </Suspense>
+          <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+            <Suspense fallback={<RatingDistributionSkeleton />}>
+              <RatingDistributionData dataPromise={reviewDataPromise} />
+            </Suspense>
+          </div>
+
+          <div className="min-w-0 lg:col-start-2 lg:row-start-2">
+            {/* 비슷한 시리즈는 TMDB 조회(처음 보는 시리즈)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다. */}
+            <Suspense fallback={null}>
+              <SimilarSeriesWithSession
+                sessionPromise={sessionPromise}
+                seriesId={info.seriesId}
+                tmdbId={info.tmdbId}
+                title={info.title}
+                genreAlt={info.genre}
+              />
+            </Suspense>
+          </div>
         </div>
       </div>
     </main>

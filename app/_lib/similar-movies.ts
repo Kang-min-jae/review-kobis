@@ -30,7 +30,7 @@ export const FALLBACK_SECTION_TITLE = "비슷한 영화";
 type CachedRow = { movieCd: string; title: string; posterUrl: string | null; genreAlt: string | null };
 const ROW_SELECT = { movieCd: true, title: true, posterUrl: true, genreAlt: true } as const;
 
-async function getExcludedMovieCds(userId: string | null): Promise<Set<string>> {
+export async function getExcludedMovieCds(userId: string | null): Promise<Set<string>> {
   if (!userId) return new Set();
   const [ratings, reviews, watched] = await Promise.all([
     db.categoryRating.findMany({ where: { userId }, select: { movieCd: true }, distinct: ["movieCd"] }),

@@ -1,5 +1,5 @@
 import { Suspense, type ComponentProps } from "react";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { Session } from "next-auth";
 import { auth } from "../../../../../../auth";
@@ -31,6 +31,7 @@ export async function generateMetadata({
   params,
 }: PageProps<"/movies/[id]/rate/category/[category]">): Promise<Metadata> {
   const { id, category: categoryParam } = await params;
+  if (id.startsWith("tmdb-tv-")) return {}; // 페이지가 /series로 보낸다
   const info = await resolveMovieRateInfo(id);
   if (!info) return {};
   const title = info.movieTitle;
@@ -112,6 +113,11 @@ export default async function CategoryRatePage({
 }: PageProps<"/movies/[id]/rate/category/[category]">) {
   const { id, category: categoryParam } = await params;
   const category = safeDecode(categoryParam);
+
+  // 시리즈(tmdb-tv-*)는 /series 주소가 정식 — 프로필·리뷰 목록 등에서 /movies로 연결돼 들어와도 시리즈 페이지로 보낸다.
+  if (id.startsWith("tmdb-tv-")) {
+    permanentRedirect(movieDetailPath(id, isRatingCategory(category) ? category : "전체"));
+  }
 
   if (!isRatingCategory(category)) {
     notFound();

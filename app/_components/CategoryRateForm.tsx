@@ -259,6 +259,8 @@ export default function CategoryRateForm({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // 안내 문구의 작품 이름 — 시리즈 페이지에선 "이 시리즈"
+  const workNoun = movieId.startsWith("tmdb-tv-") ? "시리즈" : "영화";
 
   function goToSignIn() {
     router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
@@ -572,7 +574,7 @@ export default function CategoryRateForm({
 
       <section className="mt-4 rounded-2xl border border-neutral-800 bg-surface p-4">
         <h2 className="text-base font-bold text-text">
-          {category === "전체" ? "이 영화, 어떠셨어요?" : `이 영화의 ${category}, 어떠셨어요?`}
+          {category === "전체" ? `이 ${workNoun}, 어떠셨어요?` : `이 ${workNoun}의 ${category}, 어떠셨어요?`}
         </h2>
 
       {myReview && !showForm && (
@@ -628,7 +630,7 @@ export default function CategoryRateForm({
               onChange={(e) => setContent(e.target.value)}
               rows={2}
               maxLength={200}
-              placeholder={`${category === "전체" ? "이 영화" : category}에 대해 한 줄로 남겨보세요 (최대 2문장)`}
+              placeholder={`${category === "전체" ? `이 ${workNoun}` : category}에 대해 한 줄로 남겨보세요 (최대 2문장)`}
               className="w-full rounded-lg border border-neutral-700 bg-black/30 px-3.5 py-2.5 text-sm leading-relaxed text-text placeholder:text-neutral-500 focus:border-star focus:outline-none"
             />
             <div className="mt-1 flex items-center justify-between gap-2">
@@ -645,7 +647,7 @@ export default function CategoryRateForm({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               rows={8}
-              placeholder={`${category === "전체" ? "이 영화" : category}에 대한 자세한 감상평을 남겨주세요`}
+              placeholder={`${category === "전체" ? `이 ${workNoun}` : category}에 대한 자세한 감상평을 남겨주세요`}
               className="w-full rounded-lg border border-neutral-700 bg-black/30 px-3.5 py-2.5 text-sm leading-relaxed text-text placeholder:text-neutral-500 focus:border-star focus:outline-none"
             />
             <p className="mt-1 text-right text-[11px] text-neutral-500">글 없이 평점만 남겨도 돼요</p>

@@ -10,7 +10,8 @@ const DISPLAY_CAST_LIMIT = 6;
 
 // 영화 상세(평점) 페이지 맨 위 카드 — 포스터(박스오피스 순위 배지), 제목, 연도·장르·러닝타임,
 // 줄거리, 회원 평균, 누적 관객(박스오피스 상영작만), 감독·출연 칩, 버튼(예고편·예매 / 리스트에 추가).
-// children엔 항목별 평점 패널(CategoryRatings)을 끼운다. 시리즈 페이지는 기존 MovieInfoHeader를 그대로 쓴다.
+// children엔 항목별 평점 패널(CategoryRatings)을 끼운다. 시리즈 상세 페이지도 같은 카드를 쓴다
+// (첫 방영 연도·시즌 수는 extraMeta로, 예고편 박스가 없어 "예고편 · 예매" 버튼은 showWatchButton={false}로 뺀다).
 export default function MovieHero({
   movieTitle,
   description,
@@ -25,6 +26,9 @@ export default function MovieHero({
   boxOffice,
   memberAverage,
   memberCount,
+  yearLabel = "",
+  extraMeta = [],
+  showWatchButton = true,
   actions,
   children,
 }: {
@@ -41,16 +45,20 @@ export default function MovieHero({
   boxOffice: KoficBoxOffice | null;
   memberAverage: number | null; // "전체" 한줄평 평균(0~10)
   memberCount: number;
+  yearLabel?: string; // 연도 뒤에 붙일 말(시리즈: "년 첫 방영" → "2017년 첫 방영")
+  extraMeta?: string[]; // 연도·장르 뒤에 붙일 정보(예: "시즌 3개")
+  showWatchButton?: boolean;
   actions?: ReactNode;
   children?: ReactNode;
 }) {
   const year = releaseDate?.slice(0, 4) ?? null;
   const genres = splitGenres(genreAlt).slice(0, 3);
   const metaParts = [
-    year && `${year}`,
+    year && `${year}${yearLabel}`,
     genres.length > 0 && genres.join(", "),
     runtimeMinutes != null && runtimeMinutes > 0 && `${runtimeMinutes}분`,
     rereleaseDate && `재개봉 ${rereleaseDate}`,
+    ...extraMeta,
   ].filter(Boolean) as string[];
   const shownCast = cast.slice(0, DISPLAY_CAST_LIMIT);
 
@@ -115,9 +123,11 @@ export default function MovieHero({
             </ScrollToButton>
             {actions}
             {/* 모바일(1열 화면)에서만 — 눌러야 예고편·예매 박스가 보인다 */}
-            <ScrollToButton view="watch" targetId="watch" className="lg:hidden">
-              예고편 · 예매
-            </ScrollToButton>
+            {showWatchButton && (
+              <ScrollToButton view="watch" targetId="watch" className="lg:hidden">
+                예고편 · 예매
+              </ScrollToButton>
+            )}
           </div>
         </div>
 
