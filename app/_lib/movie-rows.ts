@@ -831,6 +831,15 @@ export const GENRE_KEYWORDS: Record<string, string[]> = {
   뮤지컬: ["뮤지컬", "음악"],
 };
 
+// 이미 만든 행(카드)을 장르 칩으로 거른다 — 캐시된 행을 그대로 쓰고 외부·DB 조회를 더 하지 않는다.
+// 카드의 allGenres(작품 장르 전체)에 그 장르 표기("로맨스"면 멜로·로맨스)가 있으면 남긴다.
+export function filterRowsByGenre<T extends { allGenres?: string[] }>(movies: T[], genreLabel: string): T[] {
+  if (genreLabel === "전체") return movies;
+  const keywords = GENRE_KEYWORDS[genreLabel];
+  if (!keywords) return movies;
+  return movies.filter((m) => (m.allGenres ?? []).some((g) => keywords.some((kw) => g.includes(kw))));
+}
+
 // 장르 탭 행. 예전엔 KOBIS 최근 3년 개봉작 150편만 장르로 걸러 외부 API로 포스터를
 // 받아왔는데, 편수가 적은 장르(공포 등)는 거의 걸리지 않았고 매번 외부 조회를 기다리다
 // 실패하면 행 자체가 사라졌다. 이제 이미 캐시된 영화(포스터·장르가 있는 CachedMovie)를

@@ -25,6 +25,7 @@ import {
   getGenreYearlyBestRow,
   getGenreAllTimeBestRow,
   getUserPopularMoviesRow,
+  filterRowsByGenre,
 } from "../_lib/movie-rows";
 import {
   getLatestAcademyWinnerRows,
@@ -48,8 +49,9 @@ import type { RowMovie } from "../_lib/movie-rows";
 // 행 하나의 데이터 조회가 throw하면 Suspense는 잡지 못하고 app/error.tsx까지 올라가
 // 홈 화면 전체가 "오류"로 바뀐다. 실패한 행만 빈 배열로 숨기고 나머지는 그대로 보여준다.
 // 행 카드의 평균 별점은 행 캐시와 따로 최신 값으로 덮어쓴다(fresh-ratings.ts) — 평점을 남기면 바로 반영된다.
-async function safeMovieRows<T extends RowMovie>(label: string, load: () => Promise<T[]>): Promise<T[]> {
-  return withFreshRatings(await safeRows(label, load));
+async function safeMovieRows<T extends RowMovie>(label: string, load: () => Promise<T[]>, genre: GenreLabel = "전체"): Promise<T[]> {
+  // 장르 거르기는 캐시된 행에 그대로 적용하고, 평균 별점은 남은 카드만 최신 값으로 덮어쓴다.
+  return withFreshRatings(filterRowsByGenre(await safeRows(label, load), genre));
 }
 
 async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]> {
@@ -61,30 +63,34 @@ async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]
   }
 }
 
-async function NowShowingRowData() {
-  const movies = await safeMovieRows("getNowShowingRow", getNowShowingRow);
-  // 박스오피스(KOBIS)를 못 받아 온 데다 저장해 둔 목록도 없을 때 — 빈 화면 대신 안내를 보여준다.
+async function NowShowingRowData({ genre }: { genre: GenreLabel }) {
+  const all = await safeRows("getNowShowingRow", getNowShowingRow);
+  const movies = await withFreshRatings(filterRowsByGenre(all, genre));
+  const subtitle = genre === "전체" ? "현재 박스오피스에서 상영 중인 영화" : `현재 박스오피스에서 상영 중인 ${genre} 영화`;
+  // 박스오피스를 못 받아 왔거나(저장된 목록도 없음), 그 장르의 상영작이 없을 때 — 빈 화면 대신 안내를 보여준다.
   if (movies.length === 0) {
     return (
       <section className="px-4 py-5 sm:px-5 sm:py-6">
         <h2 className="text-lg font-bold text-text">현재 상영중인 영화</h2>
         <p className="mt-3 rounded-xl border border-neutral-800 bg-surface p-4 text-sm text-muted">
-          박스오피스 정보를 잠시 불러오지 못했어요. 잠시 후 다시 확인해 주세요.
+          {all.length === 0
+            ? "박스오피스 정보를 잠시 불러오지 못했어요. 잠시 후 다시 확인해 주세요."
+            : `지금 상영 중인 ${genre} 영화가 없어요.`}
         </p>
       </section>
     );
   }
-  return <MovieRow title="현재 상영중인 영화" subtitle="현재 박스오피스에서 상영 중인 영화" movies={movies} priorityCount={3} />;
+  return <MovieRow title="현재 상영중인 영화" subtitle={subtitle} movies={movies} priorityCount={3} />;
 }
 
-async function RereleaseRowData() {
-  const movies = await safeMovieRows("getRereleaseRow", getRereleaseRow);
-  return <MovieRow title="재개봉 영화" subtitle="다시 스크린에서 만나는 영화" movies={movies} priorityCount={3} />;
+async function RereleaseRowData({ genre }: { genre: GenreLabel }) {
+  const movies = await safeMovieRows("getRereleaseRow", getRereleaseRow, genre);
+  return <MovieRow title="재개봉 영화" subtitle={genre === "전체" ? "다시 스크린에서 만나는 영화" : `다시 스크린에서 만나는 ${genre} 영화`} movies={movies} priorityCount={3} />;
 }
 
-async function WeeklyBoxOfficeRowData2() {
-  const movies = await safeMovieRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow);
-  return <MovieRow title="이번주 박스오피스 TOP 10" subtitle="국내 실제 관객수 기준" movies={movies} priorityCount={3} />;
+async function WeeklyBoxOfficeRowData2({ genre }: { genre: GenreLabel }) {
+  const movies = await safeMovieRows("getWeeklyBoxOfficeRow", getWeeklyBoxOfficeRow, genre);
+  return <MovieRow title="이번주 박스오피스 TOP 10" subtitle={genre === "전체" ? "국내 실제 관객수 기준" : `국내 실제 관객수 기준 · ${genre}`} movies={movies} priorityCount={3} />;
 }
 
 // 홈 화면 기본 탭이 예전엔 이 아래 8개 행 전부를 Promise.all로 한 번에 불러온 뒤에야
@@ -92,17 +98,18 @@ async function WeeklyBoxOfficeRowData2() {
 // 기다려야 해서 그동안 화면이 통째로 멈춰 있는 것처럼 보였다(게다가 KMDb에 몰린
 // 동시 요청이 소켓 오류까지 냈었다). 행마다 독립된 Suspense 경계로 감싸면, 준비된
 // 행은 그 즉시 화면에 스트리밍되고 아직 안 끝난 행만 스켈레톤으로 남는다.
-function NowShowingSection() {
+// 장르 칩을 고르면 세 행 모두 그 장르로 거른다(행 데이터는 장르와 상관없이 같은 캐시를 쓴다).
+function NowShowingSection({ genre }: { genre: GenreLabel }) {
   return (
     <>
-      <Suspense fallback={<RowSkeleton />}>
-        <NowShowingRowData />
+      <Suspense key={`now-${genre}`} fallback={<RowSkeleton />}>
+        <NowShowingRowData genre={genre} />
       </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <WeeklyBoxOfficeRowData2 />
+      <Suspense key={`weekly-${genre}`} fallback={<RowSkeleton />}>
+        <WeeklyBoxOfficeRowData2 genre={genre} />
       </Suspense>
-      <Suspense fallback={<RowSkeleton />}>
-        <RereleaseRowData />
+      <Suspense key={`rerelease-${genre}`} fallback={<RowSkeleton />}>
+        <RereleaseRowData genre={genre} />
       </Suspense>
     </>
   );
@@ -436,7 +443,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         // 고정된 객체를 JSON으로 직렬화할 뿐이라 사용자 입력이 섞이지 않는다. "<"는 이스케이프해 둔다.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD).replace(/</g, "\\u003c") }}
       />
-      {category === "현재 상영중인 영화" && <NowShowingSection />}
+      {category === "현재 상영중인 영화" && <NowShowingSection genre={genre} />}
 
       {category === "영화" && genre === "전체" && <MovieCategorySection />}
       {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
