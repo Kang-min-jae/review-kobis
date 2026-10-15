@@ -5,7 +5,7 @@ import Link from "next/link";
 import PosterImage from "./PosterImage";
 import RatingSummary from "./RatingSummary";
 import TopReviewsList from "./TopReviewsList";
-import { useTopReviews } from "../_lib/use-top-reviews";
+import { topReviewsVersion, useTopReviews } from "../_lib/use-top-reviews";
 import type { RowMovie } from "../_lib/movie-rows";
 import { isRatableMovieId, movieIdToCd, rateHrefFor } from "../_lib/rating-input";
 
@@ -119,7 +119,11 @@ export default function BoxOfficeCoverflow({
   // 카드 ID → 리뷰 DB의 movieCd. 예전엔 KOBIS 영화(kobis-*)만 바꿔서, 수상작(tmdb-*·wikidata-*) 카드는
   // 한줄평이 있어도 조회하지 않고 "아직 등록된 한줄평이 없어요"를 보여줬다(TopReviewsPanel과 같은 함수를 쓴다).
   const currentMovieCd = movies[active] ? movieIdToCd(movies[active].id) : null;
-  const { reviews: topReviews, loading: reviewsLoading } = useTopReviews(currentMovieCd);
+  // 카드의 최신 한줄평 수·평균을 버전으로 넘긴다 — 한줄평을 남기면 바뀌어서 목록을 새로 받는다.
+  const { reviews: topReviews, loading: reviewsLoading } = useTopReviews(
+    currentMovieCd,
+    movies[active] ? topReviewsVersion(movies[active]) : null,
+  );
 
   // 중심(active)이 바뀌는 모든 경로(화살표, 드래그, 다른 카드 클릭, 점 인디케이터)가
   // 공통으로 거치는 함수 — 뒤집혀 있던 카드는 중심이 바뀌기 전에 항상 앞면으로 되돌린다.

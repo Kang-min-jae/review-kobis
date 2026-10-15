@@ -58,8 +58,10 @@ async function handleGet(request: Request) {
 }
 
 // 모든 방문자에게 같은 결과라 CDN에 1분 캐시한다 — 박스오피스 카드를 넘길 때마다 서버 함수가 돌지 않게.
+// 화면은 카드의 한줄평 수·평균을 v=로 붙여 보내서, 새 한줄평이 달리면 다른 캐시 항목(새 목록)을 받는다.
+// (v는 캐시 키 구분용일 뿐 서버는 읽지 않는다.) 오래된 목록을 대신 내주는 시간도 1분으로 줄였다.
 export async function GET(request: Request) {
   const res = await handleGet(request);
-  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
   return res;
 }

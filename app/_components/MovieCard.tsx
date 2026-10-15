@@ -251,7 +251,7 @@ export default function MovieCard({ movie, popoverSide = "right", priority = fal
 
       {/* 열렸을 때 포스터 옆으로 와이드되며 뜨는 인기 한줄평 패널. 카드 레이아웃
           자체를 넓히지 않고 살짝 겹치게 띄워서 옆 카드가 밀리지 않게 한다. */}
-      {revealed && <TopReviewsPanel movieId={movie.id} side={popoverSide} myRating={myMovieRating} />}
+      {revealed && <TopReviewsPanel movieId={movie.id} shortCount={movie.shortCount} shortAvg={movie.shortAvg} side={popoverSide} myRating={myMovieRating} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTopReviews } from "../_lib/use-top-reviews";
+import { topReviewsVersion, useTopReviews } from "../_lib/use-top-reviews";
 import TopReviewsList from "./TopReviewsList";
 import { movieIdToCd } from "../_lib/rating-input";
 
@@ -14,15 +14,19 @@ const toApiMovieCd = movieIdToCd;
 
 export default function TopReviewsPanel({
   movieId,
+  shortCount = null,
+  shortAvg = null,
   side = "right",
   myRating = null,
 }: {
   movieId: string;
+  shortCount?: number | null; // 카드의 최신 한줄평 수·평균 — 바뀌면 목록을 새로 받는다
+  shortAvg?: number | null;
   side?: "left" | "right";
   myRating?: number | null; // 내가 남긴 "전체" 한줄평 평점(0~10)
 }) {
   const movieCd = toApiMovieCd(movieId);
-  const { reviews, loading } = useTopReviews(movieCd);
+  const { reviews, loading } = useTopReviews(movieCd, topReviewsVersion({ shortCount, shortAvg }));
 
   return (
     <div className={`absolute top-0 z-20 w-44 rounded-lg border border-neutral-700 bg-surface p-3 shadow-xl sm:w-52 ${side === "left" ? "right-full mr-2" : "left-full ml-2"}`}>
