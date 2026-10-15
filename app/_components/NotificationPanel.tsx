@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getNotifications, type Notifications } from "../_lib/notification-actions";
 import { cdToMovieId } from "../_lib/rating-input";
+import { posterSrc } from "../_lib/poster-loader";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -232,7 +233,7 @@ function NotificationPanelBody({ onClose }: { onClose: () => void }) {
                         {a.moviePoster && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={a.moviePoster}
+                            src={posterSrc(a.moviePoster)}
                             alt={a.movieTitle}
                             className="mt-1.5 h-12 w-8 rounded object-cover"
                           />

@@ -3,7 +3,8 @@ import { searchMoviesSince1960, searchKoficPeopleList, type KobisSearchHit } fro
 import { searchKmdbPeople, searchKmdbFilmography, suggestSimilarTitle, type KmdbPersonHit } from "../../_lib/kmdb";
 import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { formatPosterUrl } from "../../_lib/formatPosterUrl";
-import { searchTmdbMulti, searchTmdbPerson } from "../../_lib/tmdb";
+import { searchTmdbMulti, searchTmdbPerson, type TmdbMultiHit } from "../../_lib/tmdb";
+import { isAdultContent } from "../../_lib/adult-content";
 import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
 import { FILMOGRAPHY_VALID_SINCE, warmPersonFilmography } from "../../_lib/person-filmography";
@@ -135,6 +136,20 @@ async function searchCachedMovies(query: string): Promise<MovieHit[]> {
     orderBy: { updatedAt: "desc" },
     take: 30,
   });
+
+  // 띄어쓰기를 다르게 친 검색어("존윅3" ↔ "존 윅 3: 파라벨룸")는 위의 contains로 못 찾는다 — 제목의
+  // 공백·문장부호를 지운 값과 비교하는 검색을 한 번 더 한다(앞의 검색 결과가 적을 때만).
+  if (normalized.length >= 2 && rows.length < 10) {
+    const pattern = `%${normalized.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const extra = await db.$queryRaw<{ movieCd: string; title: string; releaseDate: string | null; posterUrl: string | null }[]>`
+      SELECT "movieCd", "title", "releaseDate", "posterUrl" FROM "CachedMovie"
+      WHERE lower(regexp_replace("title", '[[:space:]&,()（）·:：''"-]', '', 'g')) LIKE ${pattern}
+      ORDER BY "updatedAt" DESC
+      LIMIT 20
+    `.catch(() => []);
+    const seenCds = new Set(rows.map((r) => r.movieCd));
+    for (const r of extra) if (!seenCds.has(r.movieCd)) rows.push(r);
+  }
 
   // In-memory post-filter: keep only results that match by either strategy
   // Strategy A (no-space): normalizedTitle contains normalizedQuery (or vice-versa)
@@ -387,10 +402,52 @@ async function withFilmographyStats<T extends KmdbPersonHit>(people: T[]): Promi
 }
 
 // ── 결과 조립 헬퍼 ────────────────────────────────────────────────────────────
-function mergeMovieHits(apiHits: MovieHit[], dbHits: MovieHit[]): MovieHit[] {
-  const seen = new Set(apiHits.map((h) => h.movieCd));
-  const extras = dbHits.filter((h) => !seen.has(h.movieCd));
-  return [...apiHits, ...extras].slice(0, 10);
+// 앞 그룹을 우선해 합친다. 같은 코드이거나, 제목(공백·문장부호 무시)이 같고 연도가 1년 안이면 같은 영화로
+// 본다(국내 개봉 연도와 해외 개봉 연도가 한 해 차이 나는 경우가 흔하다).
+function mergeMovieHits(...groups: MovieHit[][]): MovieHit[] {
+  const out: MovieHit[] = [];
+  for (const hit of groups.flat()) {
+    if (out.length >= 10) break;
+    const title = normalizeForSearch(hit.title);
+    const year = Number(hit.releaseDate?.slice(0, 4));
+    const dup = out.some((o) => {
+      if (o.movieCd === hit.movieCd) return true;
+      if (normalizeForSearch(o.title) !== title) return false;
+      const oy = Number(o.releaseDate?.slice(0, 4));
+      return !year || !oy || Math.abs(oy - year) <= 1;
+    });
+    if (!dup) out.push(hit);
+  }
+  return out;
+}
+
+// TMDB 검색의 영화 결과 — KOBIS 목록에 없거나(외화·미개봉작 등) KOBIS 조회가 실패했을 때도 영화가 나오게 한다.
+// 이미 저장된 영화 중 같은 TMDB 영화가 있으면 그 코드로 연결해, 같은 영화의 평점·리뷰가 둘로 나뉘지 않게 한다.
+async function tmdbMovieHits(multiHits: TmdbMultiHit[]): Promise<MovieHit[]> {
+  const movies = multiHits.filter((h) => h.mediaType === "movie" && h.title && !isAdultContent({ title: h.title }));
+  if (movies.length === 0) return [];
+  const known = await db.cachedMovie
+    .findMany({ where: { tmdbId: { in: movies.map((m) => m.tmdbId) } }, select: { movieCd: true, tmdbId: true } })
+    .catch(() => []);
+  const cdByTmdb = new Map<string, string>();
+  for (const k of known) {
+    if (!k.tmdbId || k.movieCd.startsWith("wikidata-")) continue;
+    const prev = cdByTmdb.get(k.tmdbId);
+    if (!prev || /^\d+$/.test(k.movieCd)) cdByTmdb.set(k.tmdbId, k.movieCd); // KOBIS 코드를 우선
+  }
+  return movies.map((m) => ({
+    movieCd: cdByTmdb.get(m.tmdbId) ?? `tmdb-${m.tmdbId}`,
+    title: m.title,
+    releaseDate: m.year ? `${m.year}-01-01` : null, // 화면엔 연도만 쓴다
+    genre: null,
+    posterUrl: m.posterUrl,
+  }));
+}
+
+function tmdbSeriesHits(multiHits: TmdbMultiHit[]) {
+  return multiHits
+    .filter((h) => h.mediaType === "tv")
+    .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
 }
 
 // ── 외부 API 풀 검색 (DB miss 시에만 호출) ───────────────────────────────────
@@ -526,9 +583,12 @@ async function handleGet(request: Request) {
   // 기준: 영화 3편 이상, 또는 영화 1편 이상 + 인물 1명 이상.
   const hasEnoughDbResults = dbMovies.length >= 3 || (dbMovies.length >= 1 && dbPeople.length >= 1);
   if (hasEnoughDbResults) {
+    // DB에 몇 편 있다고 거기서 끝내면 아직 저장 안 된 영화(예: "존 윅"에서 존 윅 3)가 빠진다 — TMDB 검색
+    // (하루 캐시, 하루 호출 한도 없음)만 더해서 채운다. KOBIS·KMDb는 부르지 않는다.
+    const multi = normalizeForSearch(query).length >= 2 ? await searchTmdbMulti(query).catch(() => []) : [];
     const result = {
-      movies: dbMovies,
-      series: [],
+      movies: mergeMovieHits(dbMovies, await tmdbMovieHits(multi)),
+      series: tmdbSeriesHits(multi),
       people: await withFilmographyStats(dbPeople.map((p) => ({ ...p, representativeWorks: [] as string[] }))),
       correctedQuery: null,
     };
@@ -562,11 +622,10 @@ async function handleGet(request: Request) {
     }
   }
 
-  const seriesHits = multiHits
-    .filter((h) => h.mediaType === "tv")
-    .map((h) => ({ tmdbId: h.tmdbId, name: h.title, firstAirDate: h.year ? `${h.year}-01-01` : null, posterUrl: h.posterUrl }));
+  const seriesHits = tmdbSeriesHits(multiHits);
+  const tmdbMovies = await tmdbMovieHits(multiHits);
 
-  if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbMovies.length > 0) {
+  if (movieHits.length > 0 || mergedPeople.length > 0 || seriesHits.length > 0 || dbMovies.length > 0 || tmdbMovies.length > 0) {
     const [movies, peopleWithWorks] = await Promise.all([
       withPosters(movieHits),
       withRepresentativeWorks(kmdbPeople),
@@ -580,7 +639,7 @@ async function handleGet(request: Request) {
     asyncSavePeopleToDb(kmdbPeople, tmdbPersonHits).catch(console.error);
     warmTopPeople(people, query);
 
-    const mergedMovies = mergeMovieHits(movies, dbMovies);
+    const mergedMovies = mergeMovieHits(movies, dbMovies, tmdbMovies);
     const result = { movies: mergedMovies, series: seriesHits, people, correctedQuery: null };
     setCache(cacheKey, result);
     return NextResponse.json(result);

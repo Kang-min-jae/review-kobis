@@ -8,6 +8,7 @@ import { submitAwardVoteAction, deleteAwardVoteAction, getAwardVotes, getOfficia
 // ── 영화제 / 시상 부문 정의 ────────────────────────────────────────────────────
 
 import { FESTIVAL_AWARDS, type FestivalId } from "../_lib/festival-awards";
+import { cdToMovieId } from "../_lib/rating-input";
 export type { FestivalId };
 
 const FESTIVALS: { id: FestivalId; name: string; emoji: string; color: string }[] = [
@@ -117,7 +118,7 @@ export default function AwardsVoting({ loggedIn }: { loggedIn: boolean }) {
       await submitAwardVoteAction({
         festival,
         awardCategory: award,
-        movieId: `kobis-${movie.movieCd}`,
+        movieId: cdToMovieId(movie.movieCd),
         movieTitle: movie.title,
         posterUrl,
       });

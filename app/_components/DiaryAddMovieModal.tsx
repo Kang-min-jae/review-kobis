@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PosterImage from "./PosterImage";
 import { addDiaryLogEntry, getDiaryLogSnapshot } from "../_lib/diary-log-store";
+import { cdToMovieId } from "../_lib/rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 const SEARCH_DEBOUNCE_MS = 300;
@@ -71,7 +72,7 @@ export default function DiaryAddMovieModal({ date, onClose }: { date: string; on
 
   const handleAdd = (movie: MovieResult) => {
     addDiaryLogEntry({
-      movieId: `kobis-${movie.movieCd}`,
+      movieId: cdToMovieId(movie.movieCd),
       movieTitle: movie.title,
       moviePosterUrl: movie.posterUrl,
       movieGradient: FALLBACK_GRADIENT,

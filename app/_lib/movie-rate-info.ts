@@ -1,6 +1,14 @@
 import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
-import { searchTmdbMovie, resolveTmdbPersonIdByName, getTmdbMovieDetailsById, tmdbDetailsMatch, type TmdbMovieDetails } from "./tmdb";
+import {
+  searchTmdbMovie,
+  resolveTmdbPersonIdByName,
+  getTmdbMovieDetailsById,
+  getTmdbMovieCredits,
+  tmdbDetailsMatch,
+  type TmdbMovieCredits,
+  type TmdbMovieDetails,
+} from "./tmdb";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { cache } from "react";
 import { after } from "next/server";
@@ -29,7 +37,62 @@ function isCacheFresh(row: { posterUrl: string | null; updatedAt: Date }): boole
   return Date.now() - row.updatedAt.getTime() < ttl;
 }
 
-export type PersonRef = { name: string; kmdbId: string | null };
+// tmdbId: KMDb 인물 코드가 없을 때 인물 페이지가 TMDB 필모그래피로 바로 찾도록 넘기는 힌트.
+export type PersonRef = { name: string; kmdbId: string | null; tmdbId?: string | null };
+
+type StoredCastMember = { name: string; kmdbId: string | null; tmdbId: string | null };
+
+// 감독·출연진이 비어 있을 때 TMDB 크레딧으로 채운다(KMDb·KOBIS에 정보가 없거나 조회가 실패한 경우).
+// 이미 있는 쪽은 건드리지 않는다.
+function fillCreditsFromTmdb(
+  director: PersonRef | null,
+  directorTmdbId: string | null,
+  cast: StoredCastMember[],
+  credits: TmdbMovieCredits | null,
+): { director: PersonRef | null; directorTmdbId: string | null; cast: StoredCastMember[] } {
+  if (!credits) return { director, directorTmdbId, cast };
+  const useDirector = !director && credits.director;
+  return {
+    director: useDirector ? { name: credits.director!.name, kmdbId: null, tmdbId: credits.director!.tmdbId } : director,
+    directorTmdbId: useDirector ? credits.director!.tmdbId : directorTmdbId,
+    cast:
+      cast.length > 0
+        ? cast
+        : credits.cast.slice(0, DISPLAY_CAST_LIMIT).map((c) => ({ name: c.name, kmdbId: null, tmdbId: c.tmdbId })),
+  };
+}
+
+// 이 시각 전에 저장된 영화 정보는 TMDB 크레딧 보완이 없던 때라, 감독·출연진이 비어 있으면 상세 페이지를
+// 열 때 한 번 채운다(채운 뒤엔 저장 시각이 바뀌어 다시 시도하지 않는다).
+const CREDITS_BACKFILL_SINCE = Date.parse("2026-10-15T12:00:00Z");
+const CREDITS_BACKFILL_TIMEOUT_MS = 2500;
+
+async function backfillCredits(movieCd: string, meta: MovieMeta): Promise<MovieMeta> {
+  if (meta.director || meta.cast.length > 0 || !meta.tmdbId) return meta;
+  const row = await db.cachedMovie
+    .findUnique({ where: { movieCd }, select: { updatedAt: true } })
+    .catch(() => null);
+  if (!row || row.updatedAt.getTime() >= CREDITS_BACKFILL_SINCE) return meta;
+  const credits = await Promise.race([
+    getTmdbMovieCredits(meta.tmdbId).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), CREDITS_BACKFILL_TIMEOUT_MS)),
+  ]);
+  if (!credits) return meta; // 시간 초과·실패 — 다음 방문 때 다시 시도
+  const filled = fillCreditsFromTmdb(null, null, [], credits);
+  await db.cachedMovie
+    .update({
+      where: { movieCd },
+      data: {
+        directorName: filled.director?.name ?? null,
+        directorKmdbId: null,
+        directorTmdbId: filled.directorTmdbId,
+        cast: filled.cast,
+        updatedAt: new Date(),
+      },
+    })
+    .catch(() => null);
+  return { ...meta, director: filled.director, cast: filled.cast };
+}
 
 export type MovieMeta = {
   movieCd: string;
@@ -160,7 +223,7 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
     rereleaseDate: row.rereleaseDate,
     runtimeMinutes: row.runtimeMinutes,
     genreAlt: row.genreAlt,
-    director: row.directorName ? { name: row.directorName, kmdbId: row.directorKmdbId } : null,
+    director: row.directorName ? { name: row.directorName, kmdbId: row.directorKmdbId, tmdbId: row.directorTmdbId } : null,
     cast: row.cast as PersonRef[],
     tmdbId: row.tmdbId,
     source: row.source === "kmdb_via_tmdb_match" ? "kmdb_via_tmdb_match"
@@ -230,9 +293,15 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
   // findMoviesByCastTmdbId 역방향 조회용 — cast는 castToShow와 같은 순서/길이라
   // 인덱스로 castTmdbIds와 그대로 짝지을 수 있다(둘 다 이 시점엔 아직 null 필터링
   // 전). PersonRef(공개 타입)엔 없는 필드라 DB 저장용 배열만 따로 만든다.
-  const castForStorage = cast
+  const resolvedCast = cast
     .map((c, i) => (c ? { name: c.name, kmdbId: c.kmdbId, tmdbId: castTmdbIds[i] } : null))
-    .filter((c): c is { name: string; kmdbId: string | null; tmdbId: string | null } => c !== null);
+    .filter((c): c is StoredCastMember => c !== null);
+
+  // KMDb·KOBIS 어디에도 감독이나 출연진이 없으면(조회 실패 포함) TMDB 크레딧으로 채운다.
+  const creditsTmdbId = (!director || resolvedCast.length === 0) ? (tmdbInfo?.tmdbId ?? null) : null;
+  const credits = creditsTmdbId ? await getTmdbMovieCredits(creditsTmdbId).catch(() => null) : null;
+  const filled = fillCreditsFromTmdb(director, directorTmdbId, resolvedCast, credits);
+  const castForStorage = filled.cast;
 
   const meta: MovieMeta = {
     movieCd: info.movieCd,
@@ -247,8 +316,8 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     rereleaseDate,
     runtimeMinutes: tmdbInfo?.runtimeMinutes ?? kmdbInfo?.runtimeMinutes ?? info.runtimeMinutes,
     genreAlt: tmdbInfo?.genre ?? kmdbInfo?.genre ?? info.genreAlt,
-    director,
-    cast: cast.filter((c): c is PersonRef => c !== null),
+    director: filled.director,
+    cast: castForStorage,
     tmdbId: tmdbInfo?.tmdbId ?? null,
     source,
   };
@@ -278,7 +347,7 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     source: meta.source,
     directorName: meta.director?.name ?? null,
     directorKmdbId: meta.director?.kmdbId ?? null,
-    directorTmdbId,
+    directorTmdbId: filled.directorTmdbId,
     cast: castForStorage,
   };
   await db.cachedMovie.upsert({
@@ -408,7 +477,16 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
 // 평점 페이지와 항목별 평점 페이지가 공통으로 필요로 하는 영화 정보(포스터/개봉정보/
 // 줄거리/감독·출연/박스오피스)를 만든다. 상세정보는 캐시를 거치고, 박스오피스 순위는
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
+// 예전에 감독·출연진 없이 저장된 영화는 상세 페이지에서 한 번 TMDB 크레딧으로 채운다(backfillCredits).
 async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieInfo | null> {
+  const info = await resolveMovieRateInfoBase(id);
+  if (!info) return null;
+  const { boxOffice, movieId, ...meta } = info;
+  const filled = await backfillCredits(info.movieCd, meta).catch(() => meta);
+  return filled === meta ? info : { ...filled, movieId, boxOffice };
+}
+
+async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo | null> {
   // wikidata 수상작 — CachedMovie에서 조회 (award-winners.ts가 홈 화면 렌더 시 미리 저장)
   // award-winners.ts가 링크 id를 "wikidata-{filmQid}-{categoryLabel}" 형태로 만들지만
   // CachedMovie에는 "wikidata-{filmQid}" 형태로 저장되므로 카테고리 접미사를 제거한다.
@@ -463,9 +541,14 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
         withResolvedId(directorRef, "감독", yearHint),
         Promise.all(castRefs.map((m) => withResolvedId(m, "배우", yearHint))),
       ]);
-      const castForStorage = cast
+      const kmdbCast = cast
         .filter((c): c is PersonRef => c !== null)
         .map((c) => ({ name: c.name, kmdbId: c.kmdbId, tmdbId: null }));
+      // KMDb에 감독·출연진이 없으면 검증된 TMDB 영화의 크레딧으로 채운다.
+      const creditsTmdbId = (!director || kmdbCast.length === 0) ? (tmdb?.tmdbId ?? null) : null;
+      const credits = creditsTmdbId ? await getTmdbMovieCredits(creditsTmdbId).catch(() => null) : null;
+      const filled = fillCreditsFromTmdb(director, null, kmdbCast, credits);
+      const castForStorage = filled.cast;
 
       const update = {
         overview: tmdb?.overview ?? kmdb?.overview ?? base.overview,
@@ -475,8 +558,9 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
         posterUrl: tmdb?.posterUrl ?? kmdb?.posterUrl ?? base.posterUrl,
         titleEn: cached.titleEn ?? tmdb?.originalTitle ?? null,
         tmdbId: tmdb?.tmdbId ?? null,
-        directorName: director?.name ?? base.directorName,
-        directorKmdbId: director?.kmdbId ?? base.directorKmdbId,
+        directorName: filled.director?.name ?? base.directorName,
+        directorKmdbId: filled.director?.kmdbId ?? base.directorKmdbId,
+        ...(filled.directorTmdbId ? { directorTmdbId: filled.directorTmdbId } : {}),
         cast: castForStorage.length > 0 ? castForStorage : (base.cast ?? []),
         // 올바른 TMDB 영화를 찾았을 때만 검증 완료로 표시 — 못 찾았으면(일시적 오류 포함)
         // 틀린 정보는 이미 비웠고, 다음 조회 때 다시 시도한다.
@@ -499,8 +583,12 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
       return { movieId: id, ...rowToMeta(cached), boxOffice: null };
     }
 
-    const details = await getTmdbMovieDetailsById(tmdbId);
+    const [details, credits] = await Promise.all([
+      getTmdbMovieDetailsById(tmdbId),
+      getTmdbMovieCredits(tmdbId).catch(() => null),
+    ]);
     if (!details) return null;
+    const people = fillCreditsFromTmdb(null, null, [], credits);
 
     const data = {
       title: details.title,
@@ -513,10 +601,10 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
       genreAlt: details.genre,
       tmdbId,
       source: "tmdb" as const,
-      directorName: null as string | null,
+      directorName: people.director?.name ?? null,
       directorKmdbId: null as string | null,
-      directorTmdbId: null as string | null,
-      cast: [] as object[],
+      directorTmdbId: people.directorTmdbId,
+      cast: people.cast,
     };
     await db.cachedMovie.upsert({
       where: { movieCd: id },
@@ -535,8 +623,8 @@ async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieIn
       rereleaseDate: null,
       runtimeMinutes: details.runtimeMinutes,
       genreAlt: details.genre,
-      director: null,
-      cast: [],
+      director: people.director,
+      cast: people.cast,
       tmdbId,
       source: "tmdb",
     };

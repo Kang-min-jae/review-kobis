@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import PosterImage from "./PosterImage";
+import { cdToMovieId } from "../_lib/rating-input";
 
 type MovieHit = {
   movieCd: string;
@@ -297,7 +298,7 @@ export default function SearchInput() {
                 {movies.map((hit) => (
                   <Link prefetch={false}
                     key={hit.movieCd}
-                    href={`/movies/kobis-${hit.movieCd}/rate`}
+                    href={`/movies/${cdToMovieId(hit.movieCd)}/rate`}
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-3 p-2.5 hover:bg-black/30"
                   >

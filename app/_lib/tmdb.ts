@@ -705,6 +705,29 @@ export async function getTmdbSeriesRecommendations(tmdbId: string): Promise<Tmdb
   return out;
 }
 
+export type TmdbCreditPerson = { name: string; tmdbId: string };
+export type TmdbMovieCredits = { director: TmdbCreditPerson | null; cast: TmdbCreditPerson[] };
+
+// 영화 감독·출연진(TMDB) — KMDb·KOBIS에 감독·출연 정보가 없거나 조회에 실패했을 때 채우는 데 쓴다.
+// 이름은 TMDB에 등록된 표기 그대로다(외국 인물은 대개 영문). 다른 TMDB 조회처럼 하루 캐시된다.
+export async function getTmdbMovieCredits(tmdbId: string, castLimit = 6): Promise<TmdbMovieCredits | null> {
+  if (!/^\d{1,12}$/.test(tmdbId)) return null;
+  const data = await tmdbFetch<{
+    cast?: { id?: number; name?: string; order?: number }[];
+    crew?: { id?: number; name?: string; job?: string }[];
+  }>(`/movie/${tmdbId}/credits`);
+  if (!data) return null;
+  const valid = (p: { id?: number; name?: string }): p is { id: number; name: string } =>
+    typeof p.id === "number" && typeof p.name === "string" && p.name.trim().length > 0;
+  const director = (data.crew ?? []).filter(valid).find((c) => (c as { job?: string }).job === "Director") ?? null;
+  const cast = (data.cast ?? [])
+    .filter(valid)
+    .sort((a, b) => ((a as { order?: number }).order ?? 999) - ((b as { order?: number }).order ?? 999))
+    .slice(0, castLimit)
+    .map((c) => ({ name: c.name.trim(), tmdbId: String(c.id) }));
+  return { director: director ? { name: director.name.trim(), tmdbId: String(director.id) } : null, cast };
+}
+
 export async function getTmdbMovieRecommendationIds(tmdbId: string): Promise<string[]> {
   if (!/^\d{1,12}$/.test(tmdbId)) return [];
   const data = await tmdbFetch<{ results?: { id?: number }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });

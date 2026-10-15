@@ -109,6 +109,27 @@ export type CatalogSearchParams = {
 
 // searchMovieList를 필요한 페이지 수만큼 호출해서 모은다 (한 페이지 최대 100개).
 // 이미 국내 개봉이 확정된(openDt가 있고 오늘 이전인) 영화만 남기고, 최신 개봉일 순으로 정렬한다.
+const MOVIE_LIST_PAGE_SIZE = 100;
+
+// 영화 목록 한 페이지. 성공한 응답만 6시간 캐시한다 — 예전 fetch 캐시는 KOBIS가 HTTP 200으로 돌려주는
+// 오류(키 오류·하루 호출 한도 초과, faultInfo)까지 6시간 저장해서, 그동안 같은 검색어는 결과가 비어 있었다.
+async function fetchMovieListPage(query: string, page: number): Promise<RawMovieListItem[]> {
+  const key = apiKey();
+  if (!key) return [];
+  const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json${query ? `?${query}` : ""}`);
+  url.searchParams.set("key", key);
+  url.searchParams.set("itemPerPage", String(MOVIE_LIST_PAGE_SIZE));
+  url.searchParams.set("curPage", String(page));
+  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json().catch(() => null)) as { movieListResult?: { movieList?: RawMovieListItem[] } } | null;
+  const fault = kobisFault(data);
+  if (fault) throw new Error(fault);
+  return data?.movieListResult?.movieList ?? [];
+}
+
+const cachedMovieListPage = unstable_cache(fetchMovieListPage, ["kobis-movie-list-v1"], { revalidate: 60 * 60 * 6 });
+
 export async function searchMovieCatalog(
   params: CatalogSearchParams,
   maxResults: number
@@ -116,29 +137,25 @@ export async function searchMovieCatalog(
   const key = apiKey();
   if (!key) return [];
 
+  if (isKobisCoolingDown()) return [];
+
   const todayStamp = toDateStamp(new Date());
-  const pageSize = 100;
+  const pageSize = MOVIE_LIST_PAGE_SIZE;
   const pagesNeeded = Math.min(Math.ceil(maxResults / pageSize), 5);
   const collected: KobisMovieSummary[] = [];
   const { includeUpcoming, ...queryParams } = params;
+  // 캐시 키로 쓰는 검색 조건(API 키 제외, 순서 고정)
+  const query = Object.entries(queryParams)
+    .filter(([, v]) => Boolean(v))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
 
   for (let page = 1; page <= pagesNeeded; page++) {
-    const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json`);
-    url.searchParams.set("key", key);
-    url.searchParams.set("itemPerPage", String(pageSize));
-    url.searchParams.set("curPage", String(page));
-    for (const [k, v] of Object.entries(queryParams)) {
-      if (v) url.searchParams.set(k, v);
-    }
-
     try {
-      const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-      if (!res.ok) {
-        console.warn(`[kobis] searchMovieList 실패: HTTP ${res.status} (page ${page})`);
-        break;
-      }
-      const data: { movieListResult?: { movieList?: RawMovieListItem[] } } = await res.json();
-      const items = data.movieListResult?.movieList ?? [];
+      const items = process.env.NEXT_RUNTIME
+        ? await cachedMovieListPage(query, page)
+        : await fetchMovieListPage(query, page);
       if (items.length === 0) break;
 
       for (const item of items) {
@@ -150,7 +167,8 @@ export async function searchMovieCatalog(
       }
       if (items.length < pageSize) break;
     } catch (error) {
-      console.warn(`[kobis] searchMovieList 요청 중 오류 (page ${page}):`, error);
+      markKobisFailure();
+      console.warn(`[kobis] searchMovieList 실패 (page ${page}):`, error instanceof Error ? error.message : error);
       break;
     }
   }
@@ -589,14 +607,20 @@ async function fetchBoxOfficeList(kind: BoxOfficeKind, targetDt: string): Promis
 
 const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 6 });
 
-// 실패 직후 잠깐은 KOBIS를 다시 부르지 않는다 — 상세 페이지마다 10초 타임아웃을 기다리거나, 한도 초과 상태에서
-// 호출을 더 쌓지 않게(서버 인스턴스 단위).
-const BOX_OFFICE_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
-let boxOfficeFailedAt = 0;
+// 실패 직후 잠깐은 KOBIS(박스오피스·영화 목록)를 다시 부르지 않는다 — 상세 페이지·검색마다 10초 타임아웃을
+// 기다리거나, 한도 초과 상태에서 호출을 더 쌓지 않게(서버 인스턴스 단위).
+const KOBIS_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
+let kobisFailedAt = 0;
+function isKobisCoolingDown(): boolean {
+  return Date.now() - kobisFailedAt < KOBIS_FAIL_COOLDOWN_MS;
+}
+function markKobisFailure() {
+  kobisFailedAt = Date.now();
+}
 
 async function getBoxOfficeItems(kind: BoxOfficeKind, targetDt: string): Promise<DailyBoxOfficeItem[]> {
   if (!apiKey()) return [];
-  if (Date.now() - boxOfficeFailedAt < BOX_OFFICE_FAIL_COOLDOWN_MS) return [];
+  if (isKobisCoolingDown()) return [];
   try {
     // Next 서버 밖(scripts/를 tsx로 실행)에는 캐시 저장소가 없어 바로 부른다.
     return process.env.NEXT_RUNTIME
@@ -604,7 +628,7 @@ async function getBoxOfficeItems(kind: BoxOfficeKind, targetDt: string): Promise
       : await fetchBoxOfficeList(kind, targetDt);
   } catch (error) {
     if (error instanceof EmptyBoxOfficeError) return [];
-    boxOfficeFailedAt = Date.now();
+    markKobisFailure();
     console.warn(
       `[kobis] ${kind === "daily" ? "일별" : "주간"} 박스오피스(${targetDt}) 조회 실패:`,
       error instanceof Error ? error.message : error,

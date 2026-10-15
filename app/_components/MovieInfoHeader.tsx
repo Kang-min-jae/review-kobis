@@ -3,7 +3,7 @@ import PosterWithFallback from "./PosterWithFallback";
 import type { KoficBoxOffice } from "../_lib/kobis";
 import type { ReactNode } from "react";
 
-export type PersonRef = { name: string; kmdbId?: string | null };
+export type PersonRef = { name: string; kmdbId?: string | null; tmdbId?: string | null };
 
 const DISPLAY_CAST_LIMIT = 6;
 
@@ -13,6 +13,8 @@ const DISPLAY_CAST_LIMIT = 6;
 export function personHref(person: PersonRef, role: "감독" | "배우"): string {
   const params = new URLSearchParams({ role });
   if (person.kmdbId) params.set("pid", person.kmdbId);
+  // KMDb 인물 코드가 없으면(TMDB에서 가져온 감독·출연진) TMDB 인물 ID로 필모그래피를 찾게 한다.
+  else if (person.tmdbId && /^\d{1,12}$/.test(person.tmdbId)) params.set("tmdbId", person.tmdbId);
   return `/people/${encodeURIComponent(person.name)}?${params.toString()}`;
 }
 
