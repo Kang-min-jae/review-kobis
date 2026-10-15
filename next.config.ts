@@ -20,23 +20,11 @@ const nextConfig: NextConfig = {
   images: {
     loader: "custom",
     loaderFile: "./app/_lib/poster-loader.ts",
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "file.koreafilm.or.kr",
-        pathname: "/**",
-      },
-      {
-        protocol: "http",
-        hostname: "file.koreafilm.or.kr",
-        pathname: "/**",
-      },
-      {
-        protocol: "https",
-        hostname: "image.tmdb.org",
-        pathname: "/t/p/**",
-      },
-    ],
+    // 우리 페이지는 /_next/image를 쓰지 않는데도, 예전에 수집된 /_next/image?url=… 주소(검색엔진 이미지 봇,
+    // 오래 열어 둔 탭)가 들어오면 Vercel이 그대로 변환해 사용량이 계속 쌓였다. 허용 목록을 아무것도 맞지
+    // 않게 비워 두면 그런 요청은 변환 없이 400으로 끝난다(직접 로더를 쓰는 화면 이미지에는 영향 없음).
+    remotePatterns: [],
+    localPatterns: [{ pathname: "/__image-optimization-disabled__", search: "" }],
   },
   // localhost가 아닌 다른 주소(예: 같은 네트워크의 IP, 192.168.x.x)로 개발 서버에
   // 접속하면, Next.js가 보안상 /_next/static, HMR 요청을 403으로 막는다 — 그러면
