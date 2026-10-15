@@ -7,7 +7,7 @@ import RatingSummary from "./RatingSummary";
 import TopReviewsList from "./TopReviewsList";
 import { useTopReviews } from "../_lib/use-top-reviews";
 import type { RowMovie } from "../_lib/movie-rows";
-import { isRatableMovieId, rateHrefFor } from "../_lib/rating-input";
+import { isRatableMovieId, movieIdToCd, rateHrefFor } from "../_lib/rating-input";
 
 // 카드 사이 간격/각도 값 — 화면에 한 번에 3~4장 정도(가운데 1장 + 양옆 1~2장)만
 // 또렷하게 보이고, 그보다 먼 카드는 점점 작아지고 옆으로 돌아가며 흐려지다가
@@ -116,7 +116,9 @@ export default function BoxOfficeCoverflow({
   const samplesRef = useRef<{ x: number; t: number }[]>([]);
 
   const length = movies.length;
-  const currentMovieCd = movies[active]?.id.startsWith("kobis-") ? movies[active].id.replace("kobis-", "") : null;
+  // 카드 ID → 리뷰 DB의 movieCd. 예전엔 KOBIS 영화(kobis-*)만 바꿔서, 수상작(tmdb-*·wikidata-*) 카드는
+  // 한줄평이 있어도 조회하지 않고 "아직 등록된 한줄평이 없어요"를 보여줬다(TopReviewsPanel과 같은 함수를 쓴다).
+  const currentMovieCd = movies[active] ? movieIdToCd(movies[active].id) : null;
   const { reviews: topReviews, loading: reviewsLoading } = useTopReviews(currentMovieCd);
 
   // 중심(active)이 바뀌는 모든 경로(화살표, 드래그, 다른 카드 클릭, 점 인디케이터)가
