@@ -8,6 +8,7 @@ import { signIn } from "../../auth";
 import { db } from "./db";
 import { sendPasswordResetCodeEmail } from "./mailer";
 import { hasRequiredConsent, recordConsent } from "./terms-consent";
+import { findUserIdByResetEmail, isValidEmail } from "./reset-email";
 
 const MIN_PASSWORD_LENGTH = 8;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10분
@@ -36,10 +37,6 @@ function checkResetRateLimit(email: string): boolean {
 }
 
 export type ActionResult = { error: string } | { ok: true };
-
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
 
 // 회원가입 후 곧바로 로그인시킨다(가입만 하고 다시 로그인 화면으로 보내는 건
 // 불필요한 한 단계다).
@@ -135,18 +132,6 @@ export async function signInWithCredentialsAction(
     throw error;
   }
   return { ok: true };
-}
-
-// 재설정 코드를 받을 이메일 → 계정. 소셜 로그인 제공자가 확인한 계정 이메일(User.email)을 먼저 보고,
-// 없으면 아이디 가입 때 적은 비밀번호 찾기용 이메일(RecoveryEmail)을 본다. 코드 요청과 재설정 때
-// 같은 순서로 찾으므로 둘이 다른 계정을 가리키지 않는다.
-async function findUserIdByResetEmail(email: string): Promise<string | null> {
-  const byAccountEmail = await db.user.findUnique({ where: { email }, select: { id: true } });
-  if (byAccountEmail) return byAccountEmail.id;
-  const byRecovery = await db.recoveryEmail
-    .findUnique({ where: { email }, select: { userId: true } })
-    .catch(() => null); // 표가 아직 없을 때(마이그레이션 전)
-  return byRecovery?.userId ?? null;
 }
 
 // 이메일이 실제로 가입돼 있는지 여부와 무관하게 항상 같은 메시지를 보여준다

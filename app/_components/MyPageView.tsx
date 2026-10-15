@@ -6,6 +6,7 @@ import BackBar from "./BackBar";
 import {
   updateNicknameAction,
   updatePasswordAction,
+  updateRecoveryEmailAction,
   deleteAccountAction,
   type ActionResult,
 } from "../_lib/profile-actions";
@@ -19,6 +20,7 @@ type User = {
   email: string | null;
   image: string | null;
   hasPassword: boolean;
+  recoveryEmail: string | null;
   createdAt: string;
 };
 
@@ -157,6 +159,65 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── 비밀번호 찾기용 이메일 등록·변경 모달 ────────────────────────────────────
+function RecoveryEmailModal({ current, onClose }: { current: string | null; onClose: () => void }) {
+  const router = useRouter();
+  const [state, action, pending] = useActionState<ActionResult | null, FormData>(updateRecoveryEmailAction, null);
+
+  useEffect(() => {
+    if (state && "ok" in state) {
+      router.refresh();
+      onClose();
+    }
+  }, [state, router, onClose]);
+
+  const inputClass =
+    "w-full rounded-lg border border-neutral-700 bg-bg px-3 py-2.5 text-sm text-text placeholder-muted outline-none focus:border-brand";
+
+  return (
+    <Modal title="비밀번호 찾기용 이메일" onClose={onClose}>
+      <form action={action} className="space-y-4">
+        <p className="text-xs leading-relaxed text-muted">
+          비밀번호를 잊었을 때 재설정 코드를 받는 데만 써요. 다른 메일은 보내지 않아요.
+          {current && " 비워 두고 저장하면 등록된 이메일이 삭제돼요."}
+        </p>
+        <div>
+          <label htmlFor="recoveryEmail" className="mb-1.5 block text-xs font-semibold text-muted">이메일</label>
+          <input
+            id="recoveryEmail"
+            name="recoveryEmail"
+            type="email"
+            autoComplete="email"
+            maxLength={254}
+            defaultValue={current ?? ""}
+            placeholder="name@example.com"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label htmlFor="recoveryCurrentPassword" className="mb-1.5 block text-xs font-semibold text-muted">현재 비밀번호</label>
+          <input
+            id="recoveryCurrentPassword"
+            name="currentPassword"
+            type="password"
+            autoComplete="current-password"
+            placeholder="본인 확인을 위해 입력해 주세요"
+            className={inputClass}
+          />
+        </div>
+        {state && "error" in state && <p className="text-xs text-red-400">{state.error}</p>}
+        <button
+          type="submit"
+          disabled={pending}
+          className="w-full rounded-xl bg-brand py-2.5 text-sm font-bold text-black disabled:opacity-50"
+        >
+          {pending ? "저장 중…" : "저장하기"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 // ── 계정 탈퇴 확인 모달 ──────────────────────────────────────────────────────
 function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(deleteAccountAction, null);
@@ -274,7 +335,7 @@ function ChangeButton({ onClick }: { onClick: () => void }) {
 }
 
 // ── 마이페이지 메인 ───────────────────────────────────────────────────────────
-type ModalType = "nickname" | "password" | "deleteAccount" | null;
+type ModalType = "nickname" | "password" | "recoveryEmail" | "deleteAccount" | null;
 
 export default function MyPageView({ user, linkedProviders, ratingCount }: Props) {
   const [modal, setModal] = useState<ModalType>(null);
@@ -340,6 +401,31 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
             label="비밀번호"
             value="설정되어 있음"
             action={<ChangeButton onClick={() => setModal("password")} />}
+          />
+        )}
+        {user.hasPassword && (
+          <Row
+            label="비밀번호 찾기용 이메일"
+            value={
+              user.recoveryEmail ? (
+                maskEmail(user.recoveryEmail)
+              ) : (
+                <span className="text-muted">등록 안 됨 · 등록해 두면 비밀번호를 잊었을 때 혼자 찾을 수 있어요</span>
+              )
+            }
+            action={
+              user.recoveryEmail ? (
+                <ChangeButton onClick={() => setModal("recoveryEmail")} />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setModal("recoveryEmail")}
+                  className="rounded-lg border border-brand px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors"
+                >
+                  등록
+                </button>
+              )
+            }
           />
         )}
         {!user.hasPassword && !user.email && (
@@ -419,6 +505,7 @@ export default function MyPageView({ user, linkedProviders, ratingCount }: Props
         <NicknameModal current={user.nickname} onClose={close} />
       )}
       {modal === "password" && <PasswordModal onClose={close} />}
+      {modal === "recoveryEmail" && <RecoveryEmailModal current={user.recoveryEmail} onClose={close} />}
       {modal === "deleteAccount" && <DeleteAccountModal onClose={close} />}
     </div>
   );

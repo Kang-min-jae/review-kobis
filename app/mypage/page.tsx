@@ -12,7 +12,7 @@ export default async function MyPage() {
 
   const userId = session.user.id;
 
-  const [user, accounts, ratingCount] = await Promise.all([
+  const [user, accounts, ratingCount, recovery] = await Promise.all([
     db.user.findUnique({
       where: { id: userId },
       select: {
@@ -33,6 +33,9 @@ export default async function MyPage() {
       distinct: ["movieCd"],
       select: { movieCd: true },
     }).then((rows) => rows.length),
+    db.recoveryEmail
+      .findUnique({ where: { userId }, select: { email: true } })
+      .catch(() => null), // 표가 아직 없을 때(마이그레이션 전)
   ]);
 
   if (!user) redirect("/login");
@@ -49,6 +52,7 @@ export default async function MyPage() {
           email: user.email ?? null,
           image: user.image ?? null,
           hasPassword: !!user.password,
+          recoveryEmail: recovery?.email ?? null,
           createdAt: user.createdAt.toISOString(),
         }}
         linkedProviders={linkedProviders}
