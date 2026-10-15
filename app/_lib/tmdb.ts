@@ -667,14 +667,22 @@ export type RawTmdbVideo = {
 
 // 언어(lang)별 영상 목록. 키가 없거나 요청이 실패하면 null — "영상 없음([])"과 구분해서,
 // 실패했을 땐 마지막으로 성공한 캐시를 쓸 수 있게 한다. 캐시는 trailers.ts가 DB에 직접 둔다.
-export async function getTmdbMovieVideos(tmdbId: string, lang: "ko-KR" | "en-US"): Promise<RawTmdbVideo[] | null> {
+// kind: "movie"(영화) | "tv"(시리즈) — TMDB는 둘 다 같은 형식의 /videos를 준다.
+export async function getTmdbVideos(
+  kind: "movie" | "tv",
+  tmdbId: string,
+  lang: "ko-KR" | "en-US",
+): Promise<RawTmdbVideo[] | null> {
   if (!/^\d{1,12}$/.test(tmdbId)) return null;
-  const data = await tmdbFetch<{ results?: RawTmdbVideo[] }>(`/movie/${tmdbId}/videos`, {}, lang, true);
+  const data = await tmdbFetch<{ results?: RawTmdbVideo[] }>(`/${kind}/${tmdbId}/videos`, {}, lang, true);
   if (!data) return null;
   return Array.isArray(data.results) ? data.results : [];
 }
 
-// GET /movie/{movie_id}/recommendations — "비슷한 영화" 폴백에 쓰는 TMDB 추천작 ID 목록(1페이지).
+export async function getTmdbMovieVideos(tmdbId: string, lang: "ko-KR" | "en-US"): Promise<RawTmdbVideo[] | null> {
+  return getTmdbVideos("movie", tmdbId, lang);
+}
+
 // TMDB TV 장르 ID → 이름(ko-KR 응답과 같은 표기). 추천 목록은 장르를 ID로만 준다.
 const TV_GENRE_NAMES: Record<number, string> = {
   10759: "액션 & 어드벤처", 16: "애니메이션", 35: "코미디", 80: "범죄", 99: "다큐멘터리", 18: "드라마",
@@ -728,6 +736,7 @@ export async function getTmdbMovieCredits(tmdbId: string, castLimit = 6): Promis
   return { director: director ? { name: director.name.trim(), tmdbId: String(director.id) } : null, cast };
 }
 
+// GET /movie/{movie_id}/recommendations — "비슷한 영화" 폴백에 쓰는 TMDB 추천작 ID 목록(1페이지).
 export async function getTmdbMovieRecommendationIds(tmdbId: string): Promise<string[]> {
   if (!/^\d{1,12}$/.test(tmdbId)) return [];
   const data = await tmdbFetch<{ results?: { id?: number }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });

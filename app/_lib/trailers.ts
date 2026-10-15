@@ -1,4 +1,5 @@
-// 영화 상세 페이지 "공식 예고편 확인하기" — 배급사·제작사 공식 YouTube 채널이 올린 예고편만 보여준다.
+// 영화·시리즈 상세 페이지 "공식 예고편 확인하기" — 배급사·제작사 공식 YouTube 채널이 올린 예고편만 보여준다.
+// 시리즈는 TMDB /tv/{id}/videos를 같은 규칙으로 거른다(kind = "tv").
 //
 // 1) TMDB /movie/{id}/videos를 ko-KR, en-US로 각각 받아 key 기준으로 합친다(서버에서만 호출 —
 //    API 키는 브라우저로 나가지 않는다).
@@ -16,7 +17,9 @@
 
 import { cache } from "react";
 import { db } from "./db";
-import { getTmdbMovieVideos, type RawTmdbVideo } from "./tmdb";
+import { getTmdbVideos, type RawTmdbVideo } from "./tmdb";
+
+export type TrailerKind = "movie" | "tv";
 import { channelKeyFromUrl, judgeChannel, type ChannelRules } from "./official-channels";
 
 // 보여줄 영상 유형. 클립까지 보여주려면 "Clip"을 추가하면 된다(라벨은 TYPE_LABELS에 이미 있음).
@@ -180,29 +183,35 @@ async function withChannels(
   return { videos, incomplete };
 }
 
-async function fetchFromTmdb(tmdbId: string, previous: CachedVideo[]): Promise<{ videos: CachedVideo[]; incomplete: boolean } | null> {
-  const [ko, en] = await Promise.all([getTmdbMovieVideos(tmdbId, "ko-KR"), getTmdbMovieVideos(tmdbId, "en-US")]);
+async function fetchFromTmdb(
+  kind: TrailerKind,
+  tmdbId: string,
+  previous: CachedVideo[],
+): Promise<{ videos: CachedVideo[]; incomplete: boolean } | null> {
+  const [ko, en] = await Promise.all([getTmdbVideos(kind, tmdbId, "ko-KR"), getTmdbVideos(kind, tmdbId, "en-US")]);
   if (ko === null && en === null) return null; // 둘 다 실패(키 없음·네트워크 오류)
   return withChannels(pickOfficialVideos([ko ?? [], en ?? []]).slice(0, MAX_CANDIDATES), previous);
 }
 
-async function loadCandidates(tmdbId: string): Promise<CachedVideo[]> {
-  const cached = await db.trailerCache.findUnique({ where: { tmdbId } }).catch(() => null);
+// TrailerCache 키 — 영화는 TMDB ID 그대로(기존 캐시와 호환), 시리즈는 "tv-" 접두어(같은 숫자의 영화와 겹치지 않게).
+async function loadCandidates(kind: TrailerKind, tmdbId: string): Promise<CachedVideo[]> {
+  const cacheKey = kind === "tv" ? `tv-${tmdbId}` : tmdbId;
+  const cached = await db.trailerCache.findUnique({ where: { tmdbId: cacheKey } }).catch(() => null);
   const raw = cached && Array.isArray(cached.videos) ? (cached.videos as unknown[]) : null;
   const cachedVideos = raw ? raw.filter(isCachedVideo) : null;
   // 채널 확인 전 형식(이전 버전)의 캐시가 섞여 있으면 기한과 상관없이 다시 받는다.
   const sameFormat = raw !== null && cachedVideos !== null && cachedVideos.length === raw.length;
   if (cached && cachedVideos && sameFormat && Date.now() - cached.fetchedAt.getTime() < CACHE_TTL_MS) return cachedVideos;
 
-  const fresh = await fetchFromTmdb(tmdbId, cachedVideos ?? []).catch(() => null);
+  const fresh = await fetchFromTmdb(kind, tmdbId, cachedVideos ?? []).catch(() => null);
   if (fresh === null) return cachedVideos ?? []; // TMDB 실패 → 마지막 성공 결과(없으면 영상 없음)
 
   // 채널 확인이 덜 끝났으면 1시간 뒤에 만료되도록 받은 시각을 앞당겨 저장한다.
   const fetchedAt = new Date(fresh.incomplete ? Date.now() - (CACHE_TTL_MS - RETRY_AFTER_MS) : Date.now());
   await db.trailerCache
     .upsert({
-      where: { tmdbId },
-      create: { tmdbId, videos: fresh.videos, fetchedAt },
+      where: { tmdbId: cacheKey },
+      create: { tmdbId: cacheKey, videos: fresh.videos, fetchedAt },
       update: { videos: fresh.videos, fetchedAt },
     })
     .catch(() => null);
@@ -240,13 +249,17 @@ async function loadManualVideos(movieCd: string | null): Promise<CachedVideo[]> 
   }));
 }
 
-async function getTrailerDataUncached(tmdbId: string | null, movieCd: string | null = null): Promise<TrailerData> {
+async function getTrailerDataUncached(
+  tmdbId: string | null,
+  movieCd: string | null = null,
+  kind: TrailerKind = "movie",
+): Promise<TrailerData> {
   const empty: TrailerData = { trailers: [], candidates: [] };
   const validTmdb = tmdbId !== null && /^\d{1,12}$/.test(tmdbId);
   try {
     const [manual, fromTmdb] = await Promise.all([
       loadManualVideos(movieCd),
-      validTmdb ? loadCandidates(tmdbId) : Promise.resolve([] as CachedVideo[]),
+      validTmdb ? loadCandidates(kind, tmdbId) : Promise.resolve([] as CachedVideo[]),
     ]);
     const manualKeys = new Set(manual.map((v) => v.key));
     const videos = [...manual, ...fromTmdb.filter((v) => !manualKeys.has(v.key))];

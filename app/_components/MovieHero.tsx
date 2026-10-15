@@ -11,7 +11,7 @@ const DISPLAY_CAST_LIMIT = 6;
 // 영화 상세(평점) 페이지 맨 위 카드 — 포스터(박스오피스 순위 배지), 제목, 연도·장르·러닝타임,
 // 줄거리, 회원 평균, 누적 관객(박스오피스 상영작만), 감독·출연 칩, 버튼(예고편·예매 / 리스트에 추가).
 // children엔 항목별 평점 패널(CategoryRatings)을 끼운다. 시리즈 상세 페이지도 같은 카드를 쓴다
-// (첫 방영 연도·시즌 수는 extraMeta로, 예고편 박스가 없어 "예고편 · 예매" 버튼은 showWatchButton={false}로 뺀다).
+// (첫 방영 연도·시즌 수는 extraMeta로, 극장 예매가 없어 모바일 버튼 글자는 watchLabel="예고편"으로 바꾼다).
 export default function MovieHero({
   movieTitle,
   description,
@@ -29,6 +29,7 @@ export default function MovieHero({
   yearLabel = "",
   extraMeta = [],
   showWatchButton = true,
+  watchLabel = "예고편 · 예매",
   actions,
   children,
 }: {
@@ -48,6 +49,7 @@ export default function MovieHero({
   yearLabel?: string; // 연도 뒤에 붙일 말(시리즈: "년 첫 방영" → "2017년 첫 방영")
   extraMeta?: string[]; // 연도·장르 뒤에 붙일 정보(예: "시즌 3개")
   showWatchButton?: boolean;
+  watchLabel?: string; // 모바일 "예고편 · 예매" 버튼 글자(시리즈: "예고편")
   actions?: ReactNode;
   children?: ReactNode;
 }) {
@@ -125,7 +127,7 @@ export default function MovieHero({
             {/* 모바일(1열 화면)에서만 — 눌러야 예고편·예매 박스가 보인다 */}
             {showWatchButton && (
               <ScrollToButton view="watch" targetId="watch" className="lg:hidden">
-                예고편 · 예매
+                {watchLabel}
               </ScrollToButton>
             )}
           </div>

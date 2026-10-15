@@ -11,6 +11,8 @@ import BackBar from "../../../../../_components/BackBar";
 import MovieHero from "../../../../../_components/MovieHero";
 import AddToListButton from "../../../../../_components/AddToListButton";
 import SimilarSeriesSection from "../../../../../_components/SimilarSeriesSection";
+import TrailerBox from "../../../../../_components/TrailerBox";
+import { getTrailerData } from "../../../../../_lib/trailers";
 import CategoryRatings from "../../../../../_components/CategoryRatings";
 import {
   loadReviewData,
@@ -26,8 +28,8 @@ function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
 
-// 시리즈 상세(평점) 페이지 — 영화 상세 페이지와 같은 화면(맨 위 카드 MovieHero, 왼쪽 리뷰, 오른쪽 별점 분포·
-// 비슷한 시리즈)에서 공식 예고편·예매 박스만 뺐다. 제목·포스터·줄거리·평점 요약은 로딩 화면 없이 처음 HTML에
+// 시리즈 상세(평점) 페이지 — 영화 상세 페이지와 같은 화면(맨 위 카드 MovieHero, 왼쪽 리뷰, 오른쪽 공식 예고편·
+// 별점 분포·비슷한 시리즈)에서 극장 예매만 뺐다. 제목·포스터·줄거리·평점 요약은 로딩 화면 없이 처음 HTML에
 // 바로 그리고(이 경로엔 loading.tsx를 두지 않는다), 로그인 정보·리뷰처럼 사람마다 다르거나 느린 부분만
 // <Suspense>로 늦게 불러온다.
 export async function generateMetadata({
@@ -54,6 +56,42 @@ export async function generateMetadata({
     },
     twitter: { ...BASE_TWITTER, title, description, ...(info.posterUrl ? { images: [info.posterUrl] } : {}) },
   };
+}
+
+// 공식 예고편 — 영화와 같은 규칙(배급·제작사 공식 채널 영상만, YouTube 공식 임베드로만 재생)으로 시리즈의
+// TMDB 영상을 거른다. 처음 보는 시리즈는 채널 확인으로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다.
+// 관리자에게만 숨겨진 후보와 직접 추가·차단 도구를 보여준다. 극장 예매는 두지 않는다.
+async function SeriesTrailerBox(props: {
+  sessionPromise: Promise<Session | null>;
+  tmdbId: string;
+  seriesId: string;
+  title: string;
+}) {
+  const [session, { trailers, candidates }] = await Promise.all([
+    props.sessionPromise,
+    getTrailerData(props.tmdbId, props.seriesId, "tv"),
+  ]);
+  const isAdmin = session?.user?.role === "ADMIN";
+  return (
+    <TrailerBox
+      trailers={trailers}
+      candidates={isAdmin ? candidates : []}
+      movieTitle={props.title}
+      movieCd={props.seriesId}
+      isNowShowing={false}
+      isAdmin={isAdmin}
+      showTheaters={false}
+    />
+  );
+}
+
+function TrailerBoxSkeleton() {
+  return (
+    <section id="watch" className="scroll-mt-20 rounded-2xl border border-neutral-800 bg-surface p-4">
+      <h2 className="text-sm font-bold text-text">공식 예고편 확인하기</h2>
+      <div className="mt-3 aspect-video min-h-[200px] w-full animate-pulse rounded-xl bg-black/40" />
+    </section>
+  );
 }
 
 async function SimilarSeriesWithSession(
@@ -107,17 +145,28 @@ export default async function SeriesCategoryRatePage({
           memberCount={overall?.count ?? 0}
           yearLabel="년 첫 방영"
           extraMeta={info.seasonCount ? [`시즌 ${info.seasonCount}개`] : []}
-          showWatchButton={false}
+          watchLabel="예고편"
           actions={<AddToListButton movieId={info.seriesId} title={info.title} posterUrl={info.posterUrl} gradient={info.gradient} />}
         >
           <CategoryRatings movieId={info.seriesId} averages={averages} activeCategory={category} />
         </MovieHero>
 
-        {/* 영화 상세와 같은 배치에서 예고편·예매 박스만 뺐다.
-            모바일(1열): 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 시리즈 순서.
-            넓은 화면(2열): 왼쪽에 평점, 오른쪽에 별점 분포 / 비슷한 시리즈. */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]">
-          <div id="rate" className="min-w-0 scroll-mt-20 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+        {/* 영화 상세와 같은 배치(극장 예매만 뺐다).
+            모바일(1열): 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 시리즈. 위의 "예고편" 버튼을 누르면 공식 예고편이 보인다.
+            넓은 화면(2열): 왼쪽에 평점, 오른쪽에 공식 예고편 / 별점 분포 / 비슷한 시리즈. */}
+        {/* data-mobile-view: 모바일에서 "평점"(rate) / "예고편"(watch) 중 어느 영역을 보일지 — 상단 버튼(ScrollToButton)이 바꾼다 */}
+        <div
+          id="detail-layout"
+          data-mobile-view="rate"
+          className="group/detail mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[minmax(0,1fr)_480px]"
+        >
+          <div className="min-w-0 max-lg:hidden max-lg:group-data-[mobile-view=watch]/detail:block lg:col-start-2 lg:row-start-1">
+            <Suspense fallback={<TrailerBoxSkeleton />}>
+              <SeriesTrailerBox sessionPromise={sessionPromise} tmdbId={info.tmdbId} seriesId={info.seriesId} title={info.title} />
+            </Suspense>
+          </div>
+
+          <div id="rate" className="min-w-0 scroll-mt-20 max-lg:group-data-[mobile-view=watch]/detail:hidden lg:col-start-1 lg:row-span-3 lg:row-start-1">
             <div className="mb-4 lg:hidden">
               <CategoryRatings movieId={info.seriesId} averages={averages} activeCategory={category} />
             </div>
@@ -130,13 +179,13 @@ export default async function SeriesCategoryRatePage({
             </Suspense>
           </div>
 
-          <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+          <div className="min-w-0 lg:col-start-2 lg:row-start-2">
             <Suspense fallback={<RatingDistributionSkeleton />}>
               <RatingDistributionData dataPromise={reviewDataPromise} />
             </Suspense>
           </div>
 
-          <div className="min-w-0 lg:col-start-2 lg:row-start-2">
+          <div className="min-w-0 lg:col-start-2 lg:row-start-3">
             {/* 비슷한 시리즈는 TMDB 조회(처음 보는 시리즈)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다. */}
             <Suspense fallback={null}>
               <SimilarSeriesWithSession

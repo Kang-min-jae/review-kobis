@@ -221,6 +221,7 @@ export default function TrailerBox({
   movieCd,
   isNowShowing,
   isAdmin = false,
+  showTheaters = true,
 }: {
   trailers: OfficialTrailer[];
   candidates?: TrailerCandidate[]; // 관리자에게만 넘긴다
@@ -228,6 +229,7 @@ export default function TrailerBox({
   movieCd: string;
   isNowShowing: boolean;
   isAdmin?: boolean;
+  showTheaters?: boolean; // 시리즈 페이지엔 극장 예매를 두지 않는다(공식 예고편만)
 }) {
   const router = useRouter();
   const [selectedKey, setSelectedKey] = useState<string | null>(trailers[0]?.key ?? null);
@@ -343,22 +345,24 @@ export default function TrailerBox({
         <p className="mt-3 rounded-xl bg-black/30 px-3 py-6 text-center text-sm text-muted">공식 예고편이 아직 없어요</p>
       )}
 
-      <div className="mt-4">
-        <p className="text-xs font-semibold text-text">극장 예매</p>
-        <div className="mt-2 grid grid-cols-3 gap-1.5">
-          {THEATERS.map((t) => (
-            <a
-              key={t.name}
-              href={t.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full border border-neutral-700 px-2 py-1.5 text-center text-xs text-text transition-colors hover:border-star hover:text-star"
-            >
-              {t.name} ↗
-            </a>
-          ))}
+      {showTheaters && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-text">극장 예매</p>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {THEATERS.map((t) => (
+              <a
+                key={t.name}
+                href={t.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-neutral-700 px-2 py-1.5 text-center text-xs text-text transition-colors hover:border-star hover:text-star"
+              >
+                {t.name} ↗
+              </a>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {isAdmin && <AdminCandidates candidates={candidates} movieCd={movieCd} />}
 
