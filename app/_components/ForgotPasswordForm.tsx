@@ -48,7 +48,7 @@ export default function ForgotPasswordForm() {
         </>
       ) : step === "email" ? (
         <>
-          <p className="mt-1 text-xs text-muted">가입할 때 쓴 이메일을 입력하면 6자리 인증 코드를 보내드려요.</p>
+          <p className="mt-1 text-xs text-muted">가입할 때 적은 비밀번호 찾기용 이메일(소셜 로그인 계정은 그 계정의 이메일)을 입력하면 6자리 인증 코드를 보내드려요.</p>
           <form action={requestAction} className="mt-6 space-y-4">
             <div>
               <label htmlFor="email" className="text-xs text-muted">이메일</label>

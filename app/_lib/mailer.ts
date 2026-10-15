@@ -24,7 +24,7 @@ export async function sendPasswordResetCodeEmail(to: string, code: string) {
   const { error } = await resend.emails.send({
     from: FROM,
     to: [to],
-    subject: "[무비리뷰] 비밀번호 재설정 인증 코드",
+    subject: "[STILL THEATER] 비밀번호 재설정 인증 코드",
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#18181b;color:#fff;border-radius:12px">
         <h2 style="color:#f43f5e;margin-bottom:16px">비밀번호 재설정 인증 코드</h2>

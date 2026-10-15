@@ -52,6 +52,8 @@ export async function signUpAction(
   const usernameInput = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const nicknameInput = String(formData.get("nickname") ?? "").trim();
+  // 비밀번호 찾기용 이메일(선택) — 비밀번호를 잊었을 때 재설정 코드를 받는 데만 쓴다.
+  const recoveryEmail = String(formData.get("recoveryEmail") ?? "").trim().toLowerCase();
   const callbackUrl = String(formData.get("callbackUrl") ?? "/");
 
   // 필수 약관 동의는 화면의 버튼 비활성화만으로는 강제되지 않는다(직접 요청하면 우회됨) — 서버에서 확인한다.
@@ -76,12 +78,26 @@ export async function signUpAction(
   const nicknameTaken = await db.user.findUnique({ where: { nickname: nicknameInput } });
   if (nicknameTaken) return { error: "이미 사용 중인 닉네임이에요." };
 
+  if (recoveryEmail) {
+    if (recoveryEmail.length > 254 || !isValidEmail(recoveryEmail)) return { error: "이메일 형식이 올바르지 않아요." };
+    // 한 이메일로 재설정할 계정이 하나로 정해지도록, 다른 계정이 이미 쓰는 이메일은 받지 않는다.
+    if (await findUserIdByResetEmail(recoveryEmail)) {
+      return { error: "이미 다른 계정에서 쓰고 있는 이메일이에요. 다른 이메일을 입력하거나 비워 두세요." };
+    }
+  }
+
   const passwordHash = await hash(password, 10);
   try {
     const created = await db.user.create({ data: { username: usernameInput, password: passwordHash, nickname: nicknameInput } });
     // 동의 기록 저장에 실패해도(동의 표 마이그레이션 전 등) 가입은 막지 않는다 — 기록이 없으면 다음
     // 로그인 때 동의 화면에서 다시 동의를 받는다.
     await recordConsent(created.id).catch((error) => console.warn("[signup] 약관 동의 기록 실패:", error));
+    if (recoveryEmail) {
+      // 저장에 실패해도(동시에 같은 이메일로 가입 등) 가입은 막지 않는다 — 나중에 다시 등록하면 된다.
+      await db.recoveryEmail
+        .create({ data: { userId: created.id, email: recoveryEmail } })
+        .catch((error) => console.warn("[signup] 비밀번호 찾기용 이메일 저장 실패:", error));
+    }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { error: "이미 사용 중인 아이디 또는 닉네임이에요. 다시 시도해 주세요." };
@@ -121,6 +137,18 @@ export async function signInWithCredentialsAction(
   return { ok: true };
 }
 
+// 재설정 코드를 받을 이메일 → 계정. 소셜 로그인 제공자가 확인한 계정 이메일(User.email)을 먼저 보고,
+// 없으면 아이디 가입 때 적은 비밀번호 찾기용 이메일(RecoveryEmail)을 본다. 코드 요청과 재설정 때
+// 같은 순서로 찾으므로 둘이 다른 계정을 가리키지 않는다.
+async function findUserIdByResetEmail(email: string): Promise<string | null> {
+  const byAccountEmail = await db.user.findUnique({ where: { email }, select: { id: true } });
+  if (byAccountEmail) return byAccountEmail.id;
+  const byRecovery = await db.recoveryEmail
+    .findUnique({ where: { email }, select: { userId: true } })
+    .catch(() => null); // 표가 아직 없을 때(마이그레이션 전)
+  return byRecovery?.userId ?? null;
+}
+
 // 이메일이 실제로 가입돼 있는지 여부와 무관하게 항상 같은 메시지를 보여준다
 // (가입 여부를 외부에 노출하지 않기 위한 흔한 관례).
 const GENERIC_CODE_MESSAGE = "해당 이메일로 가입된 계정이 있다면, 6자리 인증 코드를 보냈어요.";
@@ -138,8 +166,8 @@ export async function requestPasswordResetCodeAction(
     return { message: "잠시 후 다시 시도해 주세요. (1분에 최대 3회)", isError: true };
   }
 
-  const user = await db.user.findUnique({ where: { email } });
-  if (user) {
+  const userId = await findUserIdByResetEmail(email);
+  if (userId) {
     const code = randomInt(100000, 1000000).toString(); // 100000~999999
     const expiresAt = new Date(Date.now() + OTP_TTL_MS);
     await db.$transaction([
@@ -184,9 +212,15 @@ export async function resetPasswordWithCodeAction(
   if (claimed.count === 0) return { error: "잠시 후 다시 시도해 주세요." };
   if (!codesMatch(record.code, code)) return { error: "인증 코드가 올바르지 않아요." };
 
+  const userId = await findUserIdByResetEmail(email);
+  if (!userId) {
+    await db.passwordResetCode.deleteMany({ where: { email } });
+    return { error: "인증 코드가 만료됐거나 올바르지 않아요. 다시 요청해 주세요." };
+  }
+
   const passwordHash = await hash(password, 10);
   await db.$transaction([
-    db.user.update({ where: { email }, data: { password: passwordHash } }),
+    db.user.update({ where: { id: userId }, data: { password: passwordHash } }),
     db.passwordResetCode.deleteMany({ where: { email } }),
   ]);
 

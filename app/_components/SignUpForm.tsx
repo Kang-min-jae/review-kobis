@@ -253,6 +253,24 @@ export default function SignUpForm({ callbackUrl }: { callbackUrl: string }) {
           {passwordMismatch && <p className="mt-1 text-xs text-brand">비밀번호가 일치하지 않아요.</p>}
         </div>
 
+        <div>
+          <label htmlFor="recoveryEmail" className="text-xs text-muted">
+            비밀번호 찾기용 이메일 <span className="text-muted/70">(선택)</span>
+          </label>
+          <input
+            id="recoveryEmail"
+            name="recoveryEmail"
+            type="email"
+            autoComplete="email"
+            maxLength={254}
+            placeholder="name@example.com"
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-muted">
+            비밀번호를 잊었을 때 재설정 코드를 받는 데만 써요. 다른 메일은 보내지 않아요.
+          </p>
+        </div>
+
         <TermsAgreement items={TERMS_ITEMS} checked={agreed} onChange={setAgreed} />
 
         {state && "error" in state && <p className="text-xs text-brand">{state.error}</p>}
