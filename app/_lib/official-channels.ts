@@ -85,3 +85,22 @@ export function judgeChannel(channelName: string | null, channelKey: string | nu
   if (channelName && OFFICIAL_NAME_SET.has(normalizeChannelName(channelName))) return "official";
   return "unverified";
 }
+
+// 관리자가 붙여 넣은 YouTube 주소에서 영상 ID를 뽑는다(watch?v=, youtu.be/, shorts/, embed/, live/, 또는 ID만).
+export function parseYouTubeVideoKey(input: string): string | null {
+  const text = input.trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(text)) return text;
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^(www\.|m\.|music\.)/, "");
+  let key: string | null = null;
+  if (host === "youtu.be") key = url.pathname.split("/")[1] ?? null;
+  else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    key = url.searchParams.get("v") ?? /^\/(?:shorts|embed|live|v)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? null;
+  }
+  return key && /^[A-Za-z0-9_-]{11}$/.test(key) ? key : null;
+}

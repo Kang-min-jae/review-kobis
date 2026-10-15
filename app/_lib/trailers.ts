@@ -11,6 +11,8 @@
 // 5) 영화마다 24시간 DB에 캐시한다(TrailerCache). TMDB 호출이 실패하면 마지막으로 성공한
 //    결과를 쓰고, 그것도 없으면 "영상 없음"으로 처리한다 — 어떤 경우에도 페이지는 오류가 나지 않는다.
 // 6) 관리자가 막은 영상(BlockedVideoKey)·채널(TrailerChannelRule)은 캐시와 상관없이 매번 걸러서 바로 반영된다.
+// 7) TMDB에 아직 없는 국내 배급사 예고편은 관리자가 상세 페이지에서 YouTube 주소로 직접 추가한다(ManualTrailer).
+//    추가할 때 업로드 채널이 공식 채널인지 확인하고, 보여줄 때도 6)의 규칙을 똑같이 적용한다. 목록 맨 앞에 놓는다.
 
 import { cache } from "react";
 import { db } from "./db";
@@ -62,6 +64,7 @@ export type TrailerCandidate = {
   channelName: string | null;
   channelKey: string | null;
   status: TrailerCandidateStatus;
+  manual: boolean; // 관리자가 직접 추가한 영상
 };
 
 export type TrailerData = { trailers: OfficialTrailer[]; candidates: TrailerCandidate[] };
@@ -206,7 +209,7 @@ async function loadCandidates(tmdbId: string): Promise<CachedVideo[]> {
   return fresh.videos;
 }
 
-async function loadChannelRules(channelKeys: string[]): Promise<ChannelRules> {
+export async function loadChannelRules(channelKeys: string[]): Promise<ChannelRules> {
   const rows =
     channelKeys.length === 0
       ? []
@@ -219,11 +222,34 @@ async function loadChannelRules(channelKeys: string[]): Promise<ChannelRules> {
   };
 }
 
-async function getTrailerDataUncached(tmdbId: string | null): Promise<TrailerData> {
+// 관리자가 직접 추가한 예고편 — 한국 배급사 영상이라 한국어로 취급하고, 채널은 추가할 때 확인해 둔 값을 쓴다.
+async function loadManualVideos(movieCd: string | null): Promise<CachedVideo[]> {
+  if (!movieCd) return [];
+  const rows = await db.manualTrailer
+    .findMany({ where: { movieCd }, orderBy: { createdAt: "desc" } })
+    .catch(() => []); // 표가 아직 없을 때(마이그레이션 전)
+  return rows.map((r) => ({
+    key: r.videoKey,
+    type: TRAILER_TYPES.includes(r.type) ? r.type : "Trailer",
+    lang: "ko",
+    publishedAt: r.createdAt.toISOString(),
+    channelChecked: true,
+    channelName: r.channelName,
+    channelKey: r.channelKey,
+    embeddable: true,
+  }));
+}
+
+async function getTrailerDataUncached(tmdbId: string | null, movieCd: string | null = null): Promise<TrailerData> {
   const empty: TrailerData = { trailers: [], candidates: [] };
-  if (!tmdbId || !/^\d{1,12}$/.test(tmdbId)) return empty;
+  const validTmdb = tmdbId !== null && /^\d{1,12}$/.test(tmdbId);
   try {
-    const videos = await loadCandidates(tmdbId);
+    const [manual, fromTmdb] = await Promise.all([
+      loadManualVideos(movieCd),
+      validTmdb ? loadCandidates(tmdbId) : Promise.resolve([] as CachedVideo[]),
+    ]);
+    const manualKeys = new Set(manual.map((v) => v.key));
+    const videos = [...manual, ...fromTmdb.filter((v) => !manualKeys.has(v.key))];
     if (videos.length === 0) return empty;
     const [blocked, rules] = await Promise.all([
       db.blockedVideoKey
@@ -247,6 +273,7 @@ async function getTrailerDataUncached(tmdbId: string | null): Promise<TrailerDat
       channelName: v.channelName,
       channelKey: v.channelKey,
       status: statuses[i],
+      manual: manualKeys.has(v.key),
     }));
     return { trailers, candidates };
   } catch (error) {

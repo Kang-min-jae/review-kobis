@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OfficialTrailer, TrailerCandidate, TrailerCandidateStatus } from "../_lib/trailers";
-import { blockTrailerAction, setTrailerChannelRuleAction } from "../_lib/trailer-admin-actions";
+import {
+  addManualTrailerAction,
+  blockTrailerAction,
+  removeManualTrailerAction,
+  setTrailerChannelRuleAction,
+} from "../_lib/trailer-admin-actions";
 
 // 극장 예매는 각 극장 공식 사이트로 새 탭에서 연결만 한다(상영시간표를 가져오지 않는다).
 const THEATERS = [
@@ -39,15 +44,17 @@ function AdminCandidates({ candidates, movieCd }: { candidates: TrailerCandidate
     }
   }
 
-  if (candidates.length === 0) return null;
   return (
     <details className="mt-3 rounded-lg border border-red-500/40 bg-black/30 p-2 text-[11px]">
-      <summary className="cursor-pointer font-semibold text-red-400">🚨 관리자: TMDB 예고편 후보 {candidates.length}개</summary>
+      <summary className="cursor-pointer font-semibold text-red-400">🚨 관리자: 예고편 후보 {candidates.length}개 · 직접 추가</summary>
+      <AddManualTrailerForm movieCd={movieCd} />
+      {candidates.length === 0 && <p className="mt-2 text-muted">TMDB에 등록된 공식 예고편 후보가 없어요.</p>}
       <ul className="mt-2 space-y-2">
         {candidates.map((c) => (
           <li key={c.key} className="rounded bg-black/30 p-2">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="font-semibold text-text">{c.label}</span>
+              {c.manual && <span className="rounded bg-star/20 px-1 text-star">직접 추가</span>}
               <a
                 href={`https://www.youtube.com/watch?v=${c.key}`}
                 target="_blank"
@@ -99,6 +106,19 @@ function AdminCandidates({ candidates, movieCd }: { candidates: TrailerCandidate
                   채널 차단 해제
                 </button>
               )}
+              {c.manual && (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!confirm(`직접 추가한 이 영상(${c.key})을 목록에서 뺄까요?`)) return;
+                    void run(c.key, () => removeManualTrailerAction({ movieCd, videoKey: c.key }));
+                  }}
+                  className="rounded-full border border-neutral-600 px-2 py-0.5 text-muted disabled:opacity-50"
+                >
+                  직접 추가 취소
+                </button>
+              )}
               {c.status !== "video-blocked" && (
                 <button
                   type="button"
@@ -117,6 +137,76 @@ function AdminCandidates({ candidates, movieCd }: { candidates: TrailerCandidate
         ))}
       </ul>
     </details>
+  );
+}
+
+// TMDB에 아직 없는 공식 예고편(예: 국내 배급사 채널 영상)을 YouTube 주소로 추가한다. 서버가 업로드 채널을
+// 확인해 공식 채널일 때만 저장한다 — 공식 목록에 없는 채널이면, 관리자가 직접 확인한 뒤 함께 허용할 수 있다.
+function AddManualTrailerForm({ movieCd }: { movieCd: string }) {
+  const router = useRouter();
+  const [url, setUrl] = useState("");
+  const [type, setType] = useState("Trailer");
+  const [allowChannel, setAllowChannel] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+  async function submit() {
+    if (pending || !url.trim()) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      const result = await addManualTrailerAction({ movieCd, url, type, allowChannel });
+      if ("error" in result) {
+        setMessage({ text: result.error, error: true });
+      } else {
+        setMessage({ text: "추가했어요.", error: false });
+        setUrl("");
+        setAllowChannel(false);
+        router.refresh();
+      }
+    } catch {
+      setMessage({ text: "추가하지 못했어요.", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded bg-black/30 p-2">
+      <p className="font-semibold text-text">공식 예고편 직접 추가</p>
+      <p className="mt-0.5 text-muted">TMDB에 없는 배급사·제작사 공식 채널 영상의 YouTube 주소를 넣어 주세요.</p>
+      <div className="mt-1.5 flex gap-1.5">
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          aria-label="YouTube 주소"
+          className="min-w-0 flex-1 rounded border border-neutral-700 bg-bg px-2 py-1 text-text placeholder:text-muted focus:border-star focus:outline-none"
+        />
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          aria-label="영상 종류"
+          className="rounded border border-neutral-700 bg-bg px-1 py-1 text-text"
+        >
+          <option value="Trailer">메인 예고편</option>
+          <option value="Teaser">티저</option>
+        </select>
+      </div>
+      <label className="mt-1.5 flex items-center gap-1 text-muted">
+        <input type="checkbox" checked={allowChannel} onChange={(e) => setAllowChannel(e.target.checked)} />
+        목록에 없는 채널이면 이 채널도 공식으로 허용(공식 채널인지 직접 확인한 경우만)
+      </label>
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={pending || !url.trim()}
+        className="mt-1.5 rounded-full border border-star/60 px-3 py-0.5 text-star disabled:opacity-50"
+      >
+        {pending ? "확인 중…" : "추가"}
+      </button>
+      {message && <p className={`mt-1 ${message.error ? "text-red-400" : "text-star"}`}>{message.text}</p>}
+    </div>
   );
 }
 

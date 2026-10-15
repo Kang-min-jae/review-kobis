@@ -60,7 +60,7 @@ async function AwardsBannerData(props: { movieId: string; tmdbId: string | null;
 
 // 예고편은 TMDB 조회(처음 보는 영화)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다.
 async function TrailerBoxData(props: { tmdbId: string | null; movieTitle: string; movieCd: string; isNowShowing: boolean; isAdmin: boolean }) {
-  const { trailers, candidates } = await getTrailerData(props.tmdbId);
+  const { trailers, candidates } = await getTrailerData(props.tmdbId, props.movieCd);
   return (
     <TrailerBox
       trailers={trailers}

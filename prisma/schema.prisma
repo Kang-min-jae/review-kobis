@@ -535,6 +535,21 @@ model CfStats {
 
 // 예고편 채널 규칙(관리자). 기본 공식 채널 목록(official-channels.ts)에 없는 배급사 채널을 허용하거나
 // (allowed=true), 목록에 있어도 막을(allowed=false) 때 쓴다. channelKey는 "@handle" 또는 "channel/UC…".
+// 관리자가 상세 페이지에서 직접 추가한 공식 예고편(YouTube). TMDB에 아직 등록되지 않은 국내 배급사 예고편
+// (예: CJ ENM Movie 채널 영상)을 보여주기 위한 것 — 추가할 때 업로드 채널이 공식 채널인지 확인하고, 보여줄 때도
+// 차단 규칙(영상·채널)을 매번 다시 적용한다. 재생은 YouTube 공식 임베드 플레이어로만 한다.
+model ManualTrailer {
+  movieCd     String // 리뷰 DB의 작품 키(kobis 숫자, tmdb-*, …)
+  videoKey    String
+  type        String   @default("Trailer") // "Trailer" | "Teaser"
+  channelName String?
+  channelKey  String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@id([movieCd, videoKey])
+}
+
 model TrailerChannelRule {
   channelKey  String   @id
   channelName String?
