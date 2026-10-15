@@ -330,6 +330,7 @@ async function Top10SeriesData() {
 function TvSeriesSection() {
   return (
     <>
+      <RecommendedSeriesSection limit={20} title="회원님을 위한 추천 시리즈" />
       <Suspense fallback={<RowSkeleton />}>
         <CuratedSeriesSection />
       </Suspense>

@@ -85,6 +85,8 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
   // 입력은 브라우저 localStorage에서 온 값이라 형식·범위를 검증한다(rating-input.ts).
   const input = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const myRatings = sanitizeRatings(input.myRatings);
+  // 보여줄 개수 — 영화 탭은 15편, 시리즈물 탭은 20편을 요청한다.
+  const limit = Math.min(30, Math.max(1, Math.floor(Number(input.limit) || 15)));
   const ratedSeriesIds = new Set(myRatings.filter((r) => r.movieId.startsWith("tmdb-tv-")).map((r) => r.movieId));
 
   // 추천도 배지는 영화 평점까지 포함한 전체 취향으로, 다른 행과 같은 공식(affinity-data.ts)으로 계산한다.
@@ -96,10 +98,27 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
   let candidates: SeriesCandidate[] = [];
 
   if (profile.coldStart) {
-    candidates = await db.cachedSeries.findMany({
-      where: { tmdbId: { in: CURATED_SERIES_IDS }, posterUrl: { not: null } },
-      select: { tmdbId: true, name: true, posterUrl: true, genreAlt: true },
-    }).catch(() => []);
+    // 시리즈 평점이 없으면 엄선 목록 + 최근 정보가 있는 시리즈를 사이트 평점 순으로 고른다(엄선 목록만으로는
+    // 15편이라 20편을 채우지 못한다).
+    const [curated, recent] = await Promise.all([
+      db.cachedSeries.findMany({
+        where: { tmdbId: { in: CURATED_SERIES_IDS }, posterUrl: { not: null } },
+        select: { tmdbId: true, name: true, posterUrl: true, genreAlt: true },
+      }).catch(() => [] as SeriesCandidate[]),
+      db.cachedSeries.findMany({
+        where: { posterUrl: { not: null } },
+        orderBy: { updatedAt: "desc" },
+        select: { tmdbId: true, name: true, posterUrl: true, genreAlt: true },
+        take: 40,
+      }).catch(() => [] as SeriesCandidate[]),
+    ]);
+    const seen = new Set<string>();
+    for (const c of [...curated, ...recent]) {
+      if (!seen.has(c.tmdbId)) {
+        seen.add(c.tmdbId);
+        candidates.push(c);
+      }
+    }
   } else {
     const topGenres = Object.entries(profile.genreVec)
       .filter(([, s]) => s > 0)
@@ -142,7 +161,7 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
     const popular = await getTmdbPopularSeries().catch(() => []);
     const results: RowMovie[] = popular
       .filter((s) => s.posterUrl && !ratedSeriesIds.has(`tmdb-tv-${s.tmdbId}`))
-      .slice(0, 15)
+      .slice(0, limit)
       .map((s) => ({
         id: `tmdb-tv-${s.tmdbId}`,
         title: s.name,
@@ -190,22 +209,22 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
 
   scored.sort((a, b) => b.totalScore - a.totalScore);
 
-  // Genre diversity: max 50% cap (7 of 15), take top 15
+  // 장르 다양성: 한 장르가 결과의 절반 가까이(15편이면 7편, 20편이면 10편)를 넘지 않게 고른다.
   const result: typeof scored = [];
   const genreCount = new Map<string, number>();
-  const genreCap = 7;
+  const genreCap = Math.floor(limit / 2);
 
   for (const c of scored) {
-    if (result.length >= 15) break;
+    if (result.length >= limit) break;
     if (c.genres.length > 0 && c.genres.some((g) => (genreCount.get(g) ?? 0) >= genreCap)) continue;
     for (const g of c.genres) genreCount.set(g, (genreCount.get(g) ?? 0) + 1);
     result.push(c);
   }
 
-  // Fill to 15 if diversity pruned too many
-  if (result.length < 8) {
+  // 다양성 제한으로 개수가 모자라면 남은 순위대로 채운다.
+  if (result.length < limit) {
     for (const c of scored) {
-      if (result.length >= 15) break;
+      if (result.length >= limit) break;
       if (!result.includes(c)) result.push(c);
     }
   }
