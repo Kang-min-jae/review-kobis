@@ -97,6 +97,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </p>
           <p className="mt-1">
             문의 <ContactEmail />
+            {" · "}
+            <a href="/legal#copyright" className="underline underline-offset-2 hover:text-text">
+              저작권 침해 신고
+            </a>
           </p>
         </footer>
       </body>

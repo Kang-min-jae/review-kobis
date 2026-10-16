@@ -1,8 +1,8 @@
 import SiteHeader from "../_components/SiteHeader";
 import BackBar from "../_components/BackBar";
-import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_VERSION } from "../_lib/legal-content";
+import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_VERSION, COPYRIGHT_POLICY } from "../_lib/legal-content";
 
-export const metadata = { title: "이용약관·개인정보 처리방침" };
+export const metadata = { title: "이용약관·개인정보 처리방침·저작권 정책" };
 
 // 개인정보 처리방침은 가입하지 않은 사람도 볼 수 있게 공개해야 한다(개인정보 보호법 제30조) —
 // 가입 화면의 접힌 약관과 같은 원문을 누구나 볼 수 있는 페이지로 보여준다.
@@ -10,13 +10,14 @@ export default function LegalPage() {
   const sections = [
     { id: "terms", title: "이용약관", body: TERMS_OF_SERVICE },
     { id: "privacy", title: "개인정보 처리방침", body: PRIVACY_POLICY },
+    { id: "copyright", title: "저작권 정책·침해 신고", body: COPYRIGHT_POLICY },
   ];
   return (
     <main className="min-h-screen">
       <SiteHeader />
       <div className="mx-auto max-w-3xl px-5 py-6">
         <BackBar />
-        <h1 className="mt-3 text-lg font-bold text-text">이용약관·개인정보 처리방침</h1>
+        <h1 className="mt-3 text-lg font-bold text-text">이용약관·개인정보 처리방침·저작권 정책</h1>
         <p className="mt-1 text-xs text-muted">시행일 {TERMS_VERSION}</p>
         <nav className="mt-4 flex flex-wrap gap-3 text-xs">
           {sections.map((s) => (
