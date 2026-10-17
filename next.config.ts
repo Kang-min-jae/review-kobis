@@ -17,6 +17,19 @@ const nextConfig: NextConfig = {
     ];
     const ALL = "%EC%A0%84%EC%B2%B4"; // "전체"
     const MOVIE = "%EC%98%81%ED%99%94"; // "영화"
+    // 인물 페이지(/people/<이름>?role=…&pid=…&tmdbId=…)는 쿼리 값을 경로 조각으로 옮긴다(없는 값은 "-") —
+    // 쿼리를 읽는 페이지는 캐시할 수 없어서다. 있는 값이 많은 규칙부터 둬서, 주소에 실린 값 조합과 정확히
+    // 같은 규칙이 먼저 걸린다(작은 조합의 규칙은 큰 조합보다 뒤에 온다).
+    const PERSON_QUERY = ["role", "pid", "tmdbId"] as const;
+    const personRules = [7, 6, 5, 4, 3, 2, 1, 0].map((mask) => {
+      const present = PERSON_QUERY.filter((_, i) => mask & (4 >> i));
+      return {
+        source: "/people/:id",
+        has: present.map((key) => ({ type: "query" as const, key, value: `(?<${key}>[^/]+)` })),
+        missing: loggedOut,
+        destination: `/anon/people/:id/${PERSON_QUERY.map((key) => (present.includes(key) ? `:${key}` : "-")).join("/")}`,
+      };
+    });
     return {
       beforeFiles: [
         {
@@ -35,6 +48,7 @@ const nextConfig: NextConfig = {
         { source: "/movies/:id/rate/category/:category", missing: loggedOut, destination: "/anon/movies/:id/rate/category/:category" },
         { source: "/series/:id/rate", missing: loggedOut, destination: `/anon/series/:id/rate/category/${ALL}` },
         { source: "/series/:id/rate/category/:category", missing: loggedOut, destination: "/anon/series/:id/rate/category/:category" },
+        ...personRules,
         { source: "/movies/:id/rate", destination: "/movies/:id/rate/category/%EC%A0%84%EC%B2%B4" },
         { source: "/series/:id/rate", destination: "/series/:id/rate/category/%EC%A0%84%EC%B2%B4" },
       ],
