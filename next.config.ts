@@ -5,8 +5,36 @@ const nextConfig: NextConfig = {
   // /movies/:id/rate, /series/:id/rate는 "전체" 항목 페이지로 보내기만 하는 페이지라,
   // 리다이렉트로 두면 클릭할 때마다 서버를 한 번 더 왕복한다. 서버 안에서 바로 연결한다.
   async rewrites() {
+    // 로그인 쿠키가 없는 요청(비로그인 방문자·검색봇)은 같은 화면의 공용 캐시 페이지(app/anon/…)로 보낸다.
+    // 로그인 정보를 읽지 않는 페이지라 한 번 만들어 둔 것을 CDN이 바로 내준다 — 예전엔 모든 요청이 서버
+    // 함수를 새로 돌렸다. 주소창에는 원래 주소가 그대로 보인다. 로그인 쿠키가 있으면 아래 규칙은 건너뛰고
+    // 지금까지처럼 사람마다 다른 페이지를 만든다. (쿠키가 길면 ".0"으로 나뉘어 저장돼 그 이름도 본다.)
+    const loggedOut = [
+      { type: "cookie" as const, key: "authjs.session-token" },
+      { type: "cookie" as const, key: "authjs.session-token.0" },
+      { type: "cookie" as const, key: "__Secure-authjs.session-token" },
+      { type: "cookie" as const, key: "__Secure-authjs.session-token.0" },
+    ];
+    const ALL = "%EC%A0%84%EC%B2%B4"; // "전체"
+    const MOVIE = "%EC%98%81%ED%99%94"; // "영화"
     return {
       beforeFiles: [
+        {
+          source: "/",
+          has: [
+            { type: "query", key: "category", value: "(?<category>.+)" },
+            { type: "query", key: "genre", value: "(?<genre>.+)" },
+          ],
+          missing: loggedOut,
+          destination: "/anon/home/:category/:genre",
+        },
+        { source: "/", has: [{ type: "query", key: "category", value: "(?<category>.+)" }], missing: loggedOut, destination: `/anon/home/:category/${ALL}` },
+        { source: "/", has: [{ type: "query", key: "genre", value: "(?<genre>.+)" }], missing: loggedOut, destination: `/anon/home/${MOVIE}/:genre` },
+        { source: "/", missing: loggedOut, destination: `/anon/home/${MOVIE}/${ALL}` },
+        { source: "/movies/:id/rate", missing: loggedOut, destination: `/anon/movies/:id/rate/category/${ALL}` },
+        { source: "/movies/:id/rate/category/:category", missing: loggedOut, destination: "/anon/movies/:id/rate/category/:category" },
+        { source: "/series/:id/rate", missing: loggedOut, destination: `/anon/series/:id/rate/category/${ALL}` },
+        { source: "/series/:id/rate/category/:category", missing: loggedOut, destination: "/anon/series/:id/rate/category/:category" },
         { source: "/movies/:id/rate", destination: "/movies/:id/rate/category/%EC%A0%84%EC%B2%B4" },
         { source: "/series/:id/rate", destination: "/series/:id/rate/category/%EC%A0%84%EC%B2%B4" },
       ],

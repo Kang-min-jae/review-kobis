@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidateAllDetailPages } from "./detail-revalidate";
 import { db } from "./db";
 import { auth } from "../../auth";
 import { CHANNEL_KEY_PATTERN, judgeChannel, parseYouTubeVideoKey } from "./official-channels";
@@ -15,8 +15,7 @@ async function requireAdminId(): Promise<string> {
 }
 
 function refreshDetailPages() {
-  revalidatePath("/movies/[id]/rate/category/[category]", "page");
-  revalidatePath("/series/[id]/rate/category/[category]", "page");
+  revalidateAllDetailPages();
 }
 
 const MOVIE_CD_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

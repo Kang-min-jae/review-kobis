@@ -7,13 +7,15 @@ import CategoryNav, { type NavActive, type GenreLabel } from "./CategoryNav";
 export default function SiteHeader({
   active,
   activeGenre,
+  anonymous = false,
 }: {
   active?: NavActive;
   activeGenre?: GenreLabel;
+  anonymous?: boolean; // 로그인 쿠키 없는 요청용 공용(캐시) 페이지 — SearchBar 참고
 }) {
   return (
     <div className="sticky top-0 z-30 bg-bg">
-      <SearchBar />
+      <SearchBar anonymous={anonymous} />
       {active && <CategoryNav active={active} activeGenre={activeGenre} />}
     </div>
   );

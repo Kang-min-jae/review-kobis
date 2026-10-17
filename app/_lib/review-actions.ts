@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, updateTag } from "next/cache";
+import { revalidateDetailPages } from "./detail-revalidate";
 // 평점·리뷰가 바뀌면 그 영화 페이지, 내 리스트, 홈 히어로, 카드의 평균 별점(RATING_AVERAGES_TAG)만 바로 갱신한다.
 // 예전엔 revalidatePath("/", "layout")로 사이트 전체 캐시(박스오피스·Best 행·수상작 등)를 매번 지워, 평점 하나마다
 // 다음 방문자가 모든 행을 처음부터 다시 계산했다(서버 CPU 사용량의 큰 원인). 이제 행 목록은 그대로 두고 숫자만 다시 읽는다.
@@ -30,11 +31,6 @@ function assertScore(score: unknown, max: number): asserts score is number {
   if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > max) {
     throw new Error(`평점은 0~${max} 사이여야 합니다.`);
   }
-}
-
-function categoryPath(movieId: string, category: string): string {
-  const base = movieId.startsWith("tmdb-tv-") ? "/series" : "/movies";
-  return `${base}/${movieId}/rate/category/${encodeURIComponent(category)}`;
 }
 
 // 항목별 빠른 별점(글 없는 숫자만) 등록/수정. 1인 1표 — 같은 사람이 같은 영화의
@@ -72,7 +68,7 @@ export async function submitCategoryRatingAction(
     }
   }
 
-  revalidatePath(categoryPath(movieId, category));
+  revalidateDetailPages(movieId, category);
   updateTag(HOME_HERO_TAG);
   updateTag(RATING_AVERAGES_TAG);
 }
@@ -155,7 +151,7 @@ export async function submitReviewAction(input: {
     await resyncCategoryRating(userId, input.movieCd, "전체");
   }
 
-  revalidatePath(categoryPath(input.movieId, input.category));
+  revalidateDetailPages(input.movieId, input.category);
   updateTag(HOME_HERO_TAG);
   updateTag(RATING_AVERAGES_TAG);
 }
@@ -202,7 +198,7 @@ export async function deleteReviewAction(input: {
     await resyncCategoryRating(userId, review.movieCd, review.category);
   }
 
-  revalidatePath(categoryPath(input.movieId, input.category));
+  revalidateDetailPages(input.movieId, input.category);
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);
   updateTag(RATING_AVERAGES_TAG);
@@ -243,7 +239,7 @@ export async function adminDeleteReviewAction(input: { reviewId: string }) {
 
   await db.review.delete({ where: { id: input.reviewId } });
 
-  revalidatePath(categoryPath(cdToMovieId(review.movieCd), review.category));
+  revalidateDetailPages(cdToMovieId(review.movieCd), review.category);
   revalidatePath(`/users/${review.userId}`);
   revalidatePath("/my-list");
   updateTag(HOME_HERO_TAG);

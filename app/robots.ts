@@ -27,6 +27,8 @@ export default function robots(): MetadataRoute.Robots {
           "/diary",
           "/collection",
           "/following",
+          // 비로그인 요청에 내주는 공용 캐시 페이지의 내부 경로 — 같은 화면이 원래 주소로 수집된다.
+          "/anon/",
           // 항목별(연출·연기 등) 평점 페이지는 영화마다 5개씩 있어 수집량을 6배로 늘린다 — 대표 주소
           // /movies/<id>/rate("전체")만 수집하게 한다(사이트맵·canonical도 그 주소다).
           "/movies/*/rate/category/",
