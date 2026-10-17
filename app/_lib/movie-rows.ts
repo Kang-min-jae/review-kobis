@@ -8,7 +8,8 @@ import {
   type CatalogSearchParams,
 } from "./kobis";
 import { db } from "./db";
-import { getMovieMetas, getCachedMovieMetas, type MovieMeta } from "./movie-rate-info";
+import { Prisma } from "../generated/prisma/client";
+import { getMovieMetas, getCachedMovieMetas, rowToCardMeta, type CardMeta } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { isAdultContent, isAdultGenre, NOT_ADULT_GENRE_WHERE } from "./adult-content";
@@ -137,12 +138,17 @@ let awardDetailCache: Map<string, FestivalAward[]> | null = null; // tmdbId → 
 let awardCacheUpdatedAt = 0;
 const AWARD_CACHE_TTL = 10 * 60 * 1000; // 10분
 
-async function getAwardDetailsByTmdbId(): Promise<Map<string, FestivalAward[]>> {
+// 같은 표에 영화별 수상 조회 캐시("movie-tmdb-…", "movie-title-…")도 들어 있어 영화를 볼 때마다
+// 행이 늘어난다 — 그 행들엔 tmdbId가 없어 여기선 쓰이지 않으니 영화제 행만 읽는다.
+export async function getAwardDetailsByTmdbId(): Promise<Map<string, FestivalAward[]>> {
   if (awardDetailCache && Date.now() - awardCacheUpdatedAt < AWARD_CACHE_TTL) {
     return awardDetailCache;
   }
   try {
-    const rows = await db.cachedAwardWinners.findMany({ select: { id: true, winners: true } });
+    const rows = await db.cachedAwardWinners.findMany({
+      where: { NOT: { id: { startsWith: "movie-" } } },
+      select: { id: true, winners: true },
+    });
     const byTmdbId = new Map<string, FestivalAward[]>();
     for (const row of rows) {
       const winners = row.winners as FestivalWinnerJson[];
@@ -569,28 +575,39 @@ export const getMonthlyBestRow = unstable_cache(
   { revalidate: 60 * 30, tags: ["movie-rows"] },
 );
 
-type RatedMovie = { cd: string; meta: MovieMeta; avg: number; count: number };
+type RatedMovie = { cd: string; meta: CardMeta; avg: number; count: number };
 
-// 평점이 달린 KOBIS 영화 전체를 평점 높은 순(동점이면 평점 수 많은 순)으로 돌려준다.
+// 평점이 달린 KOBIS 영화를 평점 높은 순(동점이면 평점 수 많은 순)으로 돌려준다.
 // 메타는 DB 캐시만 읽는다 — 여기서 getMovieMetas를 쓰면 만료된 영화마다 외부 API
 // 재조회가 줄을 서서 Best 행이 제한 시간 안에 끝나지 못하고 화면에서 사라진다.
-async function loadRatedMovies(): Promise<RatedMovie[]> {
-  const allRatings = await db.categoryRating.groupBy({
-    by: ["movieCd"],
-    where: { category: "전체" },
-    _avg: { score: true },
-    _count: { _all: true },
-  });
-  const ratings = allRatings.filter((r) => /^\d+$/.test(r.movieCd)); // 숫자 KOBIS 코드만(시리즈 제외)
-  const metas = await getCachedMovieMetas(ratings.map((r) => r.movieCd));
-  return ratings
-    .flatMap((r) => {
-      const meta = metas.get(r.movieCd);
-      if (!meta || isAdultContent({ title: meta.movieTitle, genreAlt: meta.genreAlt })) return [];
-      return [{ cd: r.movieCd, meta, avg: r._avg.score ?? 0, count: r._count._all }];
-    })
-    .sort((a, b) => (a.avg !== b.avg ? b.avg - a.avg : b.count - a.count));
+// 개봉일 범위·장르 거르기·정렬·개수 제한을 DB 안에서 끝내고 카드에 필요한 칸만 받는다 —
+// 예전엔 평점 달린 영화 전체의 행(줄거리·출연진 JSON 포함)을 Best 행마다 따로 읽어,
+// 홈 화면 한 번 그리는 데 DB에서 수십 MB가 빠져나갔다.
+async function loadRatedMovies(
+  { range = null, keywords = null, max }: { range?: { gte: string; lte: string } | null; keywords?: string[] | null; max: number },
+): Promise<RatedMovie[]> {
+  const rows = await db.$queryRaw<{
+    movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null; avg: number; count: number;
+  }[]>`
+    SELECT m."movieCd", m."title", m."posterUrl", m."releaseDate", m."genreAlt", m."tmdbId",
+           AVG(r."score")::float8 AS "avg", COUNT(*)::int AS "count"
+    FROM "CategoryRating" r
+    JOIN "CachedMovie" m ON m."movieCd" = r."movieCd"
+    WHERE r."category" = '전체'
+      AND r."movieCd" ~ '^[0-9]+$'
+      ${range ? Prisma.sql`AND m."releaseDate" >= ${range.gte} AND m."releaseDate" <= ${range.lte}` : Prisma.empty}
+      ${keywords ? Prisma.sql`AND m."genreAlt" LIKE ANY (${keywords.map((kw) => `%${kw}%`)}::text[])` : Prisma.empty}
+    GROUP BY m."movieCd"
+    ORDER BY "avg" DESC, "count" DESC, m."movieCd"
+    LIMIT ${max}
+  `;
+  return rows
+    .map((r) => ({ cd: r.movieCd, meta: rowToCardMeta(r), avg: r.avg, count: r.count }))
+    .filter(({ meta }) => !isAdultContent({ title: meta.movieTitle, genreAlt: meta.genreAlt }));
 }
+
+// 성인물을 거른 뒤에도 limit편이 남도록 넉넉히 받는다.
+const ratedFetchSize = (limit: number) => limit * 3 + 30;
 
 async function ratedToRows(rated: RatedMovie[]): Promise<RowMovie[]> {
   const avgMap = await getBulkMovieRatingAverages(rated.map((r) => r.cd));
@@ -686,11 +703,8 @@ async function getRatingSortedMovies(
   limit: number,
   keywords: string[] | null = null,
 ): Promise<RowMovie[]> {
-  const rated = await loadRatedMovies();
-  const inRange = rated
-    .filter((r) => r.meta.releaseDate && r.meta.releaseDate >= openDateGte && r.meta.releaseDate <= openDateLte)
-    .filter((r) => matchesGenre(r.meta.genreAlt, keywords))
-    .slice(0, limit);
+  const rated = await loadRatedMovies({ range: { gte: openDateGte, lte: openDateLte }, keywords, max: ratedFetchSize(limit) });
+  const inRange = rated.slice(0, limit);
   const rows = await ratedToRows(inRange);
   if (rows.length >= limit) return rows;
 
@@ -748,7 +762,7 @@ export const getBestOf5YearsRow = unstable_cache(
 // 역대 Best: 연도 제한 없이 DB 평점 높은 순 20편. 평점이 하나도 없으면 KOBIS 목록으로 대체.
 export const getAllTimeBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const rated = await loadRatedMovies();
+    const rated = await loadRatedMovies({ max: ratedFetchSize(20) });
     if (rated.length > 0) return ratedToRows(rated.slice(0, 20));
     const results = await searchMovieCatalog({}, 20).catch(() => [] as KobisMovieSummary[]);
     return fillWithUnrated(results, new Set(), 10);
@@ -776,7 +790,7 @@ export const getGenreAllTimeBestRow = unstable_cache(
   async (genreLabel: string): Promise<RowMovie[]> => {
     const keywords = GENRE_KEYWORDS[genreLabel];
     if (!keywords) return [];
-    const rated = (await loadRatedMovies()).filter((r) => matchesGenre(r.meta.genreAlt, keywords));
+    const rated = await loadRatedMovies({ keywords, max: ratedFetchSize(20) });
     const rows = await ratedToRows(rated.slice(0, 20));
     if (rows.length >= 20) return rows;
     const exclude = new Set(rated.map((r) => r.cd));

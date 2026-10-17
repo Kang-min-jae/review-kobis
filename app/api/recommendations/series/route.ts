@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { db } from "../../../_lib/db";
 import { getTmdbPopularSeries } from "../../../_lib/tmdb";
 import { splitGenres } from "../../../_lib/movie-rows";
@@ -65,6 +66,19 @@ function buildSeriesProfile(ratings: RatingInput[], taste: TasteContext) {
   return { coldStart: false, genreVec, avoidedGenreVec };
 }
 
+// 보여줄 개수 — 영화 탭은 15편, 시리즈물 탭은 20편을 요청한다.
+function requestedLimit(input: Record<string, unknown>): number {
+  return Math.min(30, Math.max(1, Math.floor(Number(input.limit) || 15)));
+}
+
+// 평점이 하나도 없는 방문자는 모두 같은 결과를 받는다 — 방문마다 DB를 읽지 않도록 15분 동안
+// 공용 캐시에 둔다.
+const getColdStartSeries = unstable_cache(
+  (limit: number) => recommendSeries({ myRatings: [], myCategoryRatings: [], limit }),
+  ["recommendations-series-cold-start-v1"],
+  { revalidate: 60 * 15 },
+);
+
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -74,7 +88,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json({ results: await recommendSeries(body) });
+    const input = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    const coldStart = sanitizeRatings(input.myRatings).length === 0 && sanitizeCategoryRatings(input.myCategoryRatings).length === 0;
+    return NextResponse.json({
+      results: coldStart ? await getColdStartSeries(requestedLimit(input)) : await recommendSeries(body),
+    });
   } catch (error) {
     console.warn("[recommendations/series] 추천 계산 실패:", error);
     return NextResponse.json({ results: [] });
@@ -85,8 +103,7 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
   // 입력은 브라우저 localStorage에서 온 값이라 형식·범위를 검증한다(rating-input.ts).
   const input = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const myRatings = sanitizeRatings(input.myRatings);
-  // 보여줄 개수 — 영화 탭은 15편, 시리즈물 탭은 20편을 요청한다.
-  const limit = Math.min(30, Math.max(1, Math.floor(Number(input.limit) || 15)));
+  const limit = requestedLimit(input);
   const ratedSeriesIds = new Set(myRatings.filter((r) => r.movieId.startsWith("tmdb-tv-")).map((r) => r.movieId));
 
   // 추천도 배지는 영화 평점까지 포함한 전체 취향으로, 다른 행과 같은 공식(affinity-data.ts)으로 계산한다.

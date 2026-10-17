@@ -178,13 +178,25 @@ export type UserReview = {
   createdAt: string;
 };
 
+// 리뷰 목록에 붙일 제목 — 그 목록에 나오는 작품만 읽는다(예전엔 저장된 영화 제목 전체를
+// 매번 읽었다). 시리즈(tmdb-tv-*)는 CachedSeries에서 찾는다.
+export async function getTitleMap(movieCds: string[]): Promise<Map<string, string>> {
+  const cds = [...new Set(movieCds)];
+  const seriesIds = cds.filter((cd) => cd.startsWith("tmdb-tv-")).map((cd) => cd.slice("tmdb-tv-".length));
+  const [movies, series] = await Promise.all([
+    cds.length > 0 ? db.cachedMovie.findMany({ where: { movieCd: { in: cds } }, select: { movieCd: true, title: true } }) : [],
+    seriesIds.length > 0 ? db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, name: true } }) : [],
+  ]);
+  return new Map([
+    ...movies.map((m) => [m.movieCd, m.title] as const),
+    ...series.map((s) => [`tmdb-tv-${s.tmdbId}`, s.name] as const),
+  ]);
+}
+
 // viewerId가 작성자 본인이 아니면 스포일러 리뷰 본문은 "스포일러가 포함된 한줄평" 문구로 바꿔 보낸다.
 export async function getReviewsByUser(userId: string, viewerId: string | null = null): Promise<UserReview[]> {
-  const [rows, movies] = await Promise.all([
-    db.review.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),
-    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
-  ]);
-  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  const rows = await db.review.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
+  const titleMap = await getTitleMap(rows.map((r) => r.movieCd));
   return rows.map((r) => ({
     id: r.id,
     movieCd: r.movieCd,

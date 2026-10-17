@@ -10,6 +10,7 @@ import { RATING_AVERAGES_TAG } from "./fresh-ratings";
 import { db } from "./db";
 import { auth } from "../../auth";
 import { cdToMovieId } from "./rating-input";
+import { getTitleMap } from "./review-data";
 
 // ── 입력 검증 ─────────────────────────────────────────────────────────────
 // 서버 액션은 밖에서 직접 호출할 수 있다 — 화면을 거치지 않고 점수 1000점, 없는 항목 이름,
@@ -268,35 +269,32 @@ export async function getAllReviewsForAdmin(opts: { search?: string; skip?: numb
   if (session?.user?.role !== "ADMIN") throw new Error("권한 없음");
 
   const { search, skip = 0, take = 50 } = opts;
-  const [rows, movies] = await Promise.all([
-    db.review.findMany({
-      where: search
-        ? {
-            OR: [
-              { user: { nickname: { contains: search, mode: "insensitive" } } },
-              { user: { name: { contains: search, mode: "insensitive" } } },
-            ],
-          }
-        : undefined,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take,
-      select: {
-        id: true,
-        movieCd: true,
-        category: true,
-        type: true,
-        rating: true,
-        content: true,
-        createdAt: true,
-        userId: true,
-        user: { select: { id: true, nickname: true, name: true } },
-      },
-    }),
-    db.cachedMovie.findMany({ select: { movieCd: true, title: true } }),
-  ]);
+  const rows = await db.review.findMany({
+    where: search
+      ? {
+          OR: [
+            { user: { nickname: { contains: search, mode: "insensitive" } } },
+            { user: { name: { contains: search, mode: "insensitive" } } },
+          ],
+        }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    skip,
+    take,
+    select: {
+      id: true,
+      movieCd: true,
+      category: true,
+      type: true,
+      rating: true,
+      content: true,
+      createdAt: true,
+      userId: true,
+      user: { select: { id: true, nickname: true, name: true } },
+    },
+  });
 
-  const titleMap = new Map(movies.map((m) => [m.movieCd, m.title]));
+  const titleMap = await getTitleMap(rows.map((r) => r.movieCd));
   return rows.map((r) => ({
     ...r,
     movieTitle: titleMap.get(r.movieCd) ?? r.movieCd,

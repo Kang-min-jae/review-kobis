@@ -4,6 +4,7 @@
 // 영화인데도 행마다 추천 %가 달랐다.)
 
 import { db } from "./db";
+import { Prisma } from "../generated/prisma/client";
 import { splitGenres } from "./movie-rows";
 import { canonicalGenres } from "./genre-canon";
 import {
@@ -43,20 +44,38 @@ function parseCastNames(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const names: string[] = [];
   for (const person of raw) {
-    const name = person && typeof person === "object" ? (person as { name?: unknown }).name : null;
+    // 출연진 JSON의 {name, …} 항목, 또는 CAST_NAMES_SQL로 뽑은 이름 문자열
+    const name = typeof person === "string" ? person : person && typeof person === "object" ? (person as { name?: unknown }).name : null;
     if (typeof name === "string" && name.trim()) names.push(name.trim());
     if (names.length >= 5) break;
   }
   return names;
 }
 
-export function toTasteMeta(row: { genreAlt: string | null; directorName?: string | null; cast?: unknown; tmdbId?: string | null }): TasteMeta {
+// castNames: 출연진 JSON 대신 이름만 미리 뽑아 둔 값(CAST_NAMES_SQL) — 있으면 그걸 쓴다.
+export function toTasteMeta(row: { genreAlt: string | null; directorName?: string | null; cast?: unknown; castNames?: unknown; tmdbId?: string | null }): TasteMeta {
   return {
     genres: canonicalGenres(splitGenres(row.genreAlt)),
     directorName: row.directorName?.trim() || null,
-    castNames: parseCastNames(row.cast),
+    castNames: parseCastNames(row.castNames !== undefined ? row.castNames : row.cast),
     tmdbId: row.tmdbId ?? null,
   };
+}
+
+// 취향 계산엔 출연진 앞쪽 5명의 이름만 쓰는데, 출연진 JSON은 수십 명의 이름·KMDb·TMDB 코드를
+// 담고 있어 영화 한 편에 수 KB다. DB 안에서 앞쪽 10명의 이름만 잘라 받는다(이름이 빈 항목을
+// 건너뛰고도 5명이 남도록 넉넉히). 결과는 이름 문자열 배열이다.
+export const CAST_NAMES_SQL = Prisma.sql`CASE WHEN jsonb_typeof("cast") = 'array'
+  THEN jsonb_path_query_array("cast", '$[0 to 9].name') ELSE '[]'::jsonb END`;
+
+// movieCd 목록 → 출연진 앞쪽 이름(취향 계산용). 영화 정보 행은 출연진 없이 따로 읽은 경우에 쓴다.
+export async function loadCastNames(movieCds: string[]): Promise<Map<string, unknown>> {
+  const unique = [...new Set(movieCds)].filter((cd) => !isSeriesCd(cd));
+  if (unique.length === 0) return new Map();
+  const rows = await db.$queryRaw<{ movieCd: string; castNames: unknown }[]>`
+    SELECT "movieCd", ${CAST_NAMES_SQL} AS "castNames" FROM "CachedMovie" WHERE "movieCd" = ANY(${unique}::text[])
+  `;
+  return new Map(rows.map((r) => [r.movieCd, r.castNames]));
 }
 
 // movieCd 목록 → 취향 계산용 메타. 영화는 CachedMovie, 시리즈(tmdb-tv-*)는 CachedSeries에서 읽는다.
@@ -68,15 +87,16 @@ export async function loadTasteMetas(movieCds: string[]): Promise<Map<string, Ta
     movieOnly.length > 0
       ? db.cachedMovie.findMany({
           where: { movieCd: { in: movieOnly } },
-          select: { movieCd: true, genreAlt: true, directorName: true, cast: true, tmdbId: true },
+          select: { movieCd: true, genreAlt: true, directorName: true, tmdbId: true },
         })
       : [],
     seriesIds.length > 0
       ? db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, genreAlt: true } })
       : [],
   ]);
+  const castNames = await loadCastNames(movies.map((m) => m.movieCd));
   const result = new Map<string, TasteMeta>();
-  for (const m of movies) result.set(m.movieCd, toTasteMeta(m));
+  for (const m of movies) result.set(m.movieCd, toTasteMeta({ ...m, castNames: castNames.get(m.movieCd) ?? [] }));
   for (const s of series) result.set(`tmdb-tv-${s.tmdbId}`, toTasteMeta({ genreAlt: s.genreAlt }));
   return result;
 }

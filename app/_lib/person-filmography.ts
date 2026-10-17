@@ -718,8 +718,14 @@ export async function getPersonFilmography(
 
 // 검색 목록에 인물이 뜨면 필모그래피를 응답 뒤에 미리 계산해 둔다 — 사용자가 그 인물을
 // 누를 즈음엔 캐시가 준비돼 있어 바로 열린다. 이미 쓸 수 있는 캐시가 있으면 아무것도 안 한다.
+// (캐시가 쓸 만한지만 보면 되므로 필모그래피 JSON은 받아 오지 않는다.)
 export async function warmPersonFilmography(name: string, personId: string, role: "감독" | "배우"): Promise<void> {
-  const cached = await db.cachedPerson.findUnique({ where: { kmdbId: personId } });
-  if (isValidFilmographyCache(cached)) return;
+  const [cached] = await db.$queryRaw<{ tmdbId: string | null; usable: boolean }[]>`
+    SELECT "tmdbId",
+           (CASE WHEN jsonb_typeof("filmography") = 'array' THEN jsonb_array_length("filmography") > 0 ELSE false END
+            AND "updatedAt" >= ${new Date(FILMOGRAPHY_VALID_SINCE)}) AS "usable"
+    FROM "CachedPerson" WHERE "kmdbId" = ${personId}
+  `;
+  if (cached?.usable) return;
   await fetchAndCacheFilmography(name, personId, role, cached?.tmdbId ?? null);
 }

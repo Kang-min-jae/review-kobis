@@ -1,7 +1,7 @@
 import { db } from "./db";
-import { getMovieMeta } from "./movie-rate-info";
+import { getMovieMetas } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
-import type { FestivalAward } from "./movie-rows";
+import { getAwardDetailsByTmdbId, type FestivalAward } from "./movie-rows";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -27,21 +27,7 @@ function movieIdFromCd(movieCd: string): string {
 
 async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAward[]>> {
   try {
-    const awardRows = await db.cachedAwardWinners.findMany({ select: { id: true, winners: true } });
-    const byTmdbId = new Map<string, FestivalAward[]>();
-    for (const row of awardRows) {
-      const winners = row.winners as { tmdbId?: string | null; categoryLabel?: string; ceremonyYear?: number }[];
-      if (!Array.isArray(winners)) continue;
-      const festival = row.id.replace(/-v\d+$/, "");
-      for (const w of winners) {
-        if (!w.tmdbId) continue;
-        const list = byTmdbId.get(w.tmdbId) ?? [];
-        const award = { festival, categoryLabel: w.categoryLabel ?? "", year: w.ceremonyYear ?? 0 };
-        const isDup = list.some((a) => a.festival === award.festival && a.year === award.year && a.categoryLabel === award.categoryLabel);
-        if (!isDup) list.push(award);
-        byTmdbId.set(w.tmdbId, list);
-      }
-    }
+    const byTmdbId = await getAwardDetailsByTmdbId();
     if (byTmdbId.size === 0) return new Map();
     const result = new Map<string, FestivalAward[]>();
 
@@ -115,15 +101,14 @@ export async function getMyRatedMovies(
   const allMovieCds = ratings.map((r) => r.movieCd);
 
   // KOBIS 코드(숫자)만 movie-rate-info로 메타 조회; 시리즈/wikidata는 DB 캐시 직접 조회
-  const kobisRatings = ratings.filter((r) => /^\d+$/.test(r.movieCd));
-  const metas = await Promise.all(kobisRatings.map((r) => getMovieMeta(r.movieCd)));
-  const kobishMetaMap = new Map(kobisRatings.map((r, i) => [r.movieCd, metas[i]]));
+  // 카드에 필요한 제목·포스터만 한 번에 읽는다(영화마다 따로, 행 전체를 읽지 않는다).
+  const kobishMetaMap = await getMovieMetas(ratings.filter((r) => /^\d+$/.test(r.movieCd)).map((r) => r.movieCd));
 
   const seriesIds = ratings
     .filter((r) => r.movieCd.startsWith("tmdb-tv-"))
     .map((r) => r.movieCd.slice("tmdb-tv-".length));
   const seriesCache = seriesIds.length > 0
-    ? await db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } } }).catch(() => [])
+    ? await db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, name: true, posterUrl: true } }).catch(() => [])
     : [];
   const seriesMap = new Map(seriesCache.map((s) => [`tmdb-tv-${s.tmdbId}`, s]));
 
@@ -131,7 +116,7 @@ export async function getMyRatedMovies(
     .filter((r) => r.movieCd.startsWith("wikidata-"))
     .map((r) => r.movieCd);
   const wikidataCache = wikidataIds.length > 0
-    ? await db.cachedMovie.findMany({ where: { movieCd: { in: wikidataIds } } }).catch(() => [])
+    ? await db.cachedMovie.findMany({ where: { movieCd: { in: wikidataIds } }, select: { movieCd: true, title: true, posterUrl: true } }).catch(() => [])
     : [];
   const wikidataMap = new Map(wikidataCache.map((m) => [m.movieCd, m]));
 

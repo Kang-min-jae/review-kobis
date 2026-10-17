@@ -380,20 +380,19 @@ function warmTopPeople(people: KmdbPersonHit[], query: string) {
 async function withFilmographyStats<T extends KmdbPersonHit>(people: T[]): Promise<T[]> {
   const ids = people.map((p) => p.kmdbId).filter(Boolean);
   if (ids.length === 0) return people;
-  const rows = await db.cachedPerson
-    .findMany({ where: { kmdbId: { in: ids } }, select: { kmdbId: true, filmography: true, updatedAt: true } })
-    .catch(() => []);
-  const stats = new Map<string, { count: number; latestYear: string | null }>();
-  for (const row of rows) {
-    if (!Array.isArray(row.filmography) || row.filmography.length === 0) continue;
-    if (row.updatedAt.getTime() < FILMOGRAPHY_VALID_SINCE) continue;
-    const films = row.filmography as { releaseDate?: string | null }[];
-    const years = films.map((f) => f.releaseDate?.slice(0, 4)).filter((y): y is string => !!y && /^\d{4}$/.test(y));
-    stats.set(row.kmdbId, {
-      count: films.length,
-      latestYear: years.length > 0 ? years.reduce((a, b) => (a > b ? a : b)) : null,
-    });
-  }
+  // 편수와 최근작 연도만 DB 안에서 센다 — 필모그래피 JSON(인물 한 명에 수십~수백 편)을 검색할
+  // 때마다 통째로 받아 오지 않는다.
+  const rows = await db.$queryRaw<{ kmdbId: string; count: number; latestYear: string | null }[]>`
+    SELECT "kmdbId",
+           jsonb_array_length("filmography")::int AS "count",
+           (SELECT MAX(substr(f->>'releaseDate', 1, 4)) FROM jsonb_array_elements("filmography") AS f
+             WHERE substr(f->>'releaseDate', 1, 4) ~ '^[0-9]{4}$') AS "latestYear"
+    FROM "CachedPerson"
+    WHERE "kmdbId" = ANY(${ids}::text[])
+      AND jsonb_typeof("filmography") = 'array'
+      AND "updatedAt" >= ${new Date(FILMOGRAPHY_VALID_SINCE)}
+  `.catch(() => []);
+  const stats = new Map(rows.filter((r) => r.count > 0).map((r) => [r.kmdbId, { count: r.count, latestYear: r.latestYear }]));
   return people.map((p) => {
     const s = stats.get(p.kmdbId);
     if (!s) return p;

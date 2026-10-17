@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { unstable_cache } from "next/cache";
 import { db } from "../../_lib/db";
 import { getBulkMovieRatingAverages } from "../../_lib/review-data";
 import { getCachedMovieMetas, WIKIDATA_VERIFIED } from "../../_lib/movie-rate-info";
@@ -17,6 +18,8 @@ import {
 import { calculateCategoryBoost, recencyDecay } from "../../_lib/calculateAffinity";
 import {
   buildTasteContext,
+  CAST_NAMES_SQL,
+  loadCastNames,
   loadQualityStats,
   scoreAffinityWithCf,
   toTasteMeta,
@@ -45,7 +48,6 @@ const MOVIE_SELECT = {
   posterUrl: true,
   genreAlt: true,
   directorName: true,
-  cast: true,
 } as const;
 
 // 동일 입력(평점 데이터)에 대한 반복 요청을 2분간 캐싱 — React StrictMode 이중 호출,
@@ -92,6 +94,7 @@ type UserProfile = {
   avoidedDirectorCounts: Record<string, number>; // 감독별 낮은 평점 개수
 };
 
+// castNames: 출연진 앞쪽 이름(CAST_NAMES_SQL) — 후보를 다 모은 뒤 withCastNames로 한 번에 채운다.
 type DbMovie = {
   movieCd: string;
   tmdbId: string | null;
@@ -99,8 +102,15 @@ type DbMovie = {
   posterUrl: string | null;
   genreAlt: string | null;
   directorName: string | null;
-  cast: unknown;
+  castNames?: unknown;
 };
+
+// 후보 채널들은 출연진 없이 읽고(영화 한 편에 수 KB라 채널마다 읽으면 요청 하나에 수백 KB),
+// 겹치는 후보를 걸러 낸 뒤 남은 영화의 앞쪽 출연진 이름만 한 번에 읽는다.
+async function withCastNames(rows: DbMovie[]): Promise<DbMovie[]> {
+  const castNames = await loadCastNames(rows.filter((m) => m.castNames === undefined).map((m) => m.movieCd));
+  return rows.map((m) => (m.castNames === undefined ? { ...m, castNames: castNames.get(m.movieCd) ?? [] } : m));
+}
 
 type CandidateMovie = {
   movieCd: string;
@@ -241,7 +251,7 @@ async function fetchByGenreDirector(profile: UserProfile, isRated: IsRated): Pro
 async function fetchByActors(topActors: string[], isRated: IsRated): Promise<DbMovie[]> {
   if (topActors.length === 0) return [];
   const rows = await db.$queryRaw<DbMovie[]>`
-    SELECT "movieCd", "tmdbId", "title", "posterUrl", "genreAlt", "directorName", "cast"
+    SELECT "movieCd", "tmdbId", "title", "posterUrl", "genreAlt", "directorName", ${CAST_NAMES_SQL} AS "castNames"
     FROM "CachedMovie"
     WHERE "posterUrl" IS NOT NULL
       AND NOT ("movieCd" LIKE 'wikidata-%' AND "source" <> ${WIKIDATA_VERIFIED})
@@ -262,25 +272,19 @@ async function fetchByCategory(profile: UserProfile, isRated: IsRated): Promise<
   const topCategory = Object.entries(profile.categoryWeights).sort((a, b) => b[1] - a[1])[0]?.[0];
   if (!topCategory) return [];
 
-  const groups = await db.categoryRating.groupBy({
-    by: ["movieCd"],
-    where: { category: topCategory },
-    _avg: { score: true },
-    _count: { _all: true },
-  });
   // 한 명이 준 10점 하나로 "그 항목이 뛰어난 영화"가 되지 않게, 2명 이상이 평가한 영화만
-  // 보고 평가 수가 적을수록 6.5점 쪽으로 당긴 점수로 고른다.
-  const bestCds = groups
-    .flatMap((g) => {
-      const avg = g._avg.score;
-      const count = g._count._all;
-      if (avg === null || count < 2) return [];
-      return [{ movieCd: g.movieCd, score: (count * avg + 2 * 6.5) / (count + 2) }];
-    })
-    .filter((g) => g.score >= 7)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 80)
-    .map((g) => g.movieCd);
+  // 보고 평가 수가 적을수록 6.5점 쪽으로 당긴 점수로 고른다. 거르기·정렬·80편 제한까지 DB 안에서
+  // 끝낸다(예전엔 그 항목에 평점이 달린 영화 전체의 집계를 받아와 여기서 걸렀다).
+  const best = await db.$queryRaw<{ movieCd: string }[]>`
+    SELECT "movieCd"
+    FROM "CategoryRating"
+    WHERE "category" = ${topCategory}
+    GROUP BY "movieCd"
+    HAVING COUNT(*) >= 2 AND (SUM("score") + 2 * 6.5) / (COUNT(*) + 2) >= 7
+    ORDER BY (SUM("score") + 2 * 6.5) / (COUNT(*) + 2) DESC
+    LIMIT 80
+  `;
+  const bestCds = best.map((g) => g.movieCd);
   const byRating = bestCds.length > 0
     ? (await db.cachedMovie.findMany({
         where: { movieCd: { in: bestCds }, posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD },
@@ -453,7 +457,7 @@ async function getCandidates(
       take: 25,
       select: MOVIE_SELECT,
     });
-    const coldCandidates = recent.filter((m) => !isRated(m)).slice(0, 20).map(toCandidate);
+    const coldCandidates = (await withCastNames(recent.filter((m) => !isRated(m)).slice(0, 20))).map(toCandidate);
     const stats = await withQuality(coldCandidates);
     const catalogMean = catalogMeanOf(stats.values());
     for (const c of coldCandidates) c.totalScore = bayesianQualityScore(c.quality, catalogMean);
@@ -485,7 +489,7 @@ async function getCandidates(
     unique.push(m);
   }
 
-  const candidates = unique.map(toCandidate);
+  const candidates = (await withCastNames(unique)).map(toCandidate);
   const stats = await withQuality(candidates);
   const catalogMean = catalogMeanOf(stats.values());
   for (const c of candidates) c.totalScore = calculateFinalScore(c, profile, catalogMean);
@@ -642,9 +646,9 @@ async function fetchFallbackCandidates(
     take: needed * 5 + excludeMovieCds.size,
     select: MOVIE_SELECT,
   });
-  const fallback = rows
+  const fallback = (await withCastNames(rows
     .filter((m) => !excludeMovieCds.has(m.movieCd) && !isRated(m))
-    .slice(0, needed * 2)
+    .slice(0, needed * 2)))
     .map(toCandidate);
   await withQuality(fallback); // 추천도 배지를 다른 카드와 같은 재료로 계산하기 위해
   return fallback;
@@ -716,6 +720,7 @@ async function buildRecommendations(
   keywords: string[] | null,
   target: number,
   cacheKey: string,
+  { llm = true }: { llm?: boolean } = {},
 ): Promise<{ results: RowMovie[] }> {
   const [taste, cf] = await Promise.all([
     buildTasteContext(myRatings, myCategoryRatings),
@@ -731,7 +736,7 @@ async function buildRecommendations(
   const cachedLlm = llmCache.get(cacheKey);
   const llmResults = cachedLlm && cachedLlm.expiresAt > Date.now() ? cachedLlm.results : [];
   // LLM 리랭킹은 홈 추천에만 쓴다(장르 탭마다 돌리면 호출 비용이 장르 수만큼 늘어난다).
-  if (llmResults.length === 0 && !keywords) {
+  if (llm && llmResults.length === 0 && !keywords) {
     after(async () => {
       const results = await callLlm(profile, candidates).catch(() => [] as LlmResult);
       if (results.length === 0) return;
@@ -821,6 +826,15 @@ async function buildRecommendations(
   };
 }
 
+// 평점이 하나도 없는 방문자(비로그인 방문 대부분)는 모두 같은 결과를 받는다 — 방문마다 DB를
+// 읽지 않도록 15분 동안 공용 캐시에 둔다. 취향 정보가 없으니 LLM 리랭킹은 하지 않는다.
+const getColdStartRecommendations = unstable_cache(
+  (genre: string | null, target: number) =>
+    buildRecommendations([], [], genre ? GENRE_KEYWORDS[genre] : null, target, `cold|${genre ?? ""}|${target}`, { llm: false }),
+  ["recommendations-cold-start-v1"],
+  { revalidate: 60 * 15 },
+);
+
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -846,7 +860,9 @@ export async function POST(request: Request) {
 
   let payload: { results: RowMovie[] };
   try {
-    payload = await buildRecommendations(myRatings, myCategoryRatings, keywords, target, cacheKey);
+    payload = myRatings.length === 0 && myCategoryRatings.length === 0
+      ? await getColdStartRecommendations(genre, target)
+      : await buildRecommendations(myRatings, myCategoryRatings, keywords, target, cacheKey);
   } catch (error) {
     console.warn("[recommendations] 추천 계산 실패:", error);
     return NextResponse.json({ results: [] });

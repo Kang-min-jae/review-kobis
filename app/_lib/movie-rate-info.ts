@@ -422,14 +422,39 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   return promise;
 }
 
+// 카드(포스터 한 장)에 필요한 정보만. 목록 화면은 이것만 쓴다 — 줄거리·출연진 JSON까지
+// 행 전체를 읽으면 영화 한 편에 수 KB씩, 목록 하나에 수 MB가 DB에서 빠져나간다
+// (Neon 무료 플랜은 DB 밖으로 나가는 전송량이 월 5GB로 제한돼 있다).
+export type CardMeta = Pick<MovieMeta, "movieCd" | "movieTitle" | "posterUrl" | "releaseDate" | "genreAlt" | "tmdbId">;
+
+export const CARD_SELECT = {
+  movieCd: true,
+  title: true,
+  posterUrl: true,
+  releaseDate: true,
+  genreAlt: true,
+  tmdbId: true,
+} as const;
+
+export function rowToCardMeta(row: { movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null }): CardMeta {
+  return {
+    movieCd: row.movieCd,
+    movieTitle: row.title,
+    posterUrl: formatPosterUrl(row.posterUrl),
+    releaseDate: row.releaseDate,
+    genreAlt: row.genreAlt,
+    tmdbId: row.tmdbId,
+  };
+}
+
 // 외부 API를 부르지 않고 DB 캐시만 읽는다(만료 여부 무시). 평점 기반 Best 행처럼
 // 평점 달린 영화 전체를 한 번에 훑어야 하는 곳에서 getMovieMetas를 쓰면, 만료된
 // 영화마다 TMDB/KMDb 재조회(편당 10여 건, 동시 4건 제한)가 줄을 서서 행이 끝나지 않는다.
-export async function getCachedMovieMetas(movieCds: string[]): Promise<Map<string, MovieMeta>> {
+export async function getCachedMovieMetas(movieCds: string[]): Promise<Map<string, CardMeta>> {
   const uniqueCds = Array.from(new Set(movieCds));
   if (uniqueCds.length === 0) return new Map();
-  const rows = await db.cachedMovie.findMany({ where: { movieCd: { in: uniqueCds } } });
-  return new Map(rows.map((row) => [row.movieCd, rowToMeta(row)]));
+  const rows = await db.cachedMovie.findMany({ where: { movieCd: { in: uniqueCds } }, select: CARD_SELECT });
+  return new Map(rows.map((row) => [row.movieCd, rowToCardMeta(row)]));
 }
 
 // getMovieMeta를 movieCd 개수만큼 Promise.all로 돌리면, 캐시에 이미 있는 영화라도
@@ -437,19 +462,23 @@ export async function getCachedMovieMetas(movieCds: string[]): Promise<Map<strin
 // 한 행이 영화 20~30편을 보여줄 때마다 20~30번 개별 왕복이 생긴다는 뜻이다. 캐시
 // 존재 여부 확인만 먼저 findMany 한 번으로 모아서 하고, 캐시 미스/만료인 것만
 // (진행 중인 조회 중복 제거를 그대로 활용해) 실제로 새로 받아온다.
-export async function getMovieMetas(movieCds: string[]): Promise<Map<string, MovieMeta | null>> {
+// 목록 화면용이라 카드 정보(CardMeta)만 돌려준다.
+export async function getMovieMetas(movieCds: string[]): Promise<Map<string, CardMeta | null>> {
   const uniqueCds = Array.from(new Set(movieCds));
   if (uniqueCds.length === 0) return new Map();
 
-  const cachedRows = await db.cachedMovie.findMany({ where: { movieCd: { in: uniqueCds } } });
+  const cachedRows = await db.cachedMovie.findMany({
+    where: { movieCd: { in: uniqueCds } },
+    select: { ...CARD_SELECT, updatedAt: true },
+  });
   const cachedByCd = new Map(cachedRows.map((row) => [row.movieCd, row]));
 
   const entries = await Promise.all(
-    uniqueCds.map(async (movieCd): Promise<[string, MovieMeta | null]> => {
+    uniqueCds.map(async (movieCd): Promise<[string, CardMeta | null]> => {
       const cached = cachedByCd.get(movieCd);
       if (cached) {
         if (!isCacheFresh(cached)) refreshInBackground(movieCd);
-        return [movieCd, rowToMeta(cached)];
+        return [movieCd, rowToCardMeta(cached)];
       }
 
       const existing = inFlightMovieMeta.get(movieCd);
@@ -462,7 +491,6 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Mov
           console.warn(`[movie-meta] ${movieCd} 갱신 실패`, error);
           return null;
         })
-        .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
         .finally(() => {
           inFlightMovieMeta.delete(movieCd);
         });
