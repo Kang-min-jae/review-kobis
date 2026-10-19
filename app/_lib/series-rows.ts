@@ -59,6 +59,7 @@ async function getOrFetchSeries(tmdbId: string): Promise<RowMovie | null> {
     try {
       await db.cachedSeries.upsert({
         where: { tmdbId },
+        select: { tmdbId: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
         update: {
           name: details.name,
           originalName: details.originalName,

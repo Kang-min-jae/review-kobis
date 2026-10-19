@@ -418,6 +418,7 @@ async function fetchWithCache(type: FestivalType, sinceYear: number): Promise<Fe
   try {
     await db.cachedAwardWinners.upsert({
       where: { id: cacheKey },
+      select: { id: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       create: { id: cacheKey, winners: data as unknown as object[] },
       update: { winners: data as unknown as object[] },
     });
@@ -685,6 +686,7 @@ export async function fetchMovieAwardWins(
   try {
     await db.cachedAwardWinners.upsert({
       where: { id: cacheKey },
+      select: { id: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       create: { id: cacheKey, winners: data as unknown as object[] },
       update: { winners: data as unknown as object[] },
     });

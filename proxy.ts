@@ -10,9 +10,10 @@ import { getToken } from "next-auth/jwt";
 const SESSION_COOKIE = "authjs.session-token";
 const SECURE_SESSION_COOKIE = `__Secure-${SESSION_COOKIE}`;
 
-// AI 학습용 수집봇 — robots.txt(app/robots.ts)로도 막지만, 규칙을 무시하는 봇도 이름을 밝히고 오면
-// 페이지를 그리기 전에 바로 돌려보낸다(서버 렌더 비용 없음). 사람이 쓰는 AI 검색·브라우징 봇은 막지 않는다.
-const BLOCKED_BOTS = /GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot/i;
+// AI 학습용 수집봇과 SEO 분석 도구 봇 — robots.txt(app/robots.ts)로도 막지만, 규칙을 무시하는 봇도 이름을 밝히고
+// 오면 페이지를 그리기 전에 바로 돌려보낸다(서버 렌더 비용 없음). 사람이 쓰는 AI 검색·브라우징 봇과 구글·네이버·빙·
+// 다음 검색봇은 막지 않는다. 목록을 바꾸면 아래 matcher의 user-agent 조건도 같이 바꾼다.
+const BLOCKED_BOTS = /GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot|AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot|DataForSeoBot|BLEXBot|SeekportBot|serpstatbot|Barkrowler/i;
 
 export async function proxy(request: NextRequest) {
   if (BLOCKED_BOTS.test(request.headers.get("user-agent") ?? "")) {
@@ -57,7 +58,7 @@ export const config = {
     { source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)", has: [{ type: "cookie", key: "__Secure-authjs.session-token.0" }] },
     {
       source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)",
-      has: [{ type: "header", key: "user-agent", value: ".*(GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot).*" }],
+      has: [{ type: "header", key: "user-agent", value: ".*(GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot|AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot|DataForSeoBot|BLEXBot|SeekportBot|serpstatbot|Barkrowler).*" }],
     },
   ],
 };

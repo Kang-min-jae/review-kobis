@@ -114,18 +114,12 @@ const MOVIE_LIST_PAGE_SIZE = 100;
 // 영화 목록 한 페이지. 성공한 응답만 6시간 캐시한다 — 예전 fetch 캐시는 KOBIS가 HTTP 200으로 돌려주는
 // 오류(키 오류·하루 호출 한도 초과, faultInfo)까지 6시간 저장해서, 그동안 같은 검색어는 결과가 비어 있었다.
 async function fetchMovieListPage(query: string, page: number): Promise<RawMovieListItem[]> {
-  const key = apiKey();
-  if (!key) return [];
-  const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json${query ? `?${query}` : ""}`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("itemPerPage", String(MOVIE_LIST_PAGE_SIZE));
-  url.searchParams.set("curPage", String(page));
-  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json().catch(() => null)) as { movieListResult?: { movieList?: RawMovieListItem[] } } | null;
-  const fault = kobisFault(data);
-  if (fault) throw new Error(fault);
-  return data?.movieListResult?.movieList ?? [];
+  if (!apiKey()) return [];
+  const paging = `itemPerPage=${MOVIE_LIST_PAGE_SIZE}&curPage=${page}`;
+  const data = (await kobisGetJson("/movie/searchMovieList.json", query ? `${query}&${paging}` : paging)) as {
+    movieListResult?: { movieList?: RawMovieListItem[] };
+  };
+  return data.movieListResult?.movieList ?? [];
 }
 
 const cachedMovieListPage = unstable_cache(fetchMovieListPage, ["kobis-movie-list-v1"], { revalidate: 60 * 60 * 6 });
@@ -136,8 +130,6 @@ export async function searchMovieCatalog(
 ): Promise<KobisMovieSummary[]> {
   const key = apiKey();
   if (!key) return [];
-
-  if (isKobisCoolingDown()) return [];
 
   const todayStamp = toDateStamp(new Date());
   const pageSize = MOVIE_LIST_PAGE_SIZE;
@@ -153,9 +145,9 @@ export async function searchMovieCatalog(
 
   for (let page = 1; page <= pagesNeeded; page++) {
     try {
-      const items = process.env.NEXT_RUNTIME
-        ? await cachedMovieListPage(query, page)
-        : await fetchMovieListPage(query, page);
+      const items = await shareInFlight(`movie-list?${query}&page=${page}`, () =>
+        process.env.NEXT_RUNTIME ? cachedMovieListPage(query, page) : fetchMovieListPage(query, page),
+      );
       if (items.length === 0) break;
 
       for (const item of items) {
@@ -167,8 +159,7 @@ export async function searchMovieCatalog(
       }
       if (items.length < pageSize) break;
     } catch (error) {
-      markKobisFailure();
-      console.warn(`[kobis] searchMovieList 실패 (page ${page}):`, error instanceof Error ? error.message : error);
+      warnKobisFailure(`searchMovieList(page ${page})`, error);
       break;
     }
   }
@@ -200,32 +191,17 @@ function toEarliestMatch(item: RawMovieListItem): EarliestMatch | null {
 
 // 필모그래피 조회 시 이 함수가 수십 건 동시에 호출될 수 있어(배우 한 명당 출연작 개수만큼),
 // 일시적인 요청 실패로 실제로는 있는 작품이 누락되지 않도록 한 번 재시도한다.
-async function fetchTitleCandidates(query: string, key: string): Promise<RawMovieListItem[]> {
+async function fetchTitleCandidates(query: string): Promise<RawMovieListItem[]> {
   const searchTerm = stripEdition(query);
-  const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieList.json`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("movieNm", searchTerm);
-  url.searchParams.set("itemPerPage", "20");
-
-  let res: Response;
   try {
-    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch {
-    try {
-      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    } catch (error) {
-      console.warn(`[kobis] "${query}" 검색 실패 (재시도 후에도 오류):`, error);
-      return [];
-    }
-  }
-  if (!res.ok) {
-    console.warn(`[kobis] "${query}" 검색 실패: HTTP ${res.status}`);
+    const data = (await kobisGet("/movie/searchMovieList.json", `itemPerPage=20&movieNm=${encodeURIComponent(searchTerm)}`)) as {
+      movieListResult?: { movieList?: RawMovieListItem[] };
+    };
+    return data.movieListResult?.movieList ?? [];
+  } catch (error) {
+    warnKobisFailure(`"${query}" 검색`, error);
     return [];
   }
-  // KOBIS는 한도 초과·점검 때 200으로 HTML/오류 JSON을 돌려주기도 해서 파싱 실패도 빈 결과로 처리한다.
-  const data = (await res.json().catch(() => null)) as { movieListResult?: { movieList?: RawMovieListItem[] } } | null;
-  return data?.movieListResult?.movieList ?? [];
 }
 
 function exactTitleMatches(items: RawMovieListItem[], query: string): RawMovieListItem[] {
@@ -233,8 +209,8 @@ function exactTitleMatches(items: RawMovieListItem[], query: string): RawMovieLi
   return items.filter((item) => item.movieNm && normalizeTitle(item.movieNm) === target);
 }
 
-async function findEarliestRegistration(query: string, key: string): Promise<EarliestMatch | null> {
-  const items = await fetchTitleCandidates(query, key);
+async function findEarliestRegistration(query: string): Promise<EarliestMatch | null> {
+  const items = await fetchTitleCandidates(query);
   if (items.length === 0) return null;
 
   const exactMatches = exactTitleMatches(items, query);
@@ -256,7 +232,7 @@ export async function findOriginalReleaseByTitle(title: string): Promise<Earlies
   const key = apiKey();
   if (!key) return null;
   try {
-    return await findEarliestRegistration(title, key);
+    return await findEarliestRegistration(title);
   } catch (error) {
     console.warn(`[kobis] "${title}" 원 개봉일 조회 중 오류:`, error);
     return null;
@@ -298,7 +274,7 @@ export async function findMovieCdByTitleAndPerson(
   const checkCast = role !== "감독";
 
   async function resolve(query: string): Promise<string | null> {
-    const items = await fetchTitleCandidates(query, key!);
+    const items = await fetchTitleCandidates(query);
     const exact = exactTitleMatches(items, query);
     if (exact.length === 0) return null;
     if (exact.length === 1) {
@@ -385,62 +361,44 @@ type RawMovieInfo = {
   audits?: { watchGradeNm?: string }[];
 };
 
-// 필모그래피 조회 시(동명이인 구분을 위해 제목이 겹치는 후보끼리 대조할 때) 이
-// 함수가 연달아 여러 번 호출될 수 있어서, fetchTitleCandidates와 같은 이유로 한
-// 번 재시도한다 — 재시도 없이는 일시적인 요청 실패로 실제로는 있는 작품이 없는
-// 것처럼 취급돼, 같은 인물을 다시 조회할 때마다 결과 편수가 들쭉날쭉해지는
-// 원인이 된다(실제로 관측됨: 같은 필모그래피가 조회할 때마다 29편/33편으로 다르게 나옴).
+// KOBIS 영화 상세. 그런 영화가 없으면 null, KOBIS를 쓸 수 없으면(하루 이용량 초과 등) KobisUnavailableError를
+// 던진다 — 영화 상세 페이지가 일시적 실패를 "없는 영화"(404)로 만들어 캐시하지 않게(movie-rate-info.ts).
+export async function fetchMovieDetailsByCd(movieCd: string): Promise<KobisMovieDetails | null> {
+  if (!apiKey()) return null;
+  const data = (await kobisGet("/movie/searchMovieInfo.json", `movieCd=${encodeURIComponent(movieCd)}`)) as {
+    movieInfoResult?: { movieInfo?: RawMovieInfo };
+  };
+  const info = data.movieInfoResult?.movieInfo;
+  if (!info || !info.movieCd || !info.movieNm) return null;
+
+  return {
+    movieCd: info.movieCd,
+    title: info.movieNm,
+    titleEn: info.movieNmEn?.trim() || null,
+    overview: null,
+    posterUrl: null,
+    openDate: toOpenDateIso(info.openDt),
+    runtimeMinutes: info.showTm ? Number(info.showTm) : null,
+    watchGrade: info.audits?.[0]?.watchGradeNm?.trim() || null,
+    director: info.directors?.[0]?.peopleNm ? { name: info.directors[0].peopleNm.trim() } : null,
+    // 상위 6명만 담으면 주연이 아닌 배우는 출연진 매칭(동명이인 구분, 포스터 검색 등)에서
+    // 놓칠 수 있어 넉넉히 20명까지 담는다. 화면에 다 보여줄 필요는 없어 표시는 UI에서 잘라낸다.
+    cast: (info.actors ?? [])
+      .filter((a) => a.peopleNm)
+      .slice(0, 20)
+      .map((a) => ({ name: a.peopleNm!.trim(), role: a.cast?.trim() ?? "" })),
+    genreAlt: info.genres?.map((g) => g.genreNm).filter(Boolean).join(", ") || null,
+    nationAlt: info.nations?.map((n) => n.nationNm).filter(Boolean).join(", ") || null,
+  };
+}
+
+// 실패해도 null로 넘어가도 되는 곳(필모그래피 대조, 재개봉 판정 배치)용. 연결이 잠깐 끊긴 경우는 kobisGetJson이
+// 한 번 다시 시도한다 — 예전에 재시도가 없을 땐 필모그래피 편수가 조회할 때마다 29편/33편으로 달라졌다.
 export async function getMovieDetailsByCd(movieCd: string): Promise<KobisMovieDetails | null> {
-  const key = apiKey();
-  if (!key) return null;
-
-  const url = new URL(`${KOBIS_API_BASE}/movie/searchMovieInfo.json`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("movieCd", movieCd);
-
-  let res: Response;
   try {
-    res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch {
-    try {
-      res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    } catch (error) {
-      console.warn(`[kobis] searchMovieInfo(${movieCd}) 실패 (재시도 후에도 오류):`, error);
-      return null;
-    }
-  }
-
-  try {
-    if (!res.ok) {
-      console.warn(`[kobis] searchMovieInfo(${movieCd}) 실패: HTTP ${res.status}`);
-      return null;
-    }
-    const data: { movieInfoResult?: { movieInfo?: RawMovieInfo } } = await res.json();
-    const info = data.movieInfoResult?.movieInfo;
-    if (!info || !info.movieCd || !info.movieNm) return null;
-
-    return {
-      movieCd: info.movieCd,
-      title: info.movieNm,
-      titleEn: info.movieNmEn?.trim() || null,
-      overview: null,
-      posterUrl: null,
-      openDate: toOpenDateIso(info.openDt),
-      runtimeMinutes: info.showTm ? Number(info.showTm) : null,
-      watchGrade: info.audits?.[0]?.watchGradeNm?.trim() || null,
-      director: info.directors?.[0]?.peopleNm ? { name: info.directors[0].peopleNm.trim() } : null,
-      // 상위 6명만 담으면 주연이 아닌 배우는 출연진 매칭(동명이인 구분, 포스터 검색 등)에서
-      // 놓칠 수 있어 넉넉히 20명까지 담는다. 화면에 다 보여줄 필요는 없어 표시는 UI에서 잘라낸다.
-      cast: (info.actors ?? [])
-        .filter((a) => a.peopleNm)
-        .slice(0, 20)
-        .map((a) => ({ name: a.peopleNm!.trim(), role: a.cast?.trim() ?? "" })),
-      genreAlt: info.genres?.map((g) => g.genreNm).filter(Boolean).join(", ") || null,
-      nationAlt: info.nations?.map((n) => n.nationNm).filter(Boolean).join(", ") || null,
-    };
+    return await fetchMovieDetailsByCd(movieCd);
   } catch (error) {
-    console.warn(`[kobis] searchMovieInfo(${movieCd}) 요청 중 오류:`, error);
+    warnKobisFailure(`searchMovieInfo(${movieCd})`, error);
     return null;
   }
 }
@@ -484,21 +442,11 @@ export type KoficPeopleHit = {
 };
 
 export async function searchKoficPeopleList(peopleNm: string): Promise<KoficPeopleHit[]> {
-  const key = apiKey();
-  if (!key) return [];
-
-  const url = new URL(`${KOBIS_API_BASE}/people/searchPeopleList.json`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("peopleNm", peopleNm);
-  url.searchParams.set("itemPerPage", "10");
-
+  if (!apiKey()) return [];
   try {
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 }, signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-    if (!res.ok) {
-      console.warn(`[kobis] searchPeopleList("${peopleNm}") 실패: HTTP ${res.status}`);
-      return [];
-    }
-    const data: { peopleListResult?: { peopleList?: RawPeopleListItem[] } } = await res.json();
+    const data = (await kobisGet("/people/searchPeopleList.json", `itemPerPage=10&peopleNm=${encodeURIComponent(peopleNm)}`)) as {
+      peopleListResult?: { peopleList?: RawPeopleListItem[] };
+    };
     const list = data.peopleListResult?.peopleList ?? [];
     return list
       .filter((p): p is RawPeopleListItem & { peopleCd: string; peopleNm: string } => !!p.peopleCd && !!p.peopleNm)
@@ -512,7 +460,7 @@ export async function searchKoficPeopleList(peopleNm: string): Promise<KoficPeop
           .filter(Boolean),
       }));
   } catch (error) {
-    console.warn(`[kobis] searchPeopleList("${peopleNm}") 요청 중 오류:`, error);
+    warnKobisFailure(`searchPeopleList("${peopleNm}")`, error);
     return [];
   }
 }
@@ -576,39 +524,109 @@ function kobisFault(data: unknown): string | null {
   return fault ? `${fault.errorCode ?? ""} ${fault.message ?? ""}`.trim() || "faultInfo" : null;
 }
 
+// 일시적으로 KOBIS를 쓸 수 없음(하루 이용량 초과·점검·네트워크 오류) — "그런 영화가 없음"과 구분한다.
+// 영화 상세가 이걸 "없는 영화"로 취급하면 실제로 있는 영화가 404로 캐시된다.
+export class KobisUnavailableError extends Error {}
+// 한도 초과·최근 실패 때문에 아예 부르지 않은 경우 — 같은 원인으로 로그가 쌓이지 않게 따로 구분한다.
+class KobisSkippedError extends KobisUnavailableError {}
+
+// 하루 이용량 초과(320011) 뒤에는 한도가 초기화되는 한국 시간 자정까지 이 서버 인스턴스는 KOBIS를 더 부르지 않는다
+// (예전엔 실패한 뒤에도 요청마다 다시 불러 오류만 쌓았다).
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+let quotaExhaustedUntil = 0;
+export function nextKstMidnight(now = Date.now()): number {
+  return Math.floor((now + KST_OFFSET_MS) / DAY_MS) * DAY_MS + DAY_MS - KST_OFFSET_MS;
+}
+function isQuotaExhausted(): boolean {
+  return Date.now() < quotaExhaustedUntil;
+}
+
+// KOBIS GET 한 번. 실패(HTTP 오류, faultInfo, 해석 불가)는 KobisUnavailableError로 던진다 — 캐시에 남지 않게.
+// query는 API 키를 뺀 검색 조건(캐시 키로도 쓴다).
+async function kobisGetJson(path: string, query: string): Promise<unknown> {
+  const key = apiKey();
+  if (!key) throw new KobisSkippedError("API 키 없음");
+  if (isQuotaExhausted()) throw new KobisSkippedError("하루 이용량 초과 — 자정까지 호출하지 않음");
+  if (isKobisCoolingDown()) throw new KobisSkippedError("방금 실패해 잠시 호출하지 않음");
+  const url = new URL(`${KOBIS_API_BASE}${path}${query ? `?${query}` : ""}`);
+  url.searchParams.set("key", key);
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
+  } catch {
+    // 연결이 잠깐 끊긴 경우가 잦아 한 번만 다시 시도한다.
+    res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) }).catch((error) => {
+      markKobisFailure();
+      throw new KobisUnavailableError(error instanceof Error ? error.message : "네트워크 오류");
+    });
+  }
+  if (!res.ok) {
+    markKobisFailure();
+    throw new KobisUnavailableError(`HTTP ${res.status}`);
+  }
+  const data: unknown = await res.json().catch(() => null);
+  const fault = data === null ? "응답을 해석할 수 없음" : kobisFault(data);
+  if (fault) {
+    markKobisFailure();
+    if (fault.startsWith("320011")) quotaExhaustedUntil = nextKstMidnight();
+    throw new KobisUnavailableError(fault);
+  }
+  return data;
+}
+
+// 실패를 로그에 남긴다 — 한도 초과·최근 실패로 호출을 건너뛴 경우는 처음 실패 때 이미 남겼으니 생략한다.
+function warnKobisFailure(label: string, error: unknown) {
+  if (error instanceof KobisSkippedError) return;
+  console.warn(`[kobis] ${label} 실패:`, error instanceof Error ? error.message : error);
+}
+
+// 성공한 응답만 하루 캐시한다(영화 상세·제목 검색·인물 검색). 예전엔 fetch 캐시(next.revalidate)를 써서
+// KOBIS가 HTTP 200으로 돌려주는 오류(하루 이용량 초과 등)까지 24시간 저장했고, 그동안 그 영화는 "없는 영화"(404)였다.
+const cachedKobisGet = unstable_cache(kobisGetJson, ["kobis-get-v1"], { revalidate: 60 * 60 * 24 });
+
+// 캐시가 비어 있을 때 같은 요청이 동시에 여러 번 들어오면(홈의 여러 행, 같은 날짜의 박스오피스 등) 각자 KOBIS를
+// 부르지 않고 먼저 나간 요청 하나를 같이 기다린다(서버 인스턴스 단위). 예전엔 날짜 3개짜리 박스오피스를 15번 불렀다.
+const inFlightKobis = new Map<string, Promise<unknown>>();
+function shareInFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const existing = inFlightKobis.get(key);
+  if (existing) return existing as Promise<T>;
+  const promise = run().finally(() => inFlightKobis.delete(key));
+  inFlightKobis.set(key, promise);
+  return promise;
+}
+
+function kobisGet(path: string, query: string): Promise<unknown> {
+  // Next 서버 밖(scripts/를 tsx로 실행)에는 캐시 저장소가 없어 바로 부른다.
+  return shareInFlight(`${path}?${query}`, () => (process.env.NEXT_RUNTIME ? cachedKobisGet(path, query) : kobisGetJson(path, query)));
+}
+
 class EmptyBoxOfficeError extends Error {}
 
 type BoxOfficeKind = "daily" | "weekly";
 
-// 박스오피스(일별·주간) 응답은 성공한 것만 6시간 캐시한다. 예전엔 fetch 캐시(next.revalidate)를 썼는데,
+// 박스오피스(일별·주간) 응답은 성공한 것만 캐시한다. 예전엔 fetch 캐시(next.revalidate)를 썼는데,
 // 그건 HTTP 200이면 faultInfo 오류 본문까지 그대로 6시간 저장해서 KOBIS가 잠깐만 실패해도
 // "현재 상영중인 영화"·"이번주 박스오피스"가 반나절 동안 통째로 비었다. 실패는 throw해서 캐시에 남기지 않는다.
 async function fetchBoxOfficeList(kind: BoxOfficeKind, targetDt: string): Promise<DailyBoxOfficeItem[]> {
-  const key = apiKey();
-  if (!key) return [];
+  if (!apiKey()) return [];
   const endpoint = kind === "daily" ? "searchDailyBoxOfficeList" : "searchWeeklyBoxOfficeList";
-  const url = new URL(`${KOBIS_API_BASE}/boxoffice/${endpoint}.json`);
-  url.searchParams.set("key", key);
-  url.searchParams.set("targetDt", targetDt);
-  if (kind === "weekly") url.searchParams.set("weekGb", "0"); // 0: 주간(월~일)
-
-  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(KOBIS_FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json().catch(() => null)) as {
+  // weekGb=0: 주간(월~일)
+  const data = (await kobisGetJson(`/boxoffice/${endpoint}.json`, kind === "weekly" ? `targetDt=${targetDt}&weekGb=0` : `targetDt=${targetDt}`)) as {
     boxOfficeResult?: { dailyBoxOfficeList?: DailyBoxOfficeItem[]; weeklyBoxOfficeList?: DailyBoxOfficeItem[] };
-  } | null;
-  const fault = kobisFault(data);
-  if (fault) throw new Error(fault);
-  const list = kind === "daily" ? data?.boxOfficeResult?.dailyBoxOfficeList : data?.boxOfficeResult?.weeklyBoxOfficeList;
+  };
+  const list = kind === "daily" ? data.boxOfficeResult?.dailyBoxOfficeList : data.boxOfficeResult?.weeklyBoxOfficeList;
   // 아직 집계 전인 날·주(이번 주 등)는 빈 목록이 온다 — 오류는 아니지만 캐시하지 않는다.
   if (!Array.isArray(list) || list.length === 0) throw new EmptyBoxOfficeError("빈 목록");
   return list;
 }
 
-const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 6 });
+// 캐시 키에 날짜(targetDt)가 들어가므로, 한 날짜의 박스오피스는 하루에 한 번만 KOBIS에 묻는다(예전 6시간 → 하루 4번).
+// 지난 날짜의 순위는 바뀌지 않는다. 빈 목록(집계 전)·실패는 캐시하지 않아 다음 요청 때 다시 묻는다.
+const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 24 });
 
-// 실패 직후 잠깐은 KOBIS(박스오피스·영화 목록)를 다시 부르지 않는다 — 상세 페이지·검색마다 10초 타임아웃을
-// 기다리거나, 한도 초과 상태에서 호출을 더 쌓지 않게(서버 인스턴스 단위).
+// 실패 직후 잠깐은 KOBIS를 다시 부르지 않는다 — 상세 페이지·검색마다 10초 타임아웃을
+// 기다리거나, 장애 중에 호출을 더 쌓지 않게(서버 인스턴스 단위, kobisGetJson이 확인한다).
 const KOBIS_FAIL_COOLDOWN_MS = 5 * 60 * 1000;
 let kobisFailedAt = 0;
 function isKobisCoolingDown(): boolean {
@@ -618,21 +636,17 @@ function markKobisFailure() {
   kobisFailedAt = Date.now();
 }
 
+// 한도 초과·최근 실패 중에도 이미 캐시된 날짜의 박스오피스는 그대로 보여준다(새로 부르는 것만 막는다 — kobisGetJson).
 async function getBoxOfficeItems(kind: BoxOfficeKind, targetDt: string): Promise<DailyBoxOfficeItem[]> {
   if (!apiKey()) return [];
-  if (isKobisCoolingDown()) return [];
   try {
     // Next 서버 밖(scripts/를 tsx로 실행)에는 캐시 저장소가 없어 바로 부른다.
-    return process.env.NEXT_RUNTIME
-      ? await cachedBoxOfficeList(kind, targetDt)
-      : await fetchBoxOfficeList(kind, targetDt);
+    return await shareInFlight(`box-office/${kind}/${targetDt}`, () =>
+      process.env.NEXT_RUNTIME ? cachedBoxOfficeList(kind, targetDt) : fetchBoxOfficeList(kind, targetDt),
+    );
   } catch (error) {
     if (error instanceof EmptyBoxOfficeError) return [];
-    markKobisFailure();
-    console.warn(
-      `[kobis] ${kind === "daily" ? "일별" : "주간"} 박스오피스(${targetDt}) 조회 실패:`,
-      error instanceof Error ? error.message : error,
-    );
+    warnKobisFailure(`${kind === "daily" ? "일별" : "주간"} 박스오피스(${targetDt}) 조회`, error);
     return [];
   }
 }

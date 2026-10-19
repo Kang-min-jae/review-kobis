@@ -144,6 +144,7 @@ async function filmographyFromKmdb(
     if (!movieCd) {
       db.cachedMovie.upsert({
         where: { movieCd: `kmdb-${movie.docId}` },
+        select: { movieCd: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
         create: {
           movieCd: `kmdb-${movie.docId}`,
           title: movie.title,
@@ -591,6 +592,7 @@ async function fetchAndCacheFilmography(
   if (personId && movies.length > 0) {
     await db.cachedPerson.upsert({
       where: { kmdbId: personId },
+      select: { kmdbId: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       create: { kmdbId: personId, name, role: role ?? "배우", filmography: movies, tmdbId, nameEn },
       update: { name, role: role ?? "배우", filmography: movies, tmdbId, nameEn },
     });

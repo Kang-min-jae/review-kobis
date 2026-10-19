@@ -1,4 +1,4 @@
-import { getMovieDetailsByCd, getKoficBoxOfficeByTitle, resolveRerelease, type KoficBoxOffice } from "./kobis";
+import { fetchMovieDetailsByCd, getKoficBoxOfficeByTitle, KobisUnavailableError, resolveRerelease, type KoficBoxOffice } from "./kobis";
 import { searchKmdbMovie, resolvePersonId, searchKmdbFilmography } from "./kmdb";
 import {
   searchTmdbMovie,
@@ -82,6 +82,7 @@ async function backfillCredits(movieCd: string, meta: MovieMeta): Promise<MovieM
   await db.cachedMovie
     .update({
       where: { movieCd },
+      select: { movieCd: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       data: {
         directorName: filled.director?.name ?? null,
         directorKmdbId: null,
@@ -236,8 +237,9 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
 // TMDB: 포스터·개요·장르·런타임 (1차 소스)
 // KMDb: 감독·출연진 한국어 이름 + kmdbId (인물 페이지 라우팅에 필요, 1차 소스)
 // KOBIS: 개봉연도·박스오피스·관객수 (항상 KOBIS 원본 사용)
+// KOBIS를 잠깐 쓸 수 없으면 KobisUnavailableError를 던진다(없는 영화면 null).
 async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null> {
-  const info = await getMovieDetailsByCd(movieCd);
+  const info = await fetchMovieDetailsByCd(movieCd);
   if (!info) return null;
 
   const { isRerelease, originalReleaseDate } = await resolveRerelease({
@@ -352,6 +354,7 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
   };
   await db.cachedMovie.upsert({
     where: { movieCd },
+    select: { movieCd: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
     create: { movieCd, ...data },
     update: data,
   });
@@ -397,7 +400,7 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
     if (!cached.posterUrl && cached.tmdbId) {
       const details = await getTmdbMovieDetailsById(cached.tmdbId).catch(() => null);
       if (details?.posterUrl) {
-        await db.cachedMovie.update({ where: { movieCd }, data: { posterUrl: details.posterUrl } }).catch(() => null);
+        await db.cachedMovie.update({ where: { movieCd }, data: { posterUrl: details.posterUrl } , select: { movieCd: true } }).catch(() => null);
         return rowToMeta({ ...cached, posterUrl: details.posterUrl });
       }
     }
@@ -412,9 +415,13 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
   const existing = inFlightMovieMeta.get(movieCd);
   if (existing) return existing;
 
+  // 저장된 정보가 없는데 KOBIS를 잠깐 쓸 수 없으면(하루 이용량 초과 등) 오류로 올려 보낸다 — null을 돌려주면
+  // 영화 상세가 "없는 영화"(404)로 만들고 그 404가 공용 캐시에 남아, 실제로 있는 영화가 한동안 열리지 않았다.
   const promise = fetchAndCacheMovieMeta(movieCd)
-    .catch(() => null)
-    .then((meta) => meta ?? (cached ? rowToMeta(cached) : null))
+    .catch((error) => {
+      if (error instanceof KobisUnavailableError) throw error;
+      return null;
+    })
     .finally(() => {
       inFlightMovieMeta.delete(movieCd);
     });
@@ -594,7 +601,7 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
         // 틀린 정보는 이미 비웠고, 다음 조회 때 다시 시도한다.
         source: tmdb ? WIKIDATA_VERIFIED : "tmdb",
       };
-      await db.cachedMovie.update({ where: { movieCd }, data: update }).catch(() => null);
+      await db.cachedMovie.update({ where: { movieCd }, data: update , select: { movieCd: true } }).catch(() => null);
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
     }
 
@@ -636,6 +643,7 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
     };
     await db.cachedMovie.upsert({
       where: { movieCd: id },
+      select: { movieCd: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       create: { movieCd: id, ...data },
       update: data,
     });
@@ -682,7 +690,7 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
         titleEn: tmdb.originalTitle ?? cached.titleEn,
         tmdbId: tmdb.tmdbId ?? cached.tmdbId,
       };
-      await db.cachedMovie.update({ where: { movieCd: id }, data: update }).catch(() => null);
+      await db.cachedMovie.update({ where: { movieCd: id }, data: update , select: { movieCd: true } }).catch(() => null);
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
     }
 

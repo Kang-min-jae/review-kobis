@@ -153,6 +153,7 @@ async function winnersToRows(winners: FestivalWinner[], festival: FestivalType):
         : {};
       await db.cachedMovie.upsert({
         where: { movieCd },
+        select: { movieCd: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
         update: {
           title: winner.titleKo ?? winner.titleEn ?? "",
           titleEn: winner.titleEn ?? null,

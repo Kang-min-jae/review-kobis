@@ -211,6 +211,7 @@ async function loadCandidates(kind: TrailerKind, tmdbId: string): Promise<Cached
   await db.trailerCache
     .upsert({
       where: { tmdbId: cacheKey },
+      select: { tmdbId: true }, // 저장만 한다 — 저장된 행 전체(JSON 포함)를 돌려받지 않는다
       create: { tmdbId: cacheKey, videos: fresh.videos, fetchedAt },
       update: { videos: fresh.videos, fetchedAt },
     })

@@ -43,6 +43,8 @@ export async function movieDetailMetadata(id: string, categoryParam: string): Pr
     title,
     description,
     alternates: { canonical },
+    // 항목별(연출·연기 등) 페이지는 대표 주소("전체")만 검색에 남긴다 — robots.txt도 수집을 막는다.
+    ...(category !== "전체" ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       ...BASE_OPEN_GRAPH,
       url: canonical,

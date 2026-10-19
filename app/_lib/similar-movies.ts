@@ -77,19 +77,26 @@ async function fromSamePeople(directorName: string | null, leadActorName: string
   });
 }
 
+// 같은 장르의 최근 영화 200편 중 한줄평 평균이 높은 순 — 거르기·정렬을 DB 안에서 끝내고, 카드 20개를 채우는 데
+// 필요한 만큼(지금 영화·제목 중복·내가 본 영화가 빠질 몫 +10)만 받는다.
+// 예전엔 200편과 그 평균을 모두 받아 와서 걸러, 상세 페이지 한 번 그릴 때마다 DB에서 수십 KB가 빠져나갔다.
 async function fromSameGenreTopRated(genreAlt: string | null): Promise<CachedRow[]> {
   const genre = splitGenres(genreAlt)[0];
   if (!genre) return [];
-  const rows = await db.cachedMovie.findMany({
-    where: { AND: [{ genreAlt: { contains: genre } }, NOT_ADULT_GENRE_WHERE] },
-    select: ROW_SELECT,
-    orderBy: { updatedAt: "desc" },
-    take: 200,
-  });
-  const avgs = await getBulkMovieRatingAverages(rows.map((r) => r.movieCd));
-  return rows
-    .filter((r) => (avgs.get(r.movieCd)?.shortAvg ?? 0) >= GENRE_FALLBACK_MIN_AVG)
-    .sort((a, b) => (avgs.get(b.movieCd)?.shortAvg ?? 0) - (avgs.get(a.movieCd)?.shortAvg ?? 0));
+  return db.$queryRaw<CachedRow[]>`
+    SELECT m."movieCd", m."title", m."posterUrl", m."genreAlt"
+    FROM (
+      SELECT "movieCd", "title", "posterUrl", "genreAlt", "updatedAt" FROM "CachedMovie"
+      WHERE "genreAlt" LIKE ${`%${genre}%`} AND "genreAlt" NOT LIKE '%에로%' AND "genreAlt" NOT LIKE '%성인%'
+      ORDER BY "updatedAt" DESC
+      LIMIT 200
+    ) m
+    JOIN "Review" r ON r."movieCd" = m."movieCd" AND r."category" = '전체' AND r."type" = 'SHORT'
+    GROUP BY m."movieCd", m."title", m."posterUrl", m."genreAlt", m."updatedAt"
+    HAVING AVG(r."rating") >= ${GENRE_FALLBACK_MIN_AVG}
+    ORDER BY AVG(r."rating") DESC, m."updatedAt" DESC
+    LIMIT ${SIMILAR_MOVIE_COUNT + 10}
+  `;
 }
 
 // ④ 그래도 모자라면 같은 장르의 최근 영화(포스터 있는 것)로 채운다 — 회원 평점이 아직 적은 영화도 20개를 채우기 위함.
@@ -100,7 +107,7 @@ async function fromSameGenreRecent(genreAlt: string | null): Promise<CachedRow[]
     where: { AND: [{ genreAlt: { contains: genre } }, { posterUrl: { not: null } }, NOT_ADULT_GENRE_WHERE] },
     select: ROW_SELECT,
     orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
-    take: 80,
+    take: SIMILAR_MOVIE_COUNT * 2,
   });
 }
 
