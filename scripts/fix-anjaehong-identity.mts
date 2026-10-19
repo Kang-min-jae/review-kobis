@@ -15,10 +15,9 @@ config({ path: ".env.local", override: true });
 
 import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
+import { configureNeon } from "../app/_lib/neon-config";
 
-neonConfig.webSocketConstructor = ws;
+configureNeon(process.env.DATABASE_URL, { announce: true });
 
 const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });

@@ -1,5 +1,6 @@
 {
   "buildCommand": "prisma generate && next build",
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "git": {
     "deploymentEnabled": {
       "claude/busy-lovelace-cvmmoz": false,
@@ -7,6 +8,9 @@
     }
   },
   "crons": [
-    { "path": "/api/cron/movie-similarity", "schedule": "0 19 * * *" }
+    {
+      "path": "/api/cron/movie-similarity",
+      "schedule": "0 19 * * *"
+    }
   ]
 }

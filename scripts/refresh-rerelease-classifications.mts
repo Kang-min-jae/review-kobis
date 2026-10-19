@@ -29,12 +29,11 @@ config({ path: ".env.local", override: true });
 
 import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
+import { configureNeon } from "../app/_lib/neon-config";
 import { searchMovieCatalog, getWeeklyBoxOffice, type KobisMovieSummary } from "../app/_lib/kobis";
 import { classifyRerelease } from "../app/_lib/rerelease-classifier";
 
-neonConfig.webSocketConstructor = ws;
+configureNeon(process.env.DATABASE_URL, { announce: true });
 
 const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });

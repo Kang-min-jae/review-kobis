@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "db:local": "tsx scripts/local-db-push.mts",
     "build": "prisma generate && next build",
     "migrate": "prisma migrate deploy",
     "start": "next start",

@@ -1,0 +1,27 @@
+# 로컬 개발 DB — 운영 DB(Neon) 대신 내 컴퓨터의 Postgres를 쓴다(README의 "로컬 DB로 개발하기").
+#   docker compose up -d
+# postgres: 실제 DB(5432번 포트). wsproxy: 사이트가 쓰는 Neon 서버리스 드라이버는 웹소켓으로만 붙어서,
+# Neon이 로컬 개발용으로 제공하는 웹소켓 중계기를 앞에 둔다(5433번 포트, app/_lib/neon-config.ts).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: review_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  wsproxy:
+    image: ghcr.io/neondatabase/wsproxy:latest
+    environment:
+      APPEND_PORT: "postgres:5432"
+      ALLOW_ADDR_REGEX: ".*"
+      LOG_TRAFFIC: "true"
+    ports:
+      - "5433:80"
+    depends_on:
+      - postgres
+volumes:
+  pgdata:

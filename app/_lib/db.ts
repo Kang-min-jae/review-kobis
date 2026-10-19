@@ -1,12 +1,24 @@
 import { PrismaClient } from "../generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
+import { configureNeon, databaseHost, isLocalDatabase } from "./neon-config";
 
-// Neon의 서버리스 드라이버는 웹소켓으로 붙는데, 브라우저와 달리 Node.js에는 전역
-// WebSocket이 없어서 직접 구현체를 넣어줘야 한다 (Prisma+Neon 공식 가이드 그대로).
-// 이걸 빼먹으면 접속 시도가 그냥 빈 ErrorEvent로 실패한다.
-neonConfig.webSocketConstructor = ws;
+configureNeon(process.env.DATABASE_URL);
+
+// 개발 서버(next dev)가 운영 DB(Neon)에 붙지 않게 막는다 — 내 컴퓨터에서 페이지를 열 때마다 운영 DB의
+// 무료 전송량(월 5GB)이 줄어든다. 로컬 DB를 쓰려면 README의 "로컬 DB로 개발하기"를 따른다. 꼭 원격 DB로
+// 확인해야 할 때만 ALLOW_REMOTE_DB_IN_DEV=1을 붙인다(그때도 운영이 아닌 개발용 Neon 브랜치를 쓴다).
+if (
+  process.env.NODE_ENV === "development" &&
+  process.env.DATABASE_URL &&
+  !isLocalDatabase(process.env.DATABASE_URL) &&
+  process.env.ALLOW_REMOTE_DB_IN_DEV !== "1"
+) {
+  throw new Error(
+    `개발 서버가 원격 DB(${databaseHost(process.env.DATABASE_URL)})에 연결하려고 합니다. 운영 DB 전송량을 아끼기 위해 막았어요.\n` +
+      "→ .env.local에 로컬 DB 주소를 넣어 주세요(README의 \"로컬 DB로 개발하기\").\n" +
+      "→ 꼭 원격 DB가 필요하면 ALLOW_REMOTE_DB_IN_DEV=1 npm run dev",
+  );
+}
 
 // Next.js 개발 서버는 파일을 바꿀 때마다 모듈을 다시 불러오는데(hot reload), 그때마다
 // 새 PrismaClient를 만들면 커넥션이 계속 쌓인다. 그래서 global 객체에 하나만

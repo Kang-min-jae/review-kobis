@@ -15,15 +15,14 @@ config({ path: ".env.local", override: true });
 
 import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
+import { configureNeon } from "../app/_lib/neon-config";
 
 // person-filmography.ts를 정적(static) import로 걸어두면 안 된다 — ES 모듈은 import문을
 // 파일 내 위치와 무관하게 먼저 로드/실행하므로, 위 config()들이 실행되기도 전에
 // person-filmography.ts가 연쇄로 app/_lib/db.ts를 로드하면서 process.env.DATABASE_URL을
 // (아직 비어 있는 채로) 읽어버린다. config() 호출 뒤에 실행되도록 동적 import로 미룬다.
 
-neonConfig.webSocketConstructor = ws;
+configureNeon(process.env.DATABASE_URL, { announce: true });
 
 const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });

@@ -35,6 +35,31 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## 로컬 DB로 개발하기 (운영 DB 전송량 아끼기)
+
+내 컴퓨터에서 `npm run dev`나 `scripts/` 안의 스크립트를 운영 DB(Neon)에 붙여 돌리면, 그 조회가 전부 운영 DB의 무료 전송량(월 5GB)에 잡혀요. 개발은 내 컴퓨터의 Postgres로 해요.
+
+1. Docker Desktop을 켜고 로컬 DB를 띄워요.
+   ```bash
+   docker compose up -d
+   ```
+   Postgres(5432)와 Neon 웹소켓 중계기(5433)가 함께 떠요. 사이트의 DB 드라이버가 웹소켓으로만 붙기 때문이에요.
+2. `.env.example`을 `.env.local`로 복사해요. `.env.local`의 `DATABASE_URL`이 로컬 DB를 가리켜요. 외부 API 키는 기존 `.env`의 값을 그대로 써도 돼요.
+3. 로컬 DB에 테이블을 만들어요.
+   ```bash
+   npm run db:local
+   ```
+   `.env.local`의 주소가 로컬일 때만 실행돼요. 그냥 `npx prisma db push`를 하면 `.env`의 운영 DB 구조를 바꿀 수 있으니 쓰지 않아요.
+4. 개발 서버를 켜요.
+   ```bash
+   npm run dev
+   ```
+   영화·인물 정보는 처음 볼 때 KOBIS·TMDB에서 받아 로컬 DB에 쌓여요. 회원·리뷰는 로컬에서 새로 만들어요.
+
+안전장치는 이렇게 동작해요.
+- 개발 서버는 원격 DB 주소로는 시작하지 않고 안내 메시지를 보여요. 꼭 필요할 때만 `ALLOW_REMOTE_DB_IN_DEV=1 npm run dev`를 쓰고, 그때도 운영 대신 개발용 Neon 브랜치를 써요(브랜치 전송량도 같은 프로젝트 한도에 잡혀요).
+- 관리 스크립트는 실행할 때마다 어느 DB(로컬/원격)에 붙는지 먼저 알려 줘요. `.env.local`이 있으면 그 주소를 써요. 운영 DB에서 꼭 돌려야 하는 관리 작업만 `.env.local` 없이 실행해요.
+
 ## 협업 필터링(CF) — "추천 N%" 하이브리드
 
 "추천 N%"는 기본적으로 내 평점으로 만든 취향 점수(A, `app/_lib/calculateAffinity.ts`)예요. 사이트에 평가가 충분히 쌓이고 `CF_ENABLED=true`로 켜면, 비슷한 취향 회원들의 평가로 만든 CF 점수(B)를 조금씩 섞어요.
