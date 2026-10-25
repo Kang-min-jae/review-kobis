@@ -51,7 +51,27 @@ function releaseSlot(): void {
   }
 }
 
+// TMDB를 지금 쓸 수 없음(타임아웃·네트워크 오류·429·5xx) — "그런 작품 없음"(HTTP 404, null)과 구분한다.
+// 상세 페이지가 이 둘을 섞으면 잠깐의 장애가 "없는 작품"(404)이 되어 공용 캐시에 남는다.
+export class TmdbUnavailableError extends Error {}
+
+// 대부분의 호출(목록·검색·보조 정보)은 실패하면 그냥 빼고 보여주면 되므로 null로 받는다.
 async function tmdbFetch<T>(
+  path: string,
+  params: Record<string, string> = {},
+  lang = "ko-KR",
+  noCache = false,
+): Promise<T | null> {
+  try {
+    return await tmdbFetchStrict<T>(path, params, lang, noCache);
+  } catch (error) {
+    if (error instanceof TmdbUnavailableError) return null;
+    throw error;
+  }
+}
+
+// 없으면 null, 지금 쓸 수 없으면 TmdbUnavailableError. 상세 페이지처럼 둘을 구분해야 하는 곳이 쓴다.
+async function tmdbFetchStrict<T>(
   path: string,
   params: Record<string, string> = {},
   lang = "ko-KR",
@@ -81,20 +101,22 @@ async function tmdbFetch<T>(
             await new Promise((resolve) => setTimeout(resolve, retryAfterSec * 1000));
             continue;
           }
+          if (res.status === 404) return null;
           console.warn(`[tmdb] ${path} 요청 실패: HTTP ${res.status}`);
-          return null;
+          throw new TmdbUnavailableError(`TMDB ${path}: HTTP ${res.status}`);
         }
         return (await res.json()) as T;
       } catch (error) {
+        if (error instanceof TmdbUnavailableError) throw error;
         if (attempt < MAX_ATTEMPTS) {
           await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
           continue;
         }
         console.warn(`[tmdb] ${path} 요청 중 오류(재시도 ${MAX_ATTEMPTS}회 실패):`, error);
-        return null;
+        throw new TmdbUnavailableError(`TMDB ${path}: 네트워크 오류`);
       }
     }
-    return null;
+    throw new TmdbUnavailableError(`TMDB ${path}: 재시도 초과`);
   } finally {
     releaseSlot();
   }
@@ -249,7 +271,15 @@ export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | n
 // 텍스트 검색 없이 바로 개요·런타임·장르·개봉일을 채우는 데 쓴다.
 // lang 파라미터: 제목 검증용으로 "en-US"를 쓰면 영문 title + original_title을 돌려준다.
 export async function getTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
-  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang);
+  return toMovieDetails(await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang));
+}
+
+// 없는 영화면 null, TMDB를 지금 쓸 수 없으면 TmdbUnavailableError — 영화 상세 페이지용.
+export async function fetchTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
+  return toMovieDetails(await tmdbFetchStrict<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang));
+}
+
+function toMovieDetails(details: RawTmdbMovieDetails | null): TmdbMovieDetails | null {
   if (!details) return null;
   return {
     tmdbId: String(details.id),
@@ -362,7 +392,15 @@ export type TmdbSeriesDetails = {
 };
 
 export async function getTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
-  const details = await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true);
+  return toSeriesDetails(await tmdbFetch<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true));
+}
+
+// 없는 시리즈면 null, TMDB를 지금 쓸 수 없으면 TmdbUnavailableError — 시리즈 상세 페이지용.
+export async function fetchTmdbSeriesDetails(tmdbId: string): Promise<TmdbSeriesDetails | null> {
+  return toSeriesDetails(await tmdbFetchStrict<RawTmdbTvDetails>(`/tv/${tmdbId}`, {}, "ko-KR", true));
+}
+
+function toSeriesDetails(details: RawTmdbTvDetails | null): TmdbSeriesDetails | null {
   if (!details) return null;
   return {
     tmdbId: String(details.id),

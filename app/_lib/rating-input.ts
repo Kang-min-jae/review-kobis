@@ -79,9 +79,15 @@ export function isRatableMovieId(movieId: string): boolean {
   return movieIdToCd(movieId) !== null;
 }
 
-// 평점 페이지 주소 — 시리즈는 /series, 나머지는 /movies.
+// 평점 페이지 주소 — 시리즈는 /series, 나머지는 /movies. 카드·목록·알림이 모두 이 함수로 만든다
+// (예전엔 컴포넌트마다 같은 조건식을 따로 써서, 한 곳만 고쳐지면 시리즈 링크가 /movies로 깨졌다).
 export function rateHrefFor(movieId: string): string {
-  return movieId.startsWith("tmdb-tv-") ? `/series/${movieId}/rate` : `/movies/${movieId}/rate`;
+  return isSeriesCd(movieId) ? `/series/${movieId}/rate` : `/movies/${movieId}/rate`;
+}
+
+// 항목별 평점 페이지의 앞부분(…/rate/category) — 뒤에 "/<항목>"을 붙여 쓴다.
+export function rateCategoryBase(movieId: string): string {
+  return `${rateHrefFor(movieId)}/category`;
 }
 
 // DB 키 → 화면용 영화 ID. 숫자만 있는 KOBIS 코드에만 "kobis-"를 붙인다
@@ -90,6 +96,7 @@ export function cdToMovieId(movieCd: string): string {
   return /^\d+$/.test(movieCd) ? `kobis-${movieCd}` : movieCd;
 }
 
+// 시리즈(TV) 작품인지 — 화면용 ID와 DB 키 모두 "tmdb-tv-"로 시작한다. 이 판단은 이 함수 하나만 쓴다.
 export function isSeriesCd(movieCd: string): boolean {
   return movieCd.startsWith("tmdb-tv-");
 }

@@ -4,6 +4,8 @@ import {
   searchTmdbMovie,
   resolveTmdbPersonIdByName,
   getTmdbMovieDetailsById,
+  fetchTmdbMovieDetailsById,
+  TmdbUnavailableError,
   getTmdbMovieCredits,
   tmdbDetailsMatch,
   type TmdbMovieCredits,
@@ -13,6 +15,7 @@ import { formatPosterUrl } from "./formatPosterUrl";
 import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
+import { isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -528,7 +531,7 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
   if (id.startsWith("wikidata-")) {
     const baseMatch = id.match(/^(wikidata-Q\d+)/);
     const movieCd = baseMatch ? baseMatch[1] : id;
-    const cached = await db.cachedMovie.findUnique({ where: { movieCd } }).catch(() => null);
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd } });
     if (!cached) return null;
 
     // 수상작 항목은 Wikidata/하드코딩 목록의 TMDB ID를 그대로 받아와서 틀린 영화와 연결될 수
@@ -610,19 +613,28 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
 
   // TMDB 영화 (KOBIS 코드가 없는 외화) — tmdb-{tmdbId} 형식
   // tmdb-tv-* 시리즈는 series-rate-info.ts에서 따로 처리한다.
-  if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) {
+  if (id.startsWith("tmdb-") && !isSeriesCd(id)) {
     const tmdbId = id.slice("tmdb-".length);
 
-    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    // DB 오류도 "없는 영화"로 바꾸지 않는다 — 그대로 올려 보내야 404가 공용 캐시에 남지 않는다.
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } });
     if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
       return { movieId: id, ...rowToMeta(cached), boxOffice: null };
     }
 
-    const [details, credits] = await Promise.all([
-      getTmdbMovieDetailsById(tmdbId),
-      getTmdbMovieCredits(tmdbId).catch(() => null),
-    ]);
+    // TMDB를 잠깐 쓸 수 없으면: 저장된 정보가 있으면(오래됐어도) 그걸 보여주고, 없으면 오류로 올려 보낸다.
+    // 예전엔 실패를 null로 받아 실제로 있는 영화가 "없는 영화"(404)가 되고 그 404가 공용 캐시에 남았다.
+    let details: TmdbMovieDetails | null;
+    try {
+      details = await fetchTmdbMovieDetailsById(tmdbId);
+    } catch (error) {
+      if (error instanceof TmdbUnavailableError && cached) {
+        return { movieId: id, ...rowToMeta(cached), boxOffice: null };
+      }
+      throw error;
+    }
     if (!details) return null;
+    const credits = await getTmdbMovieCredits(tmdbId).catch(() => null);
     const people = fillCreditsFromTmdb(null, null, [], credits);
 
     const data = {
@@ -670,7 +682,7 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
   // KMDb 전용 작품 (KOBIS 코드 없음) — filmographyFromKmdb가 CachedMovie에 기본 정보를
   // 저장해두면 여기서 제목으로 TMDB를 조회해 포스터·개요를 보완한 뒤 평점 페이지를 제공한다.
   if (id.startsWith("kmdb-")) {
-    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } }).catch(() => null);
+    const cached = await db.cachedMovie.findUnique({ where: { movieCd: id } });
     if (!cached) return null;
 
     if (Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS && (cached.overview || cached.posterUrl)) {

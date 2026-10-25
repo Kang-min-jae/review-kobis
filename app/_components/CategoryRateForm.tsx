@@ -14,6 +14,7 @@ import type { ReviewWithAuthor, MyReview } from "../_lib/review-data";
 import { upsertMyReview, initForUser, removeReview } from "../_lib/reviews-store";
 import { TIER_STYLES } from "../_lib/tier";
 import type { Tier } from "../_lib/tier";
+import { isSeriesCd } from "../_lib/rating-input";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -260,7 +261,7 @@ export default function CategoryRateForm({
   const router = useRouter();
   const pathname = usePathname();
   // 안내 문구의 작품 이름 — 시리즈 페이지에선 "이 시리즈"
-  const workNoun = movieId.startsWith("tmdb-tv-") ? "시리즈" : "영화";
+  const workNoun = isSeriesCd(movieId) ? "시리즈" : "영화";
 
   function goToSignIn() {
     router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);

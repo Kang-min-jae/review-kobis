@@ -3,9 +3,10 @@ import PosterImage from "./PosterImage";
 import ScrollRow from "./ScrollRow";
 import StarRating from "./StarRating";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
+import { rateHrefFor } from "../_lib/rating-input";
 
 function ReadOnlyMovieCard({ movie }: { movie: MyRatedMovie }) {
-  const href = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+  const href = rateHrefFor(movie.id);
   return (
     <div className="w-32 shrink-0">
       <Link prefetch={false}

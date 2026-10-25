@@ -5,7 +5,7 @@ import { SITE_URL, movieDetailPath } from "./_lib/site";
 import { db } from "./_lib/db";
 import { getDailyBoxOfficeList } from "./_lib/kobis";
 import { isAdultContent } from "./_lib/adult-content";
-import { cdToMovieId } from "./_lib/rating-input";
+import { cdToMovieId, isSeriesCd } from "./_lib/rating-input";
 import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 
 // /sitemap.xml — 누구나 볼 수 있는 고정 페이지 + 영화·시리즈 상세(평점) 페이지.
@@ -96,7 +96,7 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   const ordered: string[] = [];
   const seen = new Set<string>();
   for (const cd of [...boxOfficeCds, ...activeCds, ...recentReleases.map((m) => m.movieCd)]) {
-    if (seen.has(cd) || cd.startsWith("tmdb-tv-")) continue;
+    if (seen.has(cd) || isSeriesCd(cd)) continue;
     seen.add(cd);
     ordered.push(cd);
   }

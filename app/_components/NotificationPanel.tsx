@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getNotifications, type Notifications } from "../_lib/notification-actions";
-import { cdToMovieId } from "../_lib/rating-input";
+import { cdToMovieId, rateCategoryBase } from "../_lib/rating-input";
 import { posterSrc } from "../_lib/poster-loader";
 
 function timeAgo(iso: string): string {
@@ -105,7 +105,7 @@ function NotificationPanelBody({ onClose }: { onClose: () => void }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-text">
                           <Link prefetch={false}
-                            href={`/${n.movieCd.startsWith("tmdb-tv-") ? "series" : "movies"}/${cdToMovieId(n.movieCd)}/rate/category/${encodeURIComponent(n.category)}`}
+                            href={`${rateCategoryBase(cdToMovieId(n.movieCd))}/${encodeURIComponent(n.category)}`}
                             onClick={onClose}
                             className="text-brand hover:underline"
                           >

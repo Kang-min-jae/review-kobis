@@ -11,6 +11,7 @@ import {
   getMyReviewsSnapshot,
   getServerMyReviewsSnapshot,
 } from "../_lib/reviews-store";
+import { rateHrefFor } from "../_lib/rating-input";
 
 // 항목별 평점을 보여줄 순서 — "전체"는 결과 행 자체에 표시한다.
 const CATEGORY_ORDER = ["연출", "연기", "각본", "음악", "편집"];
@@ -116,7 +117,7 @@ export default function RatedMovieSearch({ movies }: { movies: MyRatedMovie[] })
       {results.length > 0 && (
         <div className="mt-1 overflow-hidden rounded-lg border border-neutral-700 bg-surface">
           {results.map((movie) => {
-            const base = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+            const base = rateHrefFor(movie.id);
             const reviewContent = reviewMap.get(movie.id);
             const categoryEntries = categoryMap.get(movie.id) ?? [];
             const hasOverall = !categoryOnlyIds.has(movie.id);

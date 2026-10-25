@@ -9,6 +9,7 @@ import { subscribe, getMyReviewsSnapshot, getServerMyReviewsSnapshot } from "../
 import type { MyMovieRating } from "../_lib/reviews-store";
 import type { Review } from "../_lib/mock-reviews";
 import type { FestivalAward } from "../_lib/movie-rows";
+import { rateHrefFor } from "../_lib/rating-input";
 
 const FESTIVAL_KO: Record<string, string> = {
   academy: "아카데미상",
@@ -26,7 +27,7 @@ function MyReviewBottomSheet({
   reviews: Review[];
   onClose: () => void;
 }) {
-  const rateHref = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+  const rateHref = rateHrefFor(movie.id);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -124,7 +125,7 @@ export default function MyRatedMovieCard({ movie, festivalAwards }: { movie: MyM
     [allReviews, movie.id]
   );
 
-  const rateHref = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+  const rateHref = rateHrefFor(movie.id);
 
   useEffect(() => {
     if (revealSource === "mouse" && cardRef.current) {

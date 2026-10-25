@@ -6,7 +6,7 @@ import { splitGenres } from "../../../_lib/movie-rows";
 import type { RowMovie } from "../../../_lib/movie-rows";
 import { getBulkMovieRatingAverages } from "../../../_lib/review-data";
 import { canonicalGenres, genreQueryKeywords } from "../../../_lib/genre-canon";
-import { sanitizeCategoryRatings, sanitizeRatings, type RatingInput } from "../../../_lib/rating-input";
+import { sanitizeCategoryRatings, sanitizeRatings, type RatingInput, isSeriesCd } from "../../../_lib/rating-input";
 import { recencyDecay } from "../../../_lib/calculateAffinity";
 import { buildTasteContext, loadQualityStats, scoreAffinity, type TasteContext } from "../../../_lib/affinity-data";
 
@@ -47,7 +47,7 @@ function cosineSimilarity(userVec: Record<string, number>, movieVec: Record<stri
 
 // 시리즈 메타는 buildTasteContext가 이미 읽어 둔 것(taste.ratedMetas, 대표 장르)을 쓴다.
 function buildSeriesProfile(ratings: RatingInput[], taste: TasteContext) {
-  const seriesRatings = ratings.filter((r) => r.movieId.startsWith("tmdb-tv-"));
+  const seriesRatings = ratings.filter((r) => isSeriesCd(r.movieId));
   if (seriesRatings.length === 0) return { coldStart: true, genreVec: {} as Record<string, number>, avoidedGenreVec: {} as Record<string, number> };
 
   const genreVec: Record<string, number> = {};
@@ -104,7 +104,7 @@ async function recommendSeries(body: unknown): Promise<RowMovie[]> {
   const input = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const myRatings = sanitizeRatings(input.myRatings);
   const limit = requestedLimit(input);
-  const ratedSeriesIds = new Set(myRatings.filter((r) => r.movieId.startsWith("tmdb-tv-")).map((r) => r.movieId));
+  const ratedSeriesIds = new Set(myRatings.filter((r) => isSeriesCd(r.movieId)).map((r) => r.movieId));
 
   // 추천도 배지는 영화 평점까지 포함한 전체 취향으로, 다른 행과 같은 공식(affinity-data.ts)으로 계산한다.
   const taste = await buildTasteContext(myRatings, sanitizeCategoryRatings(input.myCategoryRatings));

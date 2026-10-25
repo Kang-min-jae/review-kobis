@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidateAllDetailPages } from "./detail-revalidate";
+import { revalidateAllDetailPages, revalidateWorkDetailPages } from "./detail-revalidate";
+import { cdToMovieId } from "./rating-input";
 import { db } from "./db";
 import { auth } from "../../auth";
 import { CHANNEL_KEY_PATTERN, judgeChannel, parseYouTubeVideoKey } from "./official-channels";
@@ -14,8 +15,13 @@ async function requireAdminId(): Promise<string> {
   return session.user.id;
 }
 
-function refreshDetailPages() {
-  revalidateAllDetailPages();
+// 바뀐 작품을 알면 그 작품 페이지만 다시 만든다 — 예전엔 예고편 하나를 고쳐도 모든 상세 페이지 캐시를 지워,
+// 다음 방문자들이 모든 작품 페이지를 다시 만들게 했다(DB·서버 사용량). 채널 규칙처럼 모든 작품에 걸치는
+// 변경만 전체를 다시 만든다.
+// 수상작(wikidata-*)은 같은 작품이 수상 부문별로 여러 주소(wikidata-Q…-부문)로 열려 주소를 다 알 수 없으니 전체를 다시 만든다.
+function refreshDetailPages(movieCd?: string | null) {
+  if (movieCd && !movieCd.startsWith("wikidata-")) revalidateWorkDetailPages(cdToMovieId(movieCd));
+  else revalidateAllDetailPages();
 }
 
 const MOVIE_CD_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -77,7 +83,7 @@ export async function addManualTrailerAction(input: {
     console.error("[trailers] 직접 추가 저장 실패:", error);
     return { error: "저장하지 못했어요. (DB에 ManualTrailer 표가 있는지 확인해 주세요)" };
   }
-  refreshDetailPages();
+  refreshDetailPages(input.movieCd);
   return { ok: true };
 }
 
@@ -87,7 +93,7 @@ export async function removeManualTrailerAction(input: { movieCd: string; videoK
   if (typeof input?.movieCd !== "string" || !MOVIE_CD_PATTERN.test(input.movieCd)) throw new Error("잘못된 영화입니다.");
   if (typeof input.videoKey !== "string" || !VIDEO_KEY_PATTERN.test(input.videoKey)) throw new Error("잘못된 영상입니다.");
   await db.manualTrailer.deleteMany({ where: { movieCd: input.movieCd, videoKey: input.videoKey } });
-  refreshDetailPages();
+  refreshDetailPages(input.movieCd);
 }
 
 // 관리자 전용 — 상세 페이지 예고편 박스의 "영상 차단" 버튼. 차단한 영상은 TMDB가 공식
@@ -103,7 +109,7 @@ export async function blockTrailerAction(input: { videoKey: string; movieCd?: st
     create: { videoKey: input.videoKey, movieCd, reason, createdBy: adminId },
     update: { movieCd, reason },
   });
-  refreshDetailPages();
+  refreshDetailPages(movieCd);
 }
 
 // 관리자 전용 — 예고편을 올린 채널을 "공식 채널로 허용"(allowed=true) / "차단"(false) / 규칙 삭제(null).

@@ -74,7 +74,9 @@ export function channelKeyFromUrl(url: unknown): string | null {
 
 export const CHANNEL_KEY_PATTERN = /^(@[^/\s?#]{1,100}|channel\/[A-Za-z0-9_-]{1,64}|(user|c)\/[^/\s?#]{1,100})$/;
 
-export type ChannelRules = { allowed: Set<string>; blocked: Set<string> };
+// pinnedByName: 관리자가 "공식 허용"한 채널의 이름(정규화) → 그 이름으로 허용된 채널 키들.
+// 이름이 공식 목록과 같아도, 같은 이름으로 허용해 둔 진짜 채널이 따로 있으면 키가 다른 채널은 사칭으로 본다.
+export type ChannelRules = { allowed: Set<string>; blocked: Set<string>; pinnedByName: Map<string, Set<string>> };
 
 export type ChannelVerdict = "official" | "unverified" | "channel-blocked";
 
@@ -82,7 +84,16 @@ export type ChannelVerdict = "official" | "unverified" | "channel-blocked";
 export function judgeChannel(channelName: string | null, channelKey: string | null, rules: ChannelRules): ChannelVerdict {
   if (channelKey && rules.blocked.has(channelKey)) return "channel-blocked";
   if (channelKey && rules.allowed.has(channelKey)) return "official";
-  if (channelName && OFFICIAL_NAME_SET.has(normalizeChannelName(channelName))) return "official";
+  if (channelName) {
+    const name = normalizeChannelName(channelName);
+    if (OFFICIAL_NAME_SET.has(name)) {
+      // 이름만으로는 사칭 채널(같은 이름의 다른 채널)을 걸러낼 수 없다. 이 이름의 진짜 채널 키를 관리자가
+      // 확인해 둔 경우에는 그 키만 공식으로 인정한다(채널 키를 모르면 숨긴다).
+      const pinned = rules.pinnedByName.get(name);
+      if (pinned && (!channelKey || !pinned.has(channelKey))) return "unverified";
+      return "official";
+    }
+  }
   return "unverified";
 }
 

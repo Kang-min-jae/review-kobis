@@ -8,6 +8,7 @@ import { splitGenres } from "./movie-rows";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { formatPosterUrl } from "./formatPosterUrl";
 import type { RowMovie } from "./movie-rows";
+import { isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 const CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
@@ -123,7 +124,7 @@ async function _getPopularSeriesRow(): Promise<RowMovie[]> {
     // DB 오류 — 폴백으로 진행
   }
 
-  const tvRated = topRated.filter((r) => r.movieCd.startsWith("tmdb-tv-"));
+  const tvRated = topRated.filter((r) => isSeriesCd(r.movieCd));
 
   if (tvRated.length >= 3) {
     const tmdbIds = tvRated.map((r) => r.movieCd.slice("tmdb-tv-".length));
@@ -189,7 +190,7 @@ async function _getTop10PopularSeriesRow(): Promise<RowMovie[]> {
     // P2021(테이블 없음) 등 DB 오류 — 폴백으로 진행
   }
 
-  const tvTopRated = topRated.filter((r) => r.movieCd.startsWith("tmdb-tv-"));
+  const tvTopRated = topRated.filter((r) => isSeriesCd(r.movieCd));
 
   if (tvTopRated.length >= 3) {
     const tmdbIds = tvTopRated.map((r) => r.movieCd.slice("tmdb-tv-".length));

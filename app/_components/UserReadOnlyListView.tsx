@@ -12,6 +12,7 @@ import UserReviewsPanel from "./UserReviewsPanel";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
 import type { UserReviewStats, UserReview } from "../_lib/review-data";
 import AdminReviewSection from "./AdminReviewSection";
+import { rateHrefFor } from "../_lib/rating-input";
 
 function UserReviewBottomSheet({
   movie,
@@ -159,9 +160,7 @@ function UserMovieSearch({
       {results.length > 0 && (
         <div className="mt-1 overflow-hidden rounded-lg border border-neutral-700 bg-surface">
           {results.map((movie) => {
-            const href = movie.id.startsWith("tmdb-tv-")
-              ? `/series/${movie.id}/rate`
-              : `/movies/${movie.id}/rate`;
+            const href = rateHrefFor(movie.id);
             const reviews = reviewMap.get(movieCdFromId(movie.id)) ?? [];
             const shortReview = reviews.find((r) => r.type === "SHORT" && r.content.trim());
             return (
@@ -223,7 +222,7 @@ function ReadOnlyMovieCard({
   const touchStartYRef = useRef<number | null>(null);
   const movedRef = useRef(false);
 
-  const href = movie.id.startsWith("tmdb-tv-") ? `/series/${movie.id}/rate` : `/movies/${movie.id}/rate`;
+  const href = rateHrefFor(movie.id);
   const reviews = reviewMap.get(movieCdFromId(movie.id)) ?? [];
 
   useEffect(() => {

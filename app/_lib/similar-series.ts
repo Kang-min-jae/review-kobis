@@ -17,6 +17,7 @@ import { canonicalGenres, genreQueryKeywords } from "./genre-canon";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getExcludedMovieCds } from "./similar-movies";
 import { withFreshRatings } from "./fresh-ratings";
+import { isSeriesCd } from "./rating-input";
 
 export const SIMILAR_SERIES_TITLE = "비슷한 시리즈";
 export const SIMILAR_SERIES_COUNT = 20;
@@ -33,7 +34,7 @@ function toCandidate(s: { tmdbId: string; name: string; posterUrl: string | null
 
 // "tmdb-tv-123" 목록을 순서를 지키며 CachedSeries 행으로 바꾼다(DB에 없으면 빠진다).
 async function seriesRows(seriesIds: string[]): Promise<Candidate[]> {
-  const tmdbIds = seriesIds.filter((id) => id.startsWith("tmdb-tv-")).map((id) => id.slice("tmdb-tv-".length));
+  const tmdbIds = seriesIds.filter((id) => isSeriesCd(id)).map((id) => id.slice("tmdb-tv-".length));
   if (tmdbIds.length === 0) return [];
   const rows = await db.cachedSeries.findMany({ where: { tmdbId: { in: tmdbIds } }, select: SERIES_SELECT });
   const byId = new Map(rows.map((r) => [r.tmdbId, r]));

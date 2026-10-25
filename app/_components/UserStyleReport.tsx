@@ -2,6 +2,7 @@ import Link from "next/link";
 import PosterImage from "./PosterImage";
 import type { UserReviewStats } from "../_lib/review-data";
 import type { MyRatedMovie } from "../_lib/my-rated-movies";
+import { rateHrefFor } from "../_lib/rating-input";
 
 export default function UserStyleReport({
   stats,
@@ -50,9 +51,7 @@ export default function UserStyleReport({
           <p className="text-[11px] text-muted mb-2">{userName}님이 높게 평가한 순위</p>
           <div className="space-y-2">
             {topMovies.map((movie, index) => {
-              const href = movie.id.startsWith("tmdb-tv-")
-                ? `/series/${movie.id}/rate`
-                : `/movies/${movie.id}/rate`;
+              const href = rateHrefFor(movie.id);
               return (
                 <Link prefetch={false}
                   key={movie.id}

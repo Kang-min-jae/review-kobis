@@ -2,6 +2,7 @@ import { db } from "./db";
 import { getMovieMetas } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getAwardDetailsByTmdbId, type FestivalAward } from "./movie-rows";
+import { isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -21,7 +22,7 @@ export type MyRatedMovie = {
 const CATEGORY_ORDER = ["전체", "연출", "연기", "각본", "음악", "편집"];
 
 function movieIdFromCd(movieCd: string): string {
-  if (movieCd.startsWith("tmdb-tv-") || movieCd.startsWith("wikidata-")) return movieCd;
+  if (isSeriesCd(movieCd) || movieCd.startsWith("wikidata-")) return movieCd;
   return `kobis-${movieCd}`;
 }
 
@@ -33,7 +34,7 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
 
     // tmdb-{id} 형식 movie codes: TMDB ID가 코드 자체에 내장되어 있으므로 DB 조인 불필요
     for (const cd of movieCds) {
-      if (cd.startsWith("tmdb-") && !cd.startsWith("tmdb-tv-")) {
+      if (cd.startsWith("tmdb-") && !isSeriesCd(cd)) {
         const tmdbId = cd.slice("tmdb-".length);
         const awards = byTmdbId.get(tmdbId);
         if (awards) result.set(cd, awards);
@@ -41,7 +42,7 @@ async function getAwardMap(movieCds: string[]): Promise<Map<string, FestivalAwar
     }
 
     // KOBIS/wikidata 코드: cachedMovie를 통해 tmdbId 조인
-    const nonTmdbCds = movieCds.filter((cd) => !cd.startsWith("tmdb-") || cd.startsWith("tmdb-tv-"));
+    const nonTmdbCds = movieCds.filter((cd) => !cd.startsWith("tmdb-") || isSeriesCd(cd));
     if (nonTmdbCds.length > 0) {
       const hits = await db.cachedMovie.findMany({
         where: { movieCd: { in: nonTmdbCds }, tmdbId: { in: Array.from(byTmdbId.keys()) } },
@@ -105,7 +106,7 @@ export async function getMyRatedMovies(
   const kobishMetaMap = await getMovieMetas(ratings.filter((r) => /^\d+$/.test(r.movieCd)).map((r) => r.movieCd));
 
   const seriesIds = ratings
-    .filter((r) => r.movieCd.startsWith("tmdb-tv-"))
+    .filter((r) => isSeriesCd(r.movieCd))
     .map((r) => r.movieCd.slice("tmdb-tv-".length));
   const seriesCache = seriesIds.length > 0
     ? await db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, name: true, posterUrl: true } }).catch(() => [])
@@ -126,7 +127,7 @@ export async function getMyRatedMovies(
     let title = r.movieCd;
     let posterUrl: string | null = null;
 
-    if (r.movieCd.startsWith("tmdb-tv-")) {
+    if (isSeriesCd(r.movieCd)) {
       const s = seriesMap.get(r.movieCd);
       title = s?.name ?? r.movieCd;
       posterUrl = s?.posterUrl ?? null;
@@ -174,10 +175,10 @@ export async function getMyReviewsForSync(userId: string): Promise<SyncedReview[
   if (reviews.length === 0) return [];
 
   const cds = Array.from(new Set(reviews.map((r) => r.movieCd)));
-  const seriesIds = cds.filter((cd) => cd.startsWith("tmdb-tv-")).map((cd) => cd.slice("tmdb-tv-".length));
+  const seriesIds = cds.filter((cd) => isSeriesCd(cd)).map((cd) => cd.slice("tmdb-tv-".length));
   const [movies, series] = await Promise.all([
     db.cachedMovie.findMany({
-      where: { movieCd: { in: cds.filter((cd) => !cd.startsWith("tmdb-tv-")) } },
+      where: { movieCd: { in: cds.filter((cd) => !isSeriesCd(cd)) } },
       select: { movieCd: true, title: true, posterUrl: true },
     }),
     seriesIds.length > 0

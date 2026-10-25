@@ -2,6 +2,7 @@ import { db } from "./db";
 import { RATING_CATEGORIES, type RatingCategory } from "./category-ratings-store";
 import { getBadge } from "./tier";
 import { SPOILER_PLACEHOLDER } from "./spoiler";
+import { isSeriesCd } from "./rating-input";
 
 export type CategoryAverage = { category: RatingCategory; average: number | null; count: number };
 
@@ -182,7 +183,7 @@ export type UserReview = {
 // 매번 읽었다). 시리즈(tmdb-tv-*)는 CachedSeries에서 찾는다.
 export async function getTitleMap(movieCds: string[]): Promise<Map<string, string>> {
   const cds = [...new Set(movieCds)];
-  const seriesIds = cds.filter((cd) => cd.startsWith("tmdb-tv-")).map((cd) => cd.slice("tmdb-tv-".length));
+  const seriesIds = cds.filter((cd) => isSeriesCd(cd)).map((cd) => cd.slice("tmdb-tv-".length));
   const [movies, series] = await Promise.all([
     cds.length > 0 ? db.cachedMovie.findMany({ where: { movieCd: { in: cds } }, select: { movieCd: true, title: true } }) : [],
     seriesIds.length > 0 ? db.cachedSeries.findMany({ where: { tmdbId: { in: seriesIds } }, select: { tmdbId: true, name: true } }) : [],

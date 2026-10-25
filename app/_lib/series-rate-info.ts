@@ -8,9 +8,10 @@
 import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
-import { getTmdbSeriesDetails } from "./tmdb";
+import { fetchTmdbSeriesDetails } from "./tmdb";
 import { splitGenres } from "./movie-rows";
 import { formatPosterUrl } from "./formatPosterUrl";
+import { isSeriesCd } from "./rating-input";
 
 const CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -28,8 +29,10 @@ export type ResolvedSeriesInfo = {
   seasonCount: number | null;
 };
 
+// 없는 시리즈면 null, TMDB를 잠깐 쓸 수 없으면 TmdbUnavailableError를 던진다 — 처음 보는 시리즈가 잠깐의
+// 장애로 "없는 시리즈"(404)가 되어 공용 캐시에 남지 않게 한다.
 async function fetchAndCacheSeriesMeta(tmdbId: string): Promise<ResolvedSeriesInfo | null> {
-  const details = await getTmdbSeriesDetails(tmdbId);
+  const details = await fetchTmdbSeriesDetails(tmdbId);
   if (!details) return null;
 
   await db.cachedSeries.upsert({
@@ -77,7 +80,7 @@ async function fetchAndCacheSeriesMeta(tmdbId: string): Promise<ResolvedSeriesIn
 export const resolveSeriesRateInfo = cache(resolveSeriesRateInfoUncached);
 
 async function resolveSeriesRateInfoUncached(id: string): Promise<ResolvedSeriesInfo | null> {
-  if (!id.startsWith("tmdb-tv-")) return null;
+  if (!isSeriesCd(id)) return null;
   const tmdbId = id.slice("tmdb-tv-".length);
   if (!tmdbId) return null;
 

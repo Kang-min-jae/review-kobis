@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { isSeriesCd } from "./rating-input";
 
 // 사이트 기본 주소(www 없는 정식 주소) — metadataBase, canonical, robots.txt, sitemap.xml, JSON-LD가 같이 쓴다.
 export const SITE_URL = "https://stilltheater.com";
@@ -30,7 +31,7 @@ export const CONTACT_EMAIL = "contact@stilltheater.com";
 // canonical이 같은 주소를 쓰도록 여기 한곳에서 만든다.
 // 시리즈(tmdb-tv-*)는 /series/<id>/rate.
 export function movieDetailPath(movieId: string, category = "전체"): string {
-  const section = movieId.startsWith("tmdb-tv-") ? "series" : "movies";
+  const section = isSeriesCd(movieId) ? "series" : "movies";
   const base = `/${section}/${encodeURIComponent(movieId)}/rate`;
   return category === "전체" ? base : `${base}/category/${encodeURIComponent(category)}`;
 }

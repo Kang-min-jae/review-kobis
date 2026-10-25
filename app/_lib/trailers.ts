@@ -20,7 +20,7 @@ import { db } from "./db";
 import { getTmdbVideos, type RawTmdbVideo } from "./tmdb";
 
 export type TrailerKind = "movie" | "tv";
-import { channelKeyFromUrl, judgeChannel, type ChannelRules } from "./official-channels";
+import { channelKeyFromUrl, judgeChannel, normalizeChannelName, type ChannelRules } from "./official-channels";
 
 // 보여줄 영상 유형. 클립까지 보여주려면 "Clip"을 추가하면 된다(라벨은 TYPE_LABELS에 이미 있음).
 export const TRAILER_TYPES: readonly string[] = ["Trailer", "Teaser"];
@@ -219,16 +219,31 @@ async function loadCandidates(kind: TrailerKind, tmdbId: string): Promise<Cached
   return fresh.videos;
 }
 
+// 후보 채널에 걸린 규칙 + 관리자가 공식으로 허용한 채널 전부(이름 고정용 — 관리자가 직접 만든 몇십 줄짜리 표라 작다).
 export async function loadChannelRules(channelKeys: string[]): Promise<ChannelRules> {
   const rows =
     channelKeys.length === 0
       ? []
       : await db.trailerChannelRule
-          .findMany({ where: { channelKey: { in: channelKeys } }, select: { channelKey: true, allowed: true } })
+          .findMany({
+            where: { OR: [{ channelKey: { in: channelKeys } }, { allowed: true, channelName: { not: null } }] },
+            select: { channelKey: true, channelName: true, allowed: true },
+          })
           .catch(() => []); // 테이블이 아직 없어도(마이그레이션 전) 기본 목록만으로 동작한다
+  const keys = new Set(channelKeys);
+  const pinnedByName = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.allowed || !r.channelName) continue;
+    const name = normalizeChannelName(r.channelName);
+    const set = pinnedByName.get(name) ?? new Set<string>();
+    set.add(r.channelKey);
+    pinnedByName.set(name, set);
+  }
+  const own = rows.filter((r) => keys.has(r.channelKey));
   return {
-    allowed: new Set(rows.filter((r) => r.allowed).map((r) => r.channelKey)),
-    blocked: new Set(rows.filter((r) => !r.allowed).map((r) => r.channelKey)),
+    allowed: new Set(own.filter((r) => r.allowed).map((r) => r.channelKey)),
+    blocked: new Set(own.filter((r) => !r.allowed).map((r) => r.channelKey)),
+    pinnedByName,
   };
 }
 

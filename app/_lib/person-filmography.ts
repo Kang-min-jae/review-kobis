@@ -11,7 +11,7 @@ import { searchKmdbFilmography } from "./kmdb";
 import { getTmdbPersonMovieCredits, resolveTmdbPersonIdByName, searchTmdbPerson } from "./tmdb";
 import { isRecentlyOpened, genreFields, summaryToRowMovie, type RowMovie } from "./movie-rows";
 import { getMovieMeta, getCachedMovieMetas } from "./movie-rate-info";
-import { cdToMovieId } from "./rating-input";
+import { cdToMovieId, isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
@@ -503,7 +503,7 @@ async function fetchAndCacheFilmography(
   // 유지하고, 동일 우선순위면 기존 항목을 유지하면서 포스터만 보완한다.
   function rowPriority(id: string): number {
     if (id.startsWith("kobis-")) return 2;
-    if (id.startsWith("tmdb-") && !id.startsWith("tmdb-tv-")) return 1;
+    if (id.startsWith("tmdb-") && !isSeriesCd(id)) return 1;
     return 0; // kmdb-*
   }
 

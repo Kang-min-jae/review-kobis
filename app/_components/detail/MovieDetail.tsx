@@ -25,13 +25,13 @@ import {
   ReviewsSkeleton,
 } from "../DetailReviews";
 import { BASE_OPEN_GRAPH, BASE_TWITTER, movieDetailPath } from "../../_lib/site";
-import { cdToMovieId } from "../../_lib/rating-input";
+import { cdToMovieId, isSeriesCd } from "../../_lib/rating-input";
 
 // 영화 상세(평점) 페이지 — 로그인한 사람용 페이지(app/movies/…/page.tsx)와 로그인 쿠키 없는 요청용 공용 캐시
 // 페이지(app/anon/movies/…/page.tsx)가 같이 쓴다. anonymous면 로그인 정보를 읽지 않아 모든 방문자에게 같은
 // 화면이 되고, 그래서 캐시(ISR)할 수 있다(내 리뷰·관리자 도구·내가 본 영화 빼기는 로그인한 사람 페이지에서만).
 export async function movieDetailMetadata(id: string, categoryParam: string): Promise<Metadata> {
-  if (id.startsWith("tmdb-tv-")) return {}; // 페이지가 /series로 보낸다
+  if (isSeriesCd(id)) return {}; // 페이지가 /series로 보낸다
   const info = await resolveMovieRateInfo(id);
   if (!info) return {};
   const title = info.movieTitle;
@@ -122,7 +122,7 @@ export default async function MovieDetail({
   const category = safeDecode(categoryParam);
 
   // 시리즈(tmdb-tv-*)는 /series 주소가 정식 — 프로필·리뷰 목록 등에서 /movies로 연결돼 들어와도 시리즈 페이지로 보낸다.
-  if (id.startsWith("tmdb-tv-")) {
+  if (isSeriesCd(id)) {
     permanentRedirect(movieDetailPath(id, isRatingCategory(category) ? category : "전체"));
   }
 
