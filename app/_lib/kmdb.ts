@@ -8,6 +8,7 @@
 
 import { unstable_cache } from "next/cache";
 import { toChosung, isChosungOnly } from "./hangul";
+import { skipDataCache } from "./data-cache-scope";
 
 // ── 외래어 표기 변형 정규화 ───────────────────────────────────────────────────
 // 검색어와 DB 저장 이름 양쪽에 모두 적용해서 "앤소니/안소니", "쓰/스" 류를 흡수한다.
@@ -283,6 +284,8 @@ async function rawSearch(query: string, listCount: number): Promise<RawKmdbResul
   if (!apiKey()) return [];
   const sanitizedQuery = query.replace(/[:&]/g, " ").replace(/\s{2,}/g, " ").trim();
   try {
+    // 상세 정보를 DB에 저장하는 구간(withoutDataCache)에서는 데이터 캐시에 한 번 더 쓰지 않는다.
+    if (skipDataCache()) return await fetchFromKmdbLimited(sanitizedQuery, listCount);
     return await makeCachedSearch(sanitizedQuery, listCount)();
   } catch (error) {
     console.warn(String(error instanceof Error ? error.message : error));

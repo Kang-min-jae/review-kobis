@@ -15,6 +15,8 @@
 // 없었으므로(TMDB_API_KEY 미발급), 실제 환경에서 첫 실행 시 필드명이 문서와 다르게
 // 오면 알려달라.
 
+import { skipDataCache } from "./data-cache-scope";
+
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
@@ -92,7 +94,8 @@ async function tmdbFetchStrict<T>(
         // noCache=true 일 때는 Next.js 데이터 캐시를 건너뛴다 — 서버 컴포넌트에서
         // TV 시리즈 엔드포인트를 호출할 때 실패 응답이 24h 동안 캐시되는 문제를 방지.
         const res = await fetch(url, {
-          ...(noCache ? { cache: "no-store" } : { next: { revalidate: 60 * 60 * 24 } }),
+          // 상세 정보를 DB에 저장하는 구간(withoutDataCache)에서는 데이터 캐시에 한 번 더 쓰지 않는다.
+          ...(noCache || skipDataCache() ? { cache: "no-store" } : { next: { revalidate: 60 * 60 * 24 } }),
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         if (!res.ok) {

@@ -1,4 +1,4 @@
-import { Suspense, type ComponentProps } from "react";
+import { Suspense, type ComponentProps, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import type { Session } from "next-auth";
@@ -7,6 +7,7 @@ import { resolveSeriesRateInfo } from "../../_lib/series-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../_lib/category-ratings-store";
 import { getAllCategoryAverages } from "../../_lib/review-data";
 import SiteHeader from "../SiteHeader";
+import { InOrder } from "../InOrder";
 import BackBar from "../BackBar";
 import MovieHero from "../MovieHero";
 import AddToListButton from "../AddToListButton";
@@ -22,6 +23,7 @@ import {
   ReviewsSkeleton,
 } from "../DetailReviews";
 import { safeDecode } from "../../_lib/safe-decode";
+import { isTemporarilyUnavailable, redirectTemporarilyUnavailable } from "../../_lib/unavailable";
 import { BASE_OPEN_GRAPH, BASE_TWITTER, movieDetailPath } from "../../_lib/site";
 
 function isRatingCategory(value: string): value is RatingCategory {
@@ -35,7 +37,11 @@ function isRatingCategory(value: string): value is RatingCategory {
 // 로그인한 사람용 페이지(app/series/…/page.tsx)와 로그인 쿠키 없는 요청용 공용 캐시 페이지(app/anon/series/…)가
 // 같이 쓴다. anonymous면 로그인 정보를 읽지 않아 모든 방문자에게 같은 화면이 되고, 그래서 캐시(ISR)할 수 있다.
 export async function seriesDetailMetadata(id: string, categoryParam: string): Promise<Metadata> {
-  const info = await resolveSeriesRateInfo(id);
+  // TMDB를 잠깐 쓸 수 없어 정보가 없으면 본문이 일시 중단 안내로 보낸다(로그도 거기서 한 번만 남긴다).
+  const info = await resolveSeriesRateInfo(id).catch((error) => {
+    if (isTemporarilyUnavailable(error)) return null;
+    throw error;
+  });
   if (!info) return {};
   const title = info.title;
   const description = `${title} 평점과 리뷰 — 연출, 연기, 각본, 음악, 편집 항목별 평가를 남겨보세요.`;
@@ -119,7 +125,14 @@ export default async function SeriesDetail({
   }
 
   const sessionPromise: Promise<Session | null> = anonymous ? Promise.resolve(null) : auth().catch(() => null);
-  const info = await resolveSeriesRateInfo(id);
+  // 저장된 정보도 없는데 TMDB를 잠깐 쓸 수 없으면 일시 중단(503 + Retry-After)으로 끝낸다(app/_lib/unavailable.ts).
+  let info: Awaited<ReturnType<typeof resolveSeriesRateInfo>>;
+  try {
+    info = await resolveSeriesRateInfo(id);
+  } catch (error) {
+    if (!isTemporarilyUnavailable(error)) throw error;
+    return redirectTemporarilyUnavailable(error, movieDetailPath(id, category), anonymous);
+  }
   if (!info) {
     notFound();
   }
@@ -128,6 +141,12 @@ export default async function SeriesDetail({
   const reviewDataPromise = loadReviewData(info.movieCd, category, sessionPromise);
   // 두 Suspense 영역이 같이 기다리는 promise — 한쪽이 렌더되기 전에 실패해도 처리되지 않은 거부로 남지 않게 한다.
   reviewDataPromise.catch(() => {});
+
+  const reviewTarget = { movieId: info.seriesId, movieCd: info.movieCd, title: info.title, posterUrl: info.posterUrl, gradient: info.gradient };
+  const similarInput = { seriesId: info.seriesId, tmdbId: info.tmdbId, title: info.title, genreAlt: info.genre };
+  // 공용 캐시 페이지(anonymous)는 아래 부분들을 화면 순서대로 페이지에 넣는다(InOrder) — 다시 만들어도 내용이
+  // 같으면 바이트도 같아서 Vercel이 ISR 캐시를 새로 쓰지 않는다. 로그인한 사람의 페이지는 준비된 부분부터 보여 준다.
+  const ordered = (load: () => Promise<ReactNode>, element: ReactNode) => (anonymous ? <InOrder node={load()} /> : element);
 
   return (
     <main>
@@ -168,7 +187,7 @@ export default async function SeriesDetail({
         >
           <div className="min-w-0 max-lg:hidden max-lg:group-data-[mobile-view=watch]/detail:block lg:col-start-2 lg:row-start-1">
             <Suspense fallback={<TrailerBoxSkeleton />}>
-              <SeriesTrailerBox sessionPromise={sessionPromise} tmdbId={info.tmdbId} seriesId={info.seriesId} title={info.title} />
+              {ordered(() => SeriesTrailerBox({ sessionPromise, tmdbId: info.tmdbId, seriesId: info.seriesId, title: info.title }), <SeriesTrailerBox sessionPromise={sessionPromise} tmdbId={info.tmdbId} seriesId={info.seriesId} title={info.title} />)}
             </Suspense>
           </div>
 
@@ -177,30 +196,27 @@ export default async function SeriesDetail({
               <CategoryRatings movieId={info.seriesId} averages={averages} activeCategory={category} />
             </div>
             <Suspense fallback={<ReviewsSkeleton />}>
-              <ReviewsSection
-                dataPromise={reviewDataPromise}
-                movie={{ movieId: info.seriesId, movieCd: info.movieCd, title: info.title, posterUrl: info.posterUrl, gradient: info.gradient }}
-                category={category}
-              />
+              {ordered(
+                () => ReviewsSection({ dataPromise: reviewDataPromise, movie: reviewTarget, category }),
+                <ReviewsSection dataPromise={reviewDataPromise} movie={reviewTarget} category={category} />,
+              )}
             </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-2">
             <Suspense fallback={<RatingDistributionSkeleton />}>
-              <RatingDistributionData dataPromise={reviewDataPromise} />
+              {ordered(() => RatingDistributionData({ dataPromise: reviewDataPromise }), <RatingDistributionData dataPromise={reviewDataPromise} />)}
             </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-3">
             {/* 비슷한 시리즈는 TMDB 조회(처음 보는 시리즈)로 몇 초 걸릴 수 있어 페이지를 막지 않고 따로 불러온다. */}
             <Suspense fallback={null}>
-              <SimilarSeriesWithSession
-                sessionPromise={sessionPromise}
-                seriesId={info.seriesId}
-                tmdbId={info.tmdbId}
-                title={info.title}
-                genreAlt={info.genre}
-              />
+              {anonymous ? (
+                <InOrder node={SimilarSeriesSection({ ...similarInput, userId: null })} />
+              ) : (
+                <SimilarSeriesWithSession sessionPromise={sessionPromise} {...similarInput} />
+              )}
             </Suspense>
           </div>
         </div>

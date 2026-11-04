@@ -10,15 +10,7 @@ import { getToken } from "next-auth/jwt";
 const SESSION_COOKIE = "authjs.session-token";
 const SECURE_SESSION_COOKIE = `__Secure-${SESSION_COOKIE}`;
 
-// AI 학습용 수집봇과 SEO 분석 도구 봇 — robots.txt(app/robots.ts)로도 막지만, 규칙을 무시하는 봇도 이름을 밝히고
-// 오면 페이지를 그리기 전에 바로 돌려보낸다(서버 렌더 비용 없음). 사람이 쓰는 AI 검색·브라우징 봇과 구글·네이버·빙·
-// 다음 검색봇은 막지 않는다. 목록을 바꾸면 아래 matcher의 user-agent 조건도 같이 바꾼다.
-const BLOCKED_BOTS = /GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot|AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot|DataForSeoBot|BLEXBot|SeekportBot|serpstatbot|Barkrowler/i;
-
 export async function proxy(request: NextRequest) {
-  if (BLOCKED_BOTS.test(request.headers.get("user-agent") ?? "")) {
-    return new NextResponse("Forbidden", { status: 403 });
-  }
   const cookieNames = request.cookies.getAll().map((c) => c.name);
   const secureCookie = cookieNames.some((name) => name.startsWith(SECURE_SESSION_COOKIE));
   if (!secureCookie && !cookieNames.some((name) => name.startsWith(SESSION_COOKIE))) return NextResponse.next();
@@ -43,10 +35,9 @@ export async function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-// 페이지 요청 중에서도 미들웨어가 할 일이 있는 요청에만 돌린다(Vercel은 실행할 때마다 Middleware 사용량으로 센다).
-//   ① 로그인 쿠키가 있는 요청 — 약관 동의 확인
-//   ② 차단할 AI 수집봇(User-Agent) — 403
-// 로그인하지 않은 방문자·검색봇의 페이지 요청은 미들웨어를 거치지 않는다(예전엔 모든 페이지 요청마다 돌았다).
+// 페이지 요청 중에서도 미들웨어가 할 일이 있는 요청(로그인 쿠키가 있는 요청 — 약관 동의 확인)에만 돌린다(Vercel은
+// 실행할 때마다 사용량으로 센다). 로그인하지 않은 방문자·검색봇의 페이지 요청은 미들웨어를 거치지 않는다.
+// 막을 봇(app/_lib/bots.ts)은 미들웨어가 아니라 next.config.ts의 경로 규칙이 403으로 돌려보낸다 — 함수 실행 없이.
 // API·정적 파일·이미지, 동의 화면 자체와 동의 전에도 볼 수 있어야 하는 화면(약관 전문, 로그인·가입·비밀번호
 // 찾기)은 계속 제외한다. 로그인 쿠키가 너무 길면 ".0", ".1"로 나뉘어 저장돼 그 이름도 같이 본다.
 // (matcher 값은 빌드 때 그대로 읽히므로 변수로 빼지 않고 항목마다 적는다.)
@@ -56,9 +47,5 @@ export const config = {
     { source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)", has: [{ type: "cookie", key: "authjs.session-token.0" }] },
     { source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)", has: [{ type: "cookie", key: "__Secure-authjs.session-token" }] },
     { source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)", has: [{ type: "cookie", key: "__Secure-authjs.session-token.0" }] },
-    {
-      source: "/((?!api|_next/static|_next/image|favicon.ico|consent|legal|login|signup|forgot-password|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|txt|xml|webmanifest)$).*)",
-      has: [{ type: "header", key: "user-agent", value: ".*(GPTBot|CCBot|Bytespider|ClaudeBot|meta-externalagent|Amazonbot|AhrefsBot|SemrushBot|MJ12bot|DotBot|PetalBot|DataForSeoBot|BLEXBot|SeekportBot|serpstatbot|Barkrowler).*" }],
-    },
   ],
 };

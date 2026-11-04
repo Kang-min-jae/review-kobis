@@ -18,6 +18,7 @@
 
 import { unstable_cache } from "next/cache";
 import { isAdultContent } from "./adult-content";
+import { skipDataCache } from "./data-cache-scope";
 
 const KOBIS_API_BASE = "https://kobis.or.kr/kobisopenapi/webservice/rest";
 
@@ -542,6 +543,15 @@ function isQuotaExhausted(): boolean {
   return Date.now() < quotaExhaustedUntil;
 }
 
+// KOBIS를 다시 불러도 될 때까지 남은 초 — 일시 중단 응답(503)의 Retry-After에 쓴다. 하루 이용량 초과면 한국 시간
+// 자정(+5분 여유), 방금 실패해 쉬는 중이면 남은 쉬는 시간, 그 밖엔 5분.
+export function kobisRetryAfterSeconds(now = Date.now()): number {
+  if (now < quotaExhaustedUntil) return Math.ceil((quotaExhaustedUntil - now) / 1000) + 300;
+  const coolingLeft = kobisFailedAt + KOBIS_FAIL_COOLDOWN_MS - now;
+  if (coolingLeft > 0) return Math.ceil(coolingLeft / 1000);
+  return 300;
+}
+
 // KOBIS GET 한 번. 실패(HTTP 오류, faultInfo, 해석 불가)는 KobisUnavailableError로 던진다 — 캐시에 남지 않게.
 // query는 API 키를 뺀 검색 조건(캐시 키로도 쓴다).
 async function kobisGetJson(path: string, query: string): Promise<unknown> {
@@ -598,7 +608,9 @@ function shareInFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
 
 function kobisGet(path: string, query: string): Promise<unknown> {
   // Next 서버 밖(scripts/를 tsx로 실행)에는 캐시 저장소가 없어 바로 부른다.
-  return shareInFlight(`${path}?${query}`, () => (process.env.NEXT_RUNTIME ? cachedKobisGet(path, query) : kobisGetJson(path, query)));
+  // 상세 정보를 DB에 저장하는 구간(withoutDataCache)에서는 데이터 캐시에 한 번 더 쓰지 않는다.
+  const useCache = process.env.NEXT_RUNTIME && !skipDataCache();
+  return shareInFlight(`${path}?${query}`, () => (useCache ? cachedKobisGet(path, query) : kobisGetJson(path, query)));
 }
 
 class EmptyBoxOfficeError extends Error {}

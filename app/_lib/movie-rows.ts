@@ -69,6 +69,11 @@ export function genreFields(genreAlt: string | null | undefined): { genre: strin
 // KMDb에도 없으면(오래되거나 마이너한 작품) 이 그라디언트로 대체된다.
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
+// 홈 행 목록 캐시 수명(6시간). 이 값이 홈 공용 페이지를 다시 만드는 주기도 정한다 — 페이지 안에서 쓰는 데이터 캐시 중
+// 가장 짧은 수명이 페이지 주기가 된다. 예전엔 15분~1시간이라 홈이 사실상 10분마다 다시 만들어지며 ISR 캐시를 썼다.
+// 박스오피스는 하루 한 번 바뀌고, 카드의 평균 별점은 평점이 바뀔 때 바로 갱신된다(fresh-ratings.ts, 캐시 태그).
+export const ROW_REVALIDATE_SECONDS = 60 * 60 * 6;
+
 // 개봉일로부터 이 기간(일) 안이면 "현재 상영중"으로 본다 — 실제 상영 스케줄 API가
 // 없어서 쓰는 근사치. 국내 극장 개봉작은 대체로 이 기간 안에 주요 상영관에서 빠진다.
 const NOW_SHOWING_WINDOW_DAYS = 21;
@@ -300,7 +305,7 @@ async function _getNowShowingRow(limit = 15): Promise<RowMovie[]> {
 export const getNowShowingRow = unstable_cache(
   _getNowShowingRow,
   ["now-showing-row-v2"],
-  { revalidate: 60 * 60, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 type RereleaseClassificationRow = Awaited<ReturnType<typeof db.rereleaseClassification.findMany>>[number];
@@ -412,7 +417,7 @@ async function _getRereleaseRow(limit = 10): Promise<RowMovie[]> {
 export const getRereleaseRow = unstable_cache(
   _getRereleaseRow,
   ["rerelease-row-v2"],
-  { revalidate: 60 * 60, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 박스오피스류 랭킹(주간 TOP10, 이달의 Best)은 순위 계산 자체가 KOBIS 여러 번
@@ -517,7 +522,7 @@ async function _getWeeklyBoxOfficeRow(): Promise<RowMovie[]> {
 export const getWeeklyBoxOfficeRow = unstable_cache(
   _getWeeklyBoxOfficeRow,
   ["weekly-box-office-row-v2"],
-  { revalidate: 60 * 30, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 최근 영화: 최근 3달(90일) 개봉작 최신순 15편.
@@ -531,7 +536,7 @@ export const getRecentMoviesRow = unstable_cache(
     return rows.slice(0, 15);
   },
   ["recent-movies-row-v3"],
-  { revalidate: 60 * 60, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 이 달의 Best: 이번 달의 매주 박스오피스(월요일 기준)를 다 모아서, 영화별 최고
@@ -572,7 +577,7 @@ async function _getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
 export const getMonthlyBestRow = unstable_cache(
   _getMonthlyBestRow,
   ["monthly-best-row-v2"],
-  { revalidate: 60 * 30, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 type RatedMovie = { cd: string; meta: CardMeta; avg: number; count: number };
@@ -733,7 +738,7 @@ export const getYearlyBestRow = unstable_cache(
     return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10);
   },
   ["yearly-best-row"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 3년 Best: 현재 연도 포함 최근 3개 연도(예: 2024~2026) 개봉작 중 DB 평점 높은 순 15편.
@@ -745,7 +750,7 @@ export const getBestOf3YearsRow = unstable_cache(
     return getRatingSortedMovies(`${year - 2}-01-01`, isoDate(new Date()), 15);
   },
   ["best-of-3-years-row"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 5년 Best: 현재 연도 포함 최근 5개 연도(예: 2022~2026) 개봉작 중 DB 평점 높은 순 20편.
@@ -756,7 +761,7 @@ export const getBestOf5YearsRow = unstable_cache(
     return getRatingSortedMovies(`${year - 4}-01-01`, isoDate(new Date()), 20);
   },
   ["best-of-5-years-row"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 역대 Best: 연도 제한 없이 DB 평점 높은 순 20편. 평점이 하나도 없으면 KOBIS 목록으로 대체.
@@ -768,7 +773,7 @@ export const getAllTimeBestRow = unstable_cache(
     return fillWithUnrated(results, new Set(), 10);
   },
   ["all-time-best-row-v2"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // ── 장르 탭 전용 행 ─────────────────────────────────────────────────────────
@@ -783,7 +788,7 @@ export const getGenreYearlyBestRow = unstable_cache(
     return getRatingSortedMovies(`${year}-01-01`, isoDate(new Date()), 10, keywords);
   },
   ["genre-yearly-best-row"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 export const getGenreAllTimeBestRow = unstable_cache(
@@ -797,7 +802,7 @@ export const getGenreAllTimeBestRow = unstable_cache(
     return [...rows, ...(await fillFromCachedGenre(keywords, null, exclude, 20 - rows.length))];
   },
   ["genre-all-time-best-row"],
-  { revalidate: 60 * 60 * 6, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 export const getGenrePopularRow = unstable_cache(
@@ -810,7 +815,7 @@ export const getGenrePopularRow = unstable_cache(
     return [...popular, ...(await fillFromCachedGenre(keywords, null, exclude, 15 - popular.length))];
   },
   ["genre-popular-row"],
-  { revalidate: 60 * 15, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 해외 Best: 외국 영화(repNationCd=F) 중 최신순 10편.
@@ -822,7 +827,7 @@ export const getInternationalBestRow = unstable_cache(
     return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
   },
   ["international-best-row"],
-  { revalidate: 60 * 60 * 24, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // KOBIS movieList의 genreAlt(콤마 구분 장르명)에 매칭할 키워드.
@@ -918,7 +923,7 @@ async function _getGenreRow(
 export const getGenreRow = unstable_cache(
   _getGenreRow,
   ["genre-row-v3"],
-  { revalidate: 60 * 60, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
 // 사용자 인기영화: 이 사이트에서 평점을 가장 많이 받은 영화 순서로 최대 limit편을 반환한다.
@@ -984,5 +989,5 @@ async function _getUserPopularMoviesRow(
 export const getUserPopularMoviesRow = unstable_cache(
   _getUserPopularMoviesRow,
   ["user-popular-movies-row"],
-  { revalidate: 60 * 15, tags: ["movie-rows"] },
+  { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );

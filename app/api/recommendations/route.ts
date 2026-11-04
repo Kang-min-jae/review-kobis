@@ -1,4 +1,4 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { unstable_cache } from "next/cache";
 import { db } from "../../_lib/db";
 import { getBulkMovieRatingAverages } from "../../_lib/review-data";
@@ -826,14 +826,23 @@ async function buildRecommendations(
   };
 }
 
-// 평점이 하나도 없는 방문자(비로그인 방문 대부분)는 모두 같은 결과를 받는다 — 방문마다 DB를
-// 읽지 않도록 15분 동안 공용 캐시에 둔다. 취향 정보가 없으니 LLM 리랭킹은 하지 않는다.
+// 평점이 하나도 없는 방문자(비로그인 방문 대부분)는 모두 같은 결과를 받는다. 취향 정보가 없으니 LLM 리랭킹은
+// 하지 않는다. 브라우저는 이 경우 GET으로 부르고(아래), 그 응답은 CDN이 6시간 내준다 — 방문마다 서버 함수가
+// 돌지 않고, DB도 몇 시간에 한 번만 깬다(예전엔 POST라 방문마다 함수가 돌고, 15분마다 DB를 깨웠다).
+const COLD_START_SECONDS = 60 * 60 * 6;
 const getColdStartRecommendations = unstable_cache(
   (genre: string | null, target: number) =>
     buildRecommendations([], [], genre ? GENRE_KEYWORDS[genre] : null, target, `cold|${genre ?? ""}|${target}`, { llm: false }),
   ["recommendations-cold-start-v1"],
-  { revalidate: 60 * 15 },
+  { revalidate: COLD_START_SECONDS },
 );
+
+function readGenreAndTarget(genreValue: unknown, limitValue: unknown) {
+  const genre = typeof genreValue === "string" && Object.hasOwn(GENRE_KEYWORDS, genreValue) ? genreValue : null;
+  const requestedLimit = typeof limitValue === "number" && Number.isFinite(limitValue) ? limitValue : 10;
+  const target = Math.min(20, Math.max(1, Math.floor(requestedLimit)));
+  return { genre, target };
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -846,10 +855,8 @@ export async function POST(request: Request) {
   const input = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const myRatings = sanitizeRatings(input.myRatings);
   const myCategoryRatings = sanitizeCategoryRatings(input.myCategoryRatings);
-  const genre = typeof input.genre === "string" && Object.hasOwn(GENRE_KEYWORDS, input.genre) ? input.genre : null;
+  const { genre, target } = readGenreAndTarget(input.genre, input.limit);
   const keywords = genre ? GENRE_KEYWORDS[genre] : null;
-  const requestedLimit = typeof input.limit === "number" && Number.isFinite(input.limit) ? input.limit : 10;
-  const target = Math.min(20, Math.max(1, Math.floor(requestedLimit)));
 
   // 동일 입력에 대한 2분 캐시 히트 → 즉시 반환
   const cacheKey = `${hashInput(myRatings, myCategoryRatings)}|${genre ?? ""}|${target}`;
@@ -878,7 +885,18 @@ export async function POST(request: Request) {
   return NextResponse.json(payload);
 }
 
-// Keep GET for backwards compatibility (returns empty)
-export async function GET() {
-  return NextResponse.json({ results: [] });
+// 평점이 없는 방문자용(RecommendedSection이 부른다) — 모두에게 같은 결과라 CDN이 캐시해 내준다.
+// 사람마다 다른 정보는 들어 있지 않다(평점이 있으면 위의 POST로 부른다).
+export async function GET(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+  const { genre, target } = readGenreAndTarget(params.get("genre") ?? undefined, Number(params.get("limit")) || undefined);
+  try {
+    const payload = await getColdStartRecommendations(genre, target);
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": `public, s-maxage=${COLD_START_SECONDS}, stale-while-revalidate=${COLD_START_SECONDS * 4}` },
+    });
+  } catch (error) {
+    console.warn("[recommendations] 기본 추천 계산 실패:", error);
+    return NextResponse.json({ results: [] }, { headers: { "Cache-Control": "no-store" } });
+  }
 }

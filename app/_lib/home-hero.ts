@@ -16,6 +16,7 @@ import { getBulkMovieRatingAverages } from "./review-data";
 import { getKoficBoxOfficeByTitle } from "./kobis";
 import { isAdultContent } from "./adult-content";
 import { getBadge } from "./tier";
+import { ROW_REVALIDATE_SECONDS } from "./movie-rows";
 
 export const HERO_WINDOW_DAYS = 30;
 export const HERO_MOVIE_COUNT = 5;
@@ -218,4 +219,4 @@ async function loadHeroLists(): Promise<HeroLists> {
   return { popular: popularMovies, today };
 }
 
-export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v3"], { revalidate: 600, tags: [HOME_HERO_TAG] });
+export const getHeroLists = unstable_cache(loadHeroLists, ["home-hero-v3"], { revalidate: ROW_REVALIDATE_SECONDS, tags: [HOME_HERO_TAG] });

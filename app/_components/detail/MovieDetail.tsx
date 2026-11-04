@@ -7,6 +7,7 @@ import { resolveMovieRateInfo } from "../../_lib/movie-rate-info";
 import { RATING_CATEGORIES, type RatingCategory } from "../../_lib/category-ratings-store";
 import { getAllCategoryAverages } from "../../_lib/review-data";
 import SiteHeader from "../SiteHeader";
+import { InOrder } from "../InOrder";
 import BackBar from "../BackBar";
 import MovieHero from "../MovieHero";
 import AddToListButton from "../AddToListButton";
@@ -17,6 +18,7 @@ import SimilarMoviesSection from "../SimilarMoviesSection";
 import { getMovieAwardWins } from "../../_lib/award-winners";
 import { getTrailerData } from "../../_lib/trailers";
 import { safeDecode } from "../../_lib/safe-decode";
+import { isTemporarilyUnavailable, redirectTemporarilyUnavailable } from "../../_lib/unavailable";
 import {
   loadReviewData,
   RatingDistributionData,
@@ -32,7 +34,11 @@ import { cdToMovieId, isSeriesCd } from "../../_lib/rating-input";
 // 화면이 되고, 그래서 캐시(ISR)할 수 있다(내 리뷰·관리자 도구·내가 본 영화 빼기는 로그인한 사람 페이지에서만).
 export async function movieDetailMetadata(id: string, categoryParam: string): Promise<Metadata> {
   if (isSeriesCd(id)) return {}; // 페이지가 /series로 보낸다
-  const info = await resolveMovieRateInfo(id);
+  // 외부 API를 잠깐 쓸 수 없어 정보가 없으면 본문이 일시 중단 안내로 보낸다(로그도 거기서 한 번만 남긴다).
+  const info = await resolveMovieRateInfo(id).catch((error) => {
+    if (isTemporarilyUnavailable(error)) return null;
+    throw error;
+  });
   if (!info) return {};
   const title = info.movieTitle;
   const description = `${title} 평점과 리뷰 — 연출, 연기, 각본, 음악, 편집 항목별 평가를 남겨보세요.`;
@@ -136,7 +142,15 @@ export default async function MovieDetail({
   // 평점 요약은 별점을 남기면 바로 바뀌어야 해서 캐시 없이 읽는다(인덱스 걸린 집계 한 번).
   // 로그인 정보·리뷰처럼 사람마다 다르거나 느린 부분은 아래 <Suspense>에서 따로 불러온다.
   const sessionPromise: Promise<Session | null> = anonymous ? Promise.resolve(null) : auth().catch(() => null);
-  const info = await resolveMovieRateInfo(id);
+  // 저장된 정보도 없는데 외부 API(KOBIS·TMDB)를 잠깐 쓸 수 없으면 "없는 영화"(404)나 오류(500)가 아니라
+  // 일시 중단(503 + Retry-After)으로 끝낸다(app/_lib/unavailable.ts). 저장된 정보가 있으면 그것으로 그린다.
+  let info: Awaited<ReturnType<typeof resolveMovieRateInfo>>;
+  try {
+    info = await resolveMovieRateInfo(id);
+  } catch (error) {
+    if (!isTemporarilyUnavailable(error)) throw error;
+    return redirectTemporarilyUnavailable(error, movieDetailPath(id, isRatingCategory(category) ? category : "전체"), anonymous);
+  }
   if (!info) {
     notFound();
   }
@@ -145,6 +159,17 @@ export default async function MovieDetail({
   const reviewDataPromise = loadReviewData(info.movieCd, category, sessionPromise);
   // 두 Suspense 영역이 같이 기다리는 promise — 한쪽이 렌더되기 전에 실패해도 처리되지 않은 거부로 남지 않게 한다.
   reviewDataPromise.catch(() => {});
+  const reviewTarget = { movieId: info.movieId, movieCd: info.movieCd, title: info.movieTitle, posterUrl: info.posterUrl, gradient: info.gradient };
+  const similarInput = {
+    movieCd: info.movieCd,
+    movieTitle: info.movieTitle,
+    tmdbId: info.tmdbId ?? null,
+    directorName: info.director?.name ?? null,
+    leadActorName: info.cast[0]?.name ?? null,
+    genreAlt: info.genreAlt,
+  };
+  // 공용 캐시 페이지(anonymous)는 아래 부분들을 화면 순서대로 페이지에 넣는다(InOrder) — 다시 만들어도 내용이
+  // 같으면 바이트도 같아서 Vercel이 ISR 캐시를 새로 쓰지 않는다. 로그인한 사람의 페이지는 준비된 부분부터 보여 준다.
 
   return (
     <main>
@@ -183,50 +208,66 @@ export default async function MovieDetail({
         >
           <div className="min-w-0 max-lg:hidden max-lg:group-data-[mobile-view=watch]/detail:block lg:col-start-2 lg:row-start-1">
             <Suspense fallback={<TrailerBoxSkeleton />}>
-              <TrailerBoxWithSession
-                sessionPromise={sessionPromise}
-                tmdbId={info.tmdbId ?? null}
-                movieTitle={info.movieTitle}
-                movieCd={info.movieCd}
-                isNowShowing={info.boxOffice !== null}
-              />
+              {anonymous ? (
+                <InOrder
+                  node={TrailerBoxData({
+                    tmdbId: info.tmdbId ?? null,
+                    movieTitle: info.movieTitle,
+                    movieCd: info.movieCd,
+                    isNowShowing: info.boxOffice !== null,
+                    isAdmin: false,
+                  })}
+                />
+              ) : (
+                <TrailerBoxWithSession
+                  sessionPromise={sessionPromise}
+                  tmdbId={info.tmdbId ?? null}
+                  movieTitle={info.movieTitle}
+                  movieCd={info.movieCd}
+                  isNowShowing={info.boxOffice !== null}
+                />
+              )}
             </Suspense>
           </div>
 
           <div id="rate" className="min-w-0 scroll-mt-20 max-lg:group-data-[mobile-view=watch]/detail:hidden lg:col-start-1 lg:row-span-3 lg:row-start-1">
             {/* 처음 보는 영화는 수상 이력을 Wikidata에서 조회하느라 수 초 걸릴 수 있어, 페이지를 막지 않고 따로 불러온다. */}
             <Suspense fallback={null}>
-              <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
+              {anonymous ? (
+                <InOrder node={AwardsBannerData({ movieId: info.movieId, tmdbId: info.tmdbId ?? null, titleKo: info.movieTitle, titleEn: info.movieTitleEn ?? null })} />
+              ) : (
+                <AwardsBannerData movieId={info.movieId} tmdbId={info.tmdbId ?? null} titleKo={info.movieTitle} titleEn={info.movieTitleEn ?? null} />
+              )}
             </Suspense>
             <div className="mb-4 lg:hidden">
               <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
             </div>
             <Suspense fallback={<ReviewsSkeleton />}>
-              <ReviewsSection
-                dataPromise={reviewDataPromise}
-                movie={{ movieId: info.movieId, movieCd: info.movieCd, title: info.movieTitle, posterUrl: info.posterUrl, gradient: info.gradient }}
-                category={category}
-              />
+              {anonymous ? (
+                <InOrder node={ReviewsSection({ dataPromise: reviewDataPromise, movie: reviewTarget, category })} />
+              ) : (
+                <ReviewsSection dataPromise={reviewDataPromise} movie={reviewTarget} category={category} />
+              )}
             </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-2">
             <Suspense fallback={<RatingDistributionSkeleton />}>
-              <RatingDistributionData dataPromise={reviewDataPromise} />
+              {anonymous ? (
+                <InOrder node={RatingDistributionData({ dataPromise: reviewDataPromise })} />
+              ) : (
+                <RatingDistributionData dataPromise={reviewDataPromise} />
+              )}
             </Suspense>
           </div>
 
           <div className="min-w-0 lg:col-start-2 lg:row-start-3">
             <Suspense fallback={null}>
-              <SimilarMoviesWithSession
-                sessionPromise={sessionPromise}
-                movieCd={info.movieCd}
-                movieTitle={info.movieTitle}
-                tmdbId={info.tmdbId ?? null}
-                directorName={info.director?.name ?? null}
-                leadActorName={info.cast[0]?.name ?? null}
-                genreAlt={info.genreAlt}
-              />
+              {anonymous ? (
+                <InOrder node={SimilarMoviesSection({ ...similarInput, userId: null })} />
+              ) : (
+                <SimilarMoviesWithSession sessionPromise={sessionPromise} {...similarInput} />
+              )}
             </Suspense>
           </div>
         </div>

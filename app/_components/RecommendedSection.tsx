@@ -20,11 +20,12 @@ function fetchRecommendations(payload: RatingsPayload, genre: string | undefined
   if (cached && Date.now() - cached.at < CLIENT_REC_TTL_MS) return Promise.resolve(cached.results);
   const existing = inFlight.get(body);
   if (existing) return existing;
-  const promise = fetch("/api/recommendations", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  })
+  // 평점이 없으면 모두에게 같은 결과라 CDN이 캐시하는 GET으로 받는다(방문마다 서버 함수·DB를 쓰지 않는다).
+  const coldStart = payload.myRatings.length === 0 && payload.myCategoryRatings.length === 0;
+  const request = coldStart
+    ? fetch(`/api/recommendations?${new URLSearchParams({ ...(genre ? { genre } : {}), limit: String(limit) })}`)
+    : fetch("/api/recommendations", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+  const promise = request
     .then((res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`); // 실패 응답을 빈 추천으로 캐시하지 않는다
       return res.json();

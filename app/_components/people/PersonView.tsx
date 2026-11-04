@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { InOrder } from "../InOrder";
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import SiteHeader from "../SiteHeader";
@@ -60,18 +61,23 @@ export default async function PersonView({
         <h1 className="mt-3 text-lg font-bold text-text">
           {name}
           <Suspense fallback={null}>
-            <BirthYear personId={personId} tmdbIdHint={tmdbIdHint} />
+            {anonymous ? <InOrder node={BirthYear({ personId, tmdbIdHint })} /> : <BirthYear personId={personId} tmdbIdHint={tmdbIdHint} />}
           </Suspense>
         </h1>
 
         {role && (
           <Suspense fallback={null}>
-            <NamesakeNotice name={name} role={role} personId={personId} />
+            {anonymous ? <InOrder node={NamesakeNotice({ name, role, personId })} /> : <NamesakeNotice name={name} role={role} personId={personId} />}
           </Suspense>
         )}
 
         <Suspense fallback={<FilmographySkeleton />}>
-          <Filmography name={name} personId={personId} role={role} tmdbIdHint={tmdbIdHint} anonymous={anonymous} />
+          {/* 공용 캐시 페이지는 부분들을 화면 순서대로 넣는다(InOrder) — 다시 만들어도 내용이 같으면 바이트도 같다. */}
+          {anonymous ? (
+            <InOrder node={Filmography({ name, personId, role, tmdbIdHint, anonymous })} />
+          ) : (
+            <Filmography name={name} personId={personId} role={role} tmdbIdHint={tmdbIdHint} anonymous={anonymous} />
+          )}
         </Suspense>
       </div>
     </main>

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { BLOCKED_BOT_PATTERN } from "./app/_lib/bots";
 
 // 포스터/스틸컷 이미지는 KMDb(한국영상자료원)에서 가져온다 — KOBIS 자체는 이미지를 제공하지 않는다.
 const nextConfig: NextConfig = {
@@ -32,6 +33,13 @@ const nextConfig: NextConfig = {
     });
     return {
       beforeFiles: [
+        // 막을 봇(app/_lib/bots.ts)의 요청은 페이지를 만들기 전에 403 응답(/blocked-bot)으로 바꾼다 — 페이지를 그리지
+        // 않고 DB·외부 API도 쓰지 않는다. robots.txt는 읽게 둔다(거기서 "들어오지 말라"를 본다).
+        {
+          source: "/:path((?!robots\\.txt$).*)",
+          has: [{ type: "header", key: "user-agent", value: BLOCKED_BOT_PATTERN }],
+          destination: "/blocked-bot",
+        },
         {
           source: "/",
           has: [

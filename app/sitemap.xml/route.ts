@@ -1,12 +1,9 @@
-import type { MetadataRoute } from "next";
 import { connection } from "next/server";
-import { unstable_cache } from "next/cache";
-import { SITE_URL, movieDetailPath } from "./_lib/site";
-import { db } from "./_lib/db";
-import { getDailyBoxOfficeList } from "./_lib/kobis";
-import { isAdultContent } from "./_lib/adult-content";
-import { cdToMovieId, isSeriesCd } from "./_lib/rating-input";
-import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
+import { SITE_URL, movieDetailPath } from "../_lib/site";
+import { db } from "../_lib/db";
+import { isAdultContent } from "../_lib/adult-content";
+import { cdToMovieId, isSeriesCd } from "../_lib/rating-input";
+import { WIKIDATA_VERIFIED } from "../_lib/movie-rate-info";
 
 // /sitemap.xml — 누구나 볼 수 있는 고정 페이지 + 영화·시리즈 상세(평점) 페이지.
 // 홈 탭(?category=…)은 정식 주소(canonical)가 홈이라 넣지 않는다. 로그인이 필요한 페이지(/login, /my-list,
@@ -14,7 +11,7 @@ import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 //
 // 영화 상세 주소는 /movies/<id>/rate (site.ts의 movieDetailPath — 상세 페이지 canonical과 같다).
 // 영화는 우선순위 순으로 최대 MOVIE_URL_LIMIT편:
-//   1) 박스오피스(최근 3일 일별 TOP10) — 현재 상영작
+//   1) 박스오피스 — 홈 행이 저장해 둔 순위(RankingSnapshot: 현재 상영작·주간 박스오피스)
 //   2) 회원 평점·리뷰가 있는 영화 — 최근 활동 순
 //   3) 최근 개봉작(지난 RECENT_RELEASE_DAYS일 안 개봉, DB에 정보가 있는 영화)
 // 성인물, TMDB 연결 검증 전인 수상작 항목(wikidata-*)은 뺀다.
@@ -24,8 +21,10 @@ import { WIKIDATA_VERIFIED } from "./_lib/movie-rate-info";
 // 한 사이트맵 파일은 URL 5만 개가 한도다. 고정 페이지 + MOVIE_URL_LIMIT이 그보다 훨씬 작아 파일 하나로
 // 충분하다. 한도를 5만 근처까지 올려야 하면 generateSitemaps로 나누고 robots.ts에 각 파일을 적어야 한다.
 //
-// DB를 읽으므로 빌드 때가 아니라 요청 때 만든다(빌드 환경에서 DB에 못 붙어도 빌드가 깨지지 않게).
-// 영화 목록은 1시간 캐시하고, DB 오류가 나면 고정 페이지만 내보낸다.
+// DB를 읽으므로 빌드 때가 아니라 요청 때 만든다(빌드 때 DB를 읽지 않게). 외부 API(KOBIS)는 부르지 않는다 —
+// 예전엔 만들 때마다 KOBIS 일별 박스오피스 3일치를 불러, 봇이 사이트맵을 열 때마다 하루 이용량을 썼다.
+// 응답은 CDN에 하루 캐시한다(Cache-Control) — ISR·데이터 캐시에 쓰지 않아 ISR Write가 생기지 않는다.
+// DB 오류가 나면 고정 페이지만 내보내고, 그 응답은 짧게(10분)만 캐시한다.
 
 const SITEMAP_URL_MAX = 50_000;
 // 상세 페이지는 요청마다 새로 그리는 무거운 페이지라 검색봇 수집량을 고려해 우선 2,000편까지만 싣는다.
@@ -44,10 +43,16 @@ const STATIC_PAGES: { path: string; changeFrequency: "daily" | "weekly" | "month
 
 type MovieEntry = { movieId: string; lastModified: string; boxOffice: boolean }; // lastModified: ISO
 
+// 홈의 "현재 상영중"·"이번주 박스오피스" 행이 KOBIS에서 받아 DB에 저장해 둔 가장 최근 순위.
 async function loadBoxOfficeCds(): Promise<string[]> {
-  const days = await Promise.all([1, 2, 3].map((d) => getDailyBoxOfficeList(d).catch(() => [])));
+  const rows = await db.rankingSnapshot.findMany({
+    where: { listType: { in: ["now_showing", "weekly_box_office"] } },
+    orderBy: [{ syncedAt: "desc" }, { rank: "asc" }],
+    select: { movieCd: true },
+    take: 60,
+  });
   const cds: string[] = [];
-  for (const entry of days.flat()) if (entry.movieCd && !cds.includes(entry.movieCd)) cds.push(entry.movieCd);
+  for (const { movieCd } of rows) if (movieCd && !cds.includes(movieCd)) cds.push(movieCd);
   return cds;
 }
 
@@ -81,7 +86,7 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   const limit = Math.min(MOVIE_URL_LIMIT, SITEMAP_URL_MAX - STATIC_PAGES.length);
   const notSeries = { NOT: { movieCd: { startsWith: "tmdb-tv-" } } };
 
-  const [boxOfficeCds, activity] = await Promise.all([loadBoxOfficeCds(), loadActivity(notSeries, limit)]);
+  const [boxOfficeCds, activity] = await Promise.all([loadBoxOfficeCds().catch(() => []), loadActivity(notSeries, limit)]);
   const activeCds = [...activity.keys()].sort((a, b) => activity.get(b)! - activity.get(a)!);
 
   const sinceIso = new Date(Date.now() - RECENT_RELEASE_DAYS * 86_400_000).toISOString().slice(0, 10);
@@ -146,12 +151,28 @@ async function loadSitemapEntries(): Promise<MovieEntry[]> {
   return [...movies, ...series];
 }
 
-const getSitemapEntries = unstable_cache(loadSitemapEntries, ["sitemap-entries-v2"], { revalidate: 3600 });
+type SitemapUrl = { url: string; lastModified: string; changeFrequency: "daily" | "weekly" | "monthly"; priority: number };
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+function escapeXml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!);
+}
+
+function toXml(urls: SitemapUrl[]): string {
+  const body = urls
+    .map(
+      (u) =>
+        `<url>\n<loc>${escapeXml(u.url)}</loc>\n<lastmod>${u.lastModified}</lastmod>\n<changefreq>${u.changeFrequency}</changefreq>\n<priority>${u.priority}</priority>\n</url>`,
+    )
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
+}
+
+const DAY = 60 * 60 * 24;
+
+export async function GET() {
   await connection();
-  const now = new Date();
-  const pages: MetadataRoute.Sitemap = STATIC_PAGES.map((p) => ({
+  const now = new Date().toISOString();
+  const pages: SitemapUrl[] = STATIC_PAGES.map((p) => ({
     url: `${SITE_URL}${p.path}`,
     lastModified: now,
     changeFrequency: p.changeFrequency,
@@ -159,19 +180,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   let movies: MovieEntry[] = [];
+  let ok = true;
   try {
-    movies = await getSitemapEntries();
+    movies = await loadSitemapEntries();
   } catch (error) {
+    ok = false;
     console.warn("[sitemap] 영화·시리즈 목록을 불러오지 못해 고정 페이지만 내보냅니다:", error);
   }
 
-  return [
+  const urls: SitemapUrl[] = [
     ...pages,
     ...movies.map((m) => ({
       url: `${SITE_URL}${movieDetailPath(m.movieId)}`,
-      lastModified: new Date(m.lastModified),
+      lastModified: m.lastModified,
       changeFrequency: m.boxOffice ? ("daily" as const) : ("weekly" as const),
       priority: m.boxOffice ? 0.8 : 0.6,
     })),
   ].slice(0, SITEMAP_URL_MAX);
+
+  return new Response(toXml(urls), {
+    headers: {
+      "Content-Type": "application/xml; charset=utf-8",
+      // CDN이 하루 동안 이 응답을 그대로 내준다(만료 뒤에도 새로 만드는 동안 이전 것을 내준다).
+      "Cache-Control": ok ? `public, s-maxage=${DAY}, stale-while-revalidate=${DAY}` : "public, s-maxage=600",
+    },
+  });
 }

@@ -4,7 +4,7 @@
 import { unstable_cache } from "next/cache";
 import { db } from "./db";
 import { getTmdbSeriesDetails, getTmdbPopularSeries } from "./tmdb";
-import { splitGenres } from "./movie-rows";
+import { splitGenres, ROW_REVALIDATE_SECONDS } from "./movie-rows";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { formatPosterUrl } from "./formatPosterUrl";
 import type { RowMovie } from "./movie-rows";
@@ -250,6 +250,6 @@ async function _getTop10PopularSeriesRow(): Promise<RowMovie[]> {
 }
 
 // TV 탭 행은 방문마다 DB·TMDB를 다시 읽지 않도록 10분 캐시한다(모든 방문자에게 같은 결과).
-export const getCuratedSeriesRow = unstable_cache(_getCuratedSeriesRow, ["series-curated-row"], { revalidate: 600 });
-export const getPopularSeriesRow = unstable_cache(_getPopularSeriesRow, ["series-popular-row"], { revalidate: 600 });
-export const getTop10PopularSeriesRow = unstable_cache(_getTop10PopularSeriesRow, ["series-top10-row"], { revalidate: 600 });
+export const getCuratedSeriesRow = unstable_cache(_getCuratedSeriesRow, ["series-curated-row"], { revalidate: ROW_REVALIDATE_SECONDS });
+export const getPopularSeriesRow = unstable_cache(_getPopularSeriesRow, ["series-popular-row"], { revalidate: ROW_REVALIDATE_SECONDS });
+export const getTop10PopularSeriesRow = unstable_cache(_getTop10PopularSeriesRow, ["series-top10-row"], { revalidate: ROW_REVALIDATE_SECONDS });

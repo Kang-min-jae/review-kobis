@@ -27,16 +27,18 @@ export default function RecommendedSeriesSection({
 
     // 영화 추천과 같은 평점 데이터(전체 평점 + 항목 평점)를 보낸다 — 추천도 배지를 모든
     // 행과 같은 공식으로 계산하려면 영화 평점까지 포함한 전체 취향이 필요하다.
-    const body = JSON.stringify({ ...buildRatingsPayload(), limit });
+    const payload = buildRatingsPayload();
+    const body = JSON.stringify({ ...payload, limit });
     const cached = lastSeriesRec && lastSeriesRec.body === body && Date.now() - lastSeriesRec.at < CLIENT_REC_TTL_MS
       ? Promise.resolve(lastSeriesRec.results)
       : null;
     if (!cached && inFlightSeriesRec?.body !== body) {
-      const promise = fetch("/api/recommendations/series", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      })
+      // 평점이 없으면 모두에게 같은 결과라 CDN이 캐시하는 GET으로 받는다(방문마다 서버 함수·DB를 쓰지 않는다).
+      const request =
+        payload.myRatings.length === 0 && payload.myCategoryRatings.length === 0
+          ? fetch(`/api/recommendations/series?limit=${limit}`)
+          : fetch("/api/recommendations/series", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const promise = request
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`); // 실패 응답을 빈 추천으로 캐시하지 않는다
           return res.json();

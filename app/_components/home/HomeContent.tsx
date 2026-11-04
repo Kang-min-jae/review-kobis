@@ -1,4 +1,5 @@
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
+import { InOrder } from "../InOrder";
 import type { Metadata } from "next";
 import { SITE_URL, SITE_NAME, SITE_TITLE, SITE_DESCRIPTION, BASE_OPEN_GRAPH } from "../../_lib/site";
 import type { GenreLabel, TabCategory } from "../CategoryNav";
@@ -63,6 +64,12 @@ async function safeRows<T>(label: string, load: () => Promise<T[]>): Promise<T[]
   }
 }
 
+// 공용 캐시 홈(anonymous)은 행들을 화면 순서대로 페이지에 넣는다(InOrder) — 다시 만들어도 내용이 같으면 바이트도
+// 같아서 Vercel이 ISR 캐시를 새로 쓰지 않는다. 로그인한 사람의 홈은 준비된 행부터 바로 보여 준다.
+function rowData<P extends object>(anonymous: boolean, Row: (props: P) => Promise<ReactNode>, props: P) {
+  return anonymous ? <InOrder node={Row(props)} /> : <Row {...props} />;
+}
+
 async function NowShowingRowData({ genre }: { genre: GenreLabel }) {
   const all = await safeRows("getNowShowingRow", getNowShowingRow);
   const movies = await withFreshRatings(filterRowsByGenre(all, genre));
@@ -99,17 +106,17 @@ async function WeeklyBoxOfficeRowData2({ genre }: { genre: GenreLabel }) {
 // 동시 요청이 소켓 오류까지 냈었다). 행마다 독립된 Suspense 경계로 감싸면, 준비된
 // 행은 그 즉시 화면에 스트리밍되고 아직 안 끝난 행만 스켈레톤으로 남는다.
 // 장르 칩을 고르면 세 행 모두 그 장르로 거른다(행 데이터는 장르와 상관없이 같은 캐시를 쓴다).
-function NowShowingSection({ genre }: { genre: GenreLabel }) {
+function NowShowingSection({ genre, anonymous }: { genre: GenreLabel; anonymous: boolean }) {
   return (
     <>
       <Suspense key={`now-${genre}`} fallback={<RowSkeleton />}>
-        <NowShowingRowData genre={genre} />
+        {rowData(anonymous, NowShowingRowData, { genre })}
       </Suspense>
       <Suspense key={`weekly-${genre}`} fallback={<RowSkeleton />}>
-        <WeeklyBoxOfficeRowData2 genre={genre} />
+        {rowData(anonymous, WeeklyBoxOfficeRowData2, { genre })}
       </Suspense>
       <Suspense key={`rerelease-${genre}`} fallback={<RowSkeleton />}>
-        <RereleaseRowData genre={genre} />
+        {rowData(anonymous, RereleaseRowData, { genre })}
       </Suspense>
     </>
   );
@@ -274,44 +281,44 @@ function MovieCategorySection({ anonymous }: { anonymous: boolean }) {
     <>
       <div className="px-4 pt-4 sm:px-5">
         <Suspense fallback={<HomeHero lists={null} />}>
-          <HomeHeroData anonymous={anonymous} />
+          {rowData(anonymous, HomeHeroData, { anonymous })}
         </Suspense>
       </div>
       <Suspense fallback={<RowSkeleton />}>
-        <WeeklyBoxOfficeRowData />
+        {rowData(anonymous, WeeklyBoxOfficeRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RecommendedSection />
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <AwardWinnersData />
+        {rowData(anonymous, AwardWinnersData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <RecentMoviesRowData />
+        {rowData(anonymous, RecentMoviesRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <MonthlyBestRowData />
+        {rowData(anonymous, MonthlyBestRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <YearlyBestRowData />
+        {rowData(anonymous, YearlyBestRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <Best3YearsRowData />
+        {rowData(anonymous, Best3YearsRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <Best5YearsRowData />
+        {rowData(anonymous, Best5YearsRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <AllTimeBestRowData />
+        {rowData(anonymous, AllTimeBestRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
-        <InternationalBestRowData />
+        {rowData(anonymous, InternationalBestRowData, {})}
       </Suspense>
       <Suspense fallback={<RowSkeleton />}>
         <RecommendedSeriesSection />
       </Suspense>
       <Suspense fallback={null}>
-        <UserPopularMoviesRowData />
+        {rowData(anonymous, UserPopularMoviesRowData, {})}
       </Suspense>
     </>
   );
@@ -335,12 +342,12 @@ async function Top10SeriesData() {
   return <CoverflowCarousel movies={movies} hint="카드를 드래그하거나 화살표로 넘겨보세요" />;
 }
 
-function TvSeriesSection() {
+function TvSeriesSection({ anonymous }: { anonymous: boolean }) {
   return (
     <>
       <RecommendedSeriesSection limit={20} title="회원님을 위한 추천 시리즈" />
       <Suspense fallback={<RowSkeleton />}>
-        <CuratedSeriesSection />
+        {rowData(anonymous, CuratedSeriesSection, {})}
       </Suspense>
       <section className="px-5 py-6">
         <h2 className="text-lg font-bold text-text">키워드로 찾기</h2>
@@ -357,11 +364,11 @@ function TvSeriesSection() {
             ))}
           </div>
         }>
-          <Top10SeriesData />
+          {rowData(anonymous, Top10SeriesData, {})}
         </Suspense>
       </section>
       <Suspense fallback={<RowSkeleton />}>
-        <PopularSeriesSection />
+        {rowData(anonymous, PopularSeriesSection, {})}
       </Suspense>
     </>
   );
@@ -389,14 +396,14 @@ async function GenreAllTimeBestRowData({ genre }: { genre: GenreLabel }) {
 
 // 장르 탭: 장르 영화 목록 + 그 장르 안에서의 인기(15)·추천(20)·올해 Best(10)·역대 Best(20).
 // 평점이 적은 장르도 칸이 비지 않도록 각 행은 저장된 그 장르 영화로 채워진다.
-function GenreSection({ genre }: { genre: GenreLabel }) {
+function GenreSection({ genre, anonymous }: { genre: GenreLabel; anonymous: boolean }) {
   return (
     <>
       <Suspense key={genre} fallback={<RowSkeleton />}>
-        <GenreRowData genre={genre} />
+        {rowData(anonymous, GenreRowData, { genre })}
       </Suspense>
       <Suspense key={`popular-${genre}`} fallback={<RowSkeleton />}>
-        <GenrePopularRowData genre={genre} />
+        {rowData(anonymous, GenrePopularRowData, { genre })}
       </Suspense>
       <RecommendedSection
         key={`rec-${genre}`}
@@ -406,10 +413,10 @@ function GenreSection({ genre }: { genre: GenreLabel }) {
         subtitle={`${genre} 장르 · 회원님이 남긴 평점을 바탕으로 추천해요`}
       />
       <Suspense key={`yearly-${genre}`} fallback={<RowSkeleton />}>
-        <GenreYearlyBestRowData genre={genre} />
+        {rowData(anonymous, GenreYearlyBestRowData, { genre })}
       </Suspense>
       <Suspense key={`alltime-${genre}`} fallback={<RowSkeleton />}>
-        <GenreAllTimeBestRowData genre={genre} />
+        {rowData(anonymous, GenreAllTimeBestRowData, { genre })}
       </Suspense>
     </>
   );
@@ -448,12 +455,12 @@ export default function HomeContent({
         // 고정된 객체를 JSON으로 직렬화할 뿐이라 사용자 입력이 섞이지 않는다. "<"는 이스케이프해 둔다.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD).replace(/</g, "\\u003c") }}
       />
-      {category === "현재 상영중인 영화" && <NowShowingSection genre={genre} />}
+      {category === "현재 상영중인 영화" && <NowShowingSection genre={genre} anonymous={anonymous} />}
 
       {category === "영화" && genre === "전체" && <MovieCategorySection anonymous={anonymous} />}
-      {category === "영화" && genre !== "전체" && <GenreSection genre={genre} />}
+      {category === "영화" && genre !== "전체" && <GenreSection genre={genre} anonymous={anonymous} />}
 
-      {category === "TV·시리즈물" && <TvSeriesSection />}
+      {category === "TV·시리즈물" && <TvSeriesSection anonymous={anonymous} />}
 
     </main>
   );

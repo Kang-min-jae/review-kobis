@@ -43,7 +43,8 @@ const loadAllAverages = unstable_cache(
     return map.size > MAX_MOVIES_IN_ONE_ENTRY ? null : [...map.entries()];
   },
   ["rating-averages-all-v1"],
-  { revalidate: 60 * 60, tags: [RATING_AVERAGES_TAG] },
+  // 평점이 바뀌면 캐시 태그로 바로 지운다(review-actions.ts). 시간 주기는 길게 — 이 값이 공용 페이지를 다시 만드는 주기를 짧게 끌어내린다.
+  { revalidate: 60 * 60 * 24, tags: [RATING_AVERAGES_TAG] },
 );
 
 // 한 요청(페이지 렌더) 안에서는 한 번만 읽는다.
@@ -56,7 +57,7 @@ const getAllAverages = cache(async (): Promise<Map<string, Averages> | null> => 
 const getRowAverages = unstable_cache(
   async (movieCds: string[]): Promise<AverageEntry[]> => [...(await getBulkMovieRatingAverages(movieCds)).entries()],
   ["rating-averages-v1"],
-  { revalidate: 60 * 60, tags: [RATING_AVERAGES_TAG] },
+  { revalidate: 60 * 60 * 24, tags: [RATING_AVERAGES_TAG] },
 );
 
 type RatedRow = { id: string; shortAvg?: number | null; longAvg?: number | null; shortCount?: number | null };

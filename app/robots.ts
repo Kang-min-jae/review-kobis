@@ -1,20 +1,15 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "./_lib/site";
+import { BLOCKED_BOTS } from "./_lib/bots";
 
 // /robots.txt — 공개 페이지는 모두 허용하고, 로그인·내 정보·API만 막는다.
 // 아이콘(/favicon.ico, /icon-*.png, /apple-touch-icon.png)과 공유 이미지는 막지 않는다 — Googlebot·Googlebot-Image가
 // 검색 결과의 사이트 아이콘으로 읽어 간다.
-// 학습용 데이터를 대량으로 긁어 가는 AI 수집봇 — 검색 노출과 무관하고 서버 함수 사용량만 크게 늘린다.
-// 규칙을 무시하는 경우를 위해 proxy.ts가 같은 봇의 페이지 요청을 403으로 돌려보낸다.
-const AI_TRAINING_BOTS = ["GPTBot", "CCBot", "Bytespider", "ClaudeBot", "meta-externalagent", "Amazonbot"];
-// SEO 분석 도구의 수집봇 — 검색 노출과 무관하게 모든 상세 페이지를 몇 초 간격으로 훑어 서버 함수·DB 전송량·KOBIS
-// 하루 호출 한도를 쓴다. 구글(Googlebot)·네이버(Yeti)·빙·다음 검색봇은 여기에 넣지 않는다. proxy.ts도 같은 목록을 막는다.
-const SEO_TOOL_BOTS = ["AhrefsBot", "SemrushBot", "MJ12bot", "DotBot", "PetalBot", "DataForSeoBot", "BLEXBot", "SeekportBot", "serpstatbot", "Barkrowler"];
-
+// 막을 봇(AI 수집봇·SEO 도구봇)은 app/_lib/bots.ts 한 곳에 모아 둔다 — next.config.ts가 같은 목록의 요청을 403으로 돌려보낸다.
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      { userAgent: [...AI_TRAINING_BOTS, ...SEO_TOOL_BOTS], disallow: "/" },
+      { userAgent: BLOCKED_BOTS, disallow: "/" },
       {
         userAgent: "*",
         allow: "/",

@@ -8,6 +8,7 @@
 import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
+import { withoutDataCache } from "./data-cache-scope";
 import { fetchTmdbSeriesDetails } from "./tmdb";
 import { splitGenres } from "./movie-rows";
 import { formatPosterUrl } from "./formatPosterUrl";
@@ -89,7 +90,7 @@ async function resolveSeriesRateInfoUncached(id: string): Promise<ResolvedSeries
 
   if (cached) {
     if (isStale) {
-      after(() => fetchAndCacheSeriesMeta(tmdbId).catch(() => null));
+      after(() => withoutDataCache(() => fetchAndCacheSeriesMeta(tmdbId)).catch(() => null));
     }
     return {
       seriesId: id,
@@ -105,7 +106,8 @@ async function resolveSeriesRateInfoUncached(id: string): Promise<ResolvedSeries
     };
   }
 
-  return fetchAndCacheSeriesMeta(tmdbId);
+  // 결과는 CachedSeries(DB)에 저장하므로 데이터 캐시에는 한 번 더 쓰지 않는다(data-cache-scope.ts).
+  return withoutDataCache(() => fetchAndCacheSeriesMeta(tmdbId));
 }
 
 export function seriesGenreFields(genreAlt: string | null | undefined) {

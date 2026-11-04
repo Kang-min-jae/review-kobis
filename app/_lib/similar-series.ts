@@ -100,7 +100,7 @@ async function loadCandidates(seriesId: string, tmdbId: string, title: string, g
   return picked;
 }
 
-const getCandidates = unstable_cache(loadCandidates, ["similar-series-v1"], { revalidate: 60 * 60 });
+const getCandidates = unstable_cache(loadCandidates, ["similar-series-v1"], { revalidate: 60 * 60 * 24 });
 
 export async function getSimilarSeries(input: {
   seriesId: string;

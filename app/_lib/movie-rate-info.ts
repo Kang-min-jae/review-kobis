@@ -15,6 +15,7 @@ import { formatPosterUrl } from "./formatPosterUrl";
 import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
+import { withoutDataCache } from "./data-cache-scope";
 import { isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -380,7 +381,7 @@ const inFlightMovieMeta = new Map<string, Promise<MovieMeta | null>>();
 function refreshInBackground(movieCd: string) {
   if (inFlightMovieMeta.has(movieCd)) return;
   const run = () => {
-    const promise = fetchAndCacheMovieMeta(movieCd)
+    const promise = withoutDataCache(() => fetchAndCacheMovieMeta(movieCd))
       .catch(() => null)
       .finally(() => inFlightMovieMeta.delete(movieCd));
     inFlightMovieMeta.set(movieCd, promise);
@@ -516,7 +517,12 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Car
 // 줄거리/감독·출연/박스오피스)를 만든다. 상세정보는 캐시를 거치고, 박스오피스 순위는
 // 매일 바뀌는 값이라 캐시 없이 매번 새로 받는다.
 // 예전에 감독·출연진 없이 저장된 영화는 상세 페이지에서 한 번 TMDB 크레딧으로 채운다(backfillCredits).
+// 외부 조회 결과는 CachedMovie(DB)에 저장하므로 데이터 캐시에는 한 번 더 쓰지 않는다(data-cache-scope.ts).
 async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieInfo | null> {
+  return withoutDataCache(() => resolveMovieRateInfoScoped(id));
+}
+
+async function resolveMovieRateInfoScoped(id: string): Promise<ResolvedMovieInfo | null> {
   const info = await resolveMovieRateInfoBase(id);
   if (!info) return null;
   const { boxOffice, movieId, ...meta } = info;
