@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { db } from "./db";
+import { withoutDataCache } from "./data-cache-scope";
 import {
   searchMovieCatalog,
   findMovieCdByTitleAndPerson,
@@ -685,7 +686,7 @@ export async function getPersonFilmography(
     const isFresh = Date.now() - cached!.updatedAt.getTime() < ttl;
     if (!isFresh) {
       runAfterResponse(() =>
-        fetchAndCacheFilmography(name, personId, role, cached!.tmdbId ?? tmdbIdHint).catch((error) =>
+        withoutDataCache(() => fetchAndCacheFilmography(name, personId, role, cached!.tmdbId ?? tmdbIdHint)).catch((error) =>
           console.warn(`[filmography] ${name} 백그라운드 갱신 실패:`, error)
         )
       );
@@ -694,7 +695,10 @@ export async function getPersonFilmography(
     return { movies, partial: false };
   }
 
-  const computing = fetchAndCacheFilmography(name, personId, role, cached?.tmdbId ?? tmdbIdHint);
+  // KMDb 인물 코드가 있으면 결과를 CachedPerson(DB)에 저장하므로 외부 조회를 데이터 캐시에 한 번 더 쓰지 않는다
+  // (data-cache-scope.ts). 코드가 없으면 DB에 저장할 수 없어 지금처럼 데이터 캐시가 다시 계산을 막는다.
+  const compute = () => fetchAndCacheFilmography(name, personId, role, cached?.tmdbId ?? tmdbIdHint);
+  const computing = personId ? withoutDataCache(compute) : compute();
   const TIMED_OUT = Symbol("timeout");
   let timer: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([

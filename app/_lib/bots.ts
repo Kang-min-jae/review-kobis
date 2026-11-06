@@ -11,8 +11,9 @@
 export const AI_TRAINING_BOTS = ["GPTBot", "CCBot", "Bytespider", "ClaudeBot", "meta-externalagent", "Amazonbot"];
 
 // AI 검색 서비스의 수집봇 중 처음 보는 영화 페이지를 하루 수천~수만 건씩 열어 사용량 한도를 넘긴 봇.
-// (2026년 11월: PerplexityBot 하루 약 6만 건, Amzn-SearchBot 하루 약 8천 건 — Vercel Firewall에서도 막고 있다.)
-export const AI_SEARCH_BOTS = ["PerplexityBot", "Amzn-SearchBot"];
+// (2026년 11월: PerplexityBot 하루 약 6만 건, Amzn-SearchBot 하루 약 8천 건, ExaSearchBot 하루 4천~6천 건 —
+// Vercel Firewall에서도 막고 있다.)
+export const AI_SEARCH_BOTS = ["PerplexityBot", "Amzn-SearchBot", "ExaSearchBot"];
 
 // SEO 분석 도구의 수집봇 — 모든 상세 페이지를 몇 초 간격으로 훑어 서버 함수·DB 전송량·KOBIS 하루 호출 한도를 쓴다.
 export const SEO_TOOL_BOTS = ["AhrefsBot", "SemrushBot", "MJ12bot", "DotBot", "PetalBot", "DataForSeoBot", "BLEXBot", "SeekportBot", "serpstatbot", "Barkrowler"];

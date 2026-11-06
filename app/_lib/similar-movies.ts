@@ -16,6 +16,7 @@ import { formatPosterUrl } from "./formatPosterUrl";
 import { genreFields, splitGenres, type RowMovie } from "./movie-rows";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { getTmdbMovieRecommendationIds } from "./tmdb";
+import { withoutDataCache } from "./data-cache-scope";
 import { isAdultContent, NOT_ADULT_GENRE_WHERE } from "./adult-content";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
@@ -170,7 +171,9 @@ export async function getSimilarMovies(input: {
   }
 
   const fallbacks = [
-    () => fromTmdbRecommendations(input.tmdbId),
+    // 상세 페이지는 하루에 한 번만 다시 만들어서 데이터 캐시(하루)를 다시 쓸 일이 거의 없다 — 새 영화마다 ISR 쓰기만
+    // 하나 늘려 데이터 캐시에 쓰지 않는다(data-cache-scope.ts).
+    () => withoutDataCache(() => fromTmdbRecommendations(input.tmdbId)),
     () => fromSamePeople(input.directorName, input.leadActorName),
     () => fromSameGenreTopRated(input.genreAlt),
     () => fromSameGenreRecent(input.genreAlt),

@@ -13,7 +13,8 @@ import { WIKIDATA_VERIFIED } from "../_lib/movie-rate-info";
 // 영화는 우선순위 순으로 최대 MOVIE_URL_LIMIT편:
 //   1) 박스오피스 — 홈 행이 저장해 둔 순위(RankingSnapshot: 현재 상영작·주간 박스오피스)
 //   2) 회원 평점·리뷰가 있는 영화 — 최근 활동 순
-//   3) 최근 개봉작(지난 RECENT_RELEASE_DAYS일 안 개봉, DB에 정보가 있는 영화)
+// "최근 개봉작"(DB에 정보가 있는 영화)은 뺐다 — DB에는 봇이 한 번 연 영화도 저장돼서, 봇이 연 페이지가 사이트맵에
+// 실리고 구글이 그 페이지를 또 새로 만들게 하는 순환이 생겼다(새 페이지 하나마다 ISR 쓰기·서버 실행·DB 읽기).
 // 성인물, TMDB 연결 검증 전인 수상작 항목(wikidata-*)은 뺀다.
 // 시리즈 상세(/series/<id>/rate)는 회원 평점·리뷰가 있는 시리즈만 최근 활동 순으로 최대 SERIES_URL_LIMIT편.
 // lastModified = 그 작품의 마지막 평점·리뷰 시각과 작품 정보 갱신 시각 중 가장 늦은 것.
@@ -30,7 +31,6 @@ const SITEMAP_URL_MAX = 50_000;
 // 상세 페이지는 요청마다 새로 그리는 무거운 페이지라 검색봇 수집량을 고려해 우선 2,000편까지만 싣는다.
 const MOVIE_URL_LIMIT = 2_000;
 const SERIES_URL_LIMIT = 500;
-const RECENT_RELEASE_DAYS = 90;
 
 const STATIC_PAGES: { path: string; changeFrequency: "daily" | "weekly" | "monthly"; priority: number }[] = [
   { path: "/", changeFrequency: "daily", priority: 1 },
@@ -89,18 +89,10 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   const [boxOfficeCds, activity] = await Promise.all([loadBoxOfficeCds().catch(() => []), loadActivity(notSeries, limit)]);
   const activeCds = [...activity.keys()].sort((a, b) => activity.get(b)! - activity.get(a)!);
 
-  const sinceIso = new Date(Date.now() - RECENT_RELEASE_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const recentReleases = await db.cachedMovie.findMany({
-    where: { releaseDate: { gte: sinceIso, lte: todayIso }, ...notSeries },
-    orderBy: { releaseDate: "desc" },
-    select: { movieCd: true },
-    take: limit,
-  });
 
   const ordered: string[] = [];
   const seen = new Set<string>();
-  for (const cd of [...boxOfficeCds, ...activeCds, ...recentReleases.map((m) => m.movieCd)]) {
+  for (const cd of [...boxOfficeCds, ...activeCds]) {
     if (seen.has(cd) || isSeriesCd(cd)) continue;
     seen.add(cd);
     ordered.push(cd);
