@@ -5,9 +5,9 @@ import type { TopReview } from "../api/reviews/top/route";
 
 export type { TopReview };
 
-// 모듈 레벨 캐시 — 같은 movieCd를 여러 컴포넌트가 요청해도 한 번만 fetch한다. 서버 응답의 CDN 캐시(1분)와
-// 같은 시간만 쓰고 다시 받는다 — 예전엔 페이지를 새로고침하기 전까지 처음 받은 결과(빈 목록 포함)가 그대로 남았다.
-const CACHE_TTL_MS = 60 * 1000;
+// 모듈 레벨 캐시 — 같은 movieCd를 여러 컴포넌트가 요청해도 한 번만 fetch한다. 10분만 쓰고 다시 받는다
+// (다시 받아도 대부분 CDN 캐시에서 온다) — 예전엔 페이지를 새로고침하기 전까지 처음 받은 결과(빈 목록 포함)가 그대로 남았다.
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const cacheStore = new Map<string, { list: TopReview[]; at: number }>();
 const cache = {
   get(movieCd: string): TopReview[] | undefined {

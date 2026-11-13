@@ -9,7 +9,7 @@ import { getMyReviewsForSyncAction } from "../_lib/review-sync-actions";
 // 평점을 남긴 뒤 휴대폰으로 홈에 들어오면 휴대폰 저장소가 비어 "평점 없는 사용자"로 취급돼 추천도가
 // 안 떴다. 헤더(모든 페이지)에서 로그인 계정의 저장소로 바꾸고 서버 평점으로 맞춘다.
 // 같은 탭에서는 SYNC_INTERVAL_MS마다 한 번만 서버에 묻는다(페이지를 옮길 때마다 조회하지 않음).
-const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30분 — 예전 5분은 로그인한 사람이 페이지를 옮길 때마다 DB를 자주 깨웠다
 const SYNC_KEY = "review-site:last-server-sync";
 
 export default function MyReviewsSync({ userId }: { userId: string | null }) {

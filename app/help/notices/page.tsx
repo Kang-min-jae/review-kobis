@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { db } from "../../_lib/db";
+import { getNotices } from "../../_lib/notices";
 import BackBar from "../../_components/BackBar";
 
 export const metadata = { title: "공지사항" };
@@ -12,15 +12,13 @@ const TYPE_STYLE: Record<string, string> = {
 };
 
 export default async function NoticesPage() {
-  // 요청 때마다 DB에서 읽는다. 예전엔 빌드 때 미리 만든 정적 페이지라 ① 빌드 중 DB 연결이 안 되면
-  // 배포 전체가 실패했고 ② 관리자가 새 공지를 올려도 다음 배포 전까지 안 보였다.
+  // 빌드 때가 아니라 요청 때 만든다(빌드 중 DB에 붙지 않게). 목록은 하루 캐시된 것을 읽는다(notices.ts) —
+  // 방문마다 DB를 깨우지 않고, 관리자가 공지를 올리거나 지우면 바로 새로 읽는다.
   await connection();
-  const notices = await db.notice
-    .findMany({ orderBy: { createdAt: "desc" }, take: 30 })
-    .catch((error) => {
-      console.error("[notices] 공지 조회 실패:", error);
-      return [];
-    });
+  const notices = await getNotices().catch((error) => {
+    console.error("[notices] 공지 조회 실패:", error);
+    return [];
+  });
 
   return (
     <div className="mx-auto max-w-lg px-4 pb-12 pt-4">

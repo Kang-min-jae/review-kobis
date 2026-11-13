@@ -57,11 +57,18 @@ async function handleGet(request: Request) {
   return NextResponse.json({ reviews });
 }
 
-// 모든 방문자에게 같은 결과라 CDN에 1분 캐시한다 — 박스오피스 카드를 넘길 때마다 서버 함수가 돌지 않게.
-// 화면은 카드의 한줄평 수·평균을 v=로 붙여 보내서, 새 한줄평이 달리면 다른 캐시 항목(새 목록)을 받는다.
-// (v는 캐시 키 구분용일 뿐 서버는 읽지 않는다.) 오래된 목록을 대신 내주는 시간도 1분으로 줄였다.
+// 모든 방문자에게 같은 결과라 CDN에 캐시한다. 화면은 카드의 한줄평 수·평균을 v=로 붙여 보내서, 새 한줄평이
+// 달리면 주소가 달라져 새 목록을 받는다(v는 캐시 키 구분용일 뿐 서버는 읽지 않는다). 그래서 v가 붙은 요청은
+// 하루 캐시한다 — 예전엔 1분이라, 누가 홈을 열 때마다(박스오피스 첫 카드) 잠든 DB(Neon)를 깨웠다.
+// 하루 안에 달라질 수 있는 것은 공감 수와 그에 따른 두 줄의 순서뿐이다. v가 없는 요청은 지금처럼 1분.
 export async function GET(request: Request) {
   const res = await handleGet(request);
-  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
+  if (res.status === 200) {
+    const versioned = new URL(request.url).searchParams.has("v");
+    res.headers.set(
+      "Cache-Control",
+      versioned ? "public, s-maxage=86400, stale-while-revalidate=86400" : "public, s-maxage=60, stale-while-revalidate=60",
+    );
+  }
   return res;
 }

@@ -72,8 +72,8 @@ function requestedLimit(input: Record<string, unknown>): number {
 }
 
 // 평점이 하나도 없는 방문자는 모두 같은 결과를 받는다. 브라우저는 이 경우 GET으로 부르고(아래), 그 응답은
-// CDN이 6시간 내준다 — 방문마다 서버 함수가 돌지 않고, DB도 몇 시간에 한 번만 깬다.
-const COLD_START_SECONDS = 60 * 60 * 6;
+// CDN이 하루 동안 내준다 — 방문마다 서버 함수가 돌지 않고, DB도 몇 시간에 한 번만 깬다.
+const COLD_START_SECONDS = 60 * 60 * 24;
 const getColdStartSeries = unstable_cache(
   (limit: number) => recommendSeries({ myRatings: [], myCategoryRatings: [], limit }),
   ["recommendations-series-cold-start-v1"],
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     const results = await getColdStartSeries(requestedLimit({ limit: request.nextUrl.searchParams.get("limit") }));
     return NextResponse.json(
       { results },
-      { headers: { "Cache-Control": `public, s-maxage=${COLD_START_SECONDS}, stale-while-revalidate=${COLD_START_SECONDS * 4}` } },
+      { headers: { "Cache-Control": `public, s-maxage=${COLD_START_SECONDS}, stale-while-revalidate=${COLD_START_SECONDS}` } },
     );
   } catch (error) {
     console.warn("[recommendations/series] 기본 추천 계산 실패:", error);

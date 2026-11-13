@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "../_lib/db";
+import { getNotices } from "../_lib/notices";
 import { auth } from "../../auth";
 import BackBar from "../_components/BackBar";
 import FaqAccordion from "../_components/FaqAccordion";
@@ -27,14 +28,9 @@ const FAQ_ITEMS = [
 ];
 
 export default async function HelpPage() {
-  const [session, recentNotices] = await Promise.all([
-    auth(),
-    db.notice.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 4,
-      select: { id: true, type: true, title: true, isNew: true, createdAt: true },
-    }),
-  ]);
+  // 공지는 하루 캐시된 목록에서 읽는다(notices.ts) — 방문마다 DB를 깨우지 않는다.
+  const [session, notices] = await Promise.all([auth(), getNotices().catch(() => [])]);
+  const recentNotices = notices.slice(0, 4);
 
   const isAdmin = session?.user?.role === "ADMIN";
   const pendingCount = isAdmin

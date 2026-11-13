@@ -827,9 +827,9 @@ async function buildRecommendations(
 }
 
 // 평점이 하나도 없는 방문자(비로그인 방문 대부분)는 모두 같은 결과를 받는다. 취향 정보가 없으니 LLM 리랭킹은
-// 하지 않는다. 브라우저는 이 경우 GET으로 부르고(아래), 그 응답은 CDN이 6시간 내준다 — 방문마다 서버 함수가
+// 하지 않는다. 브라우저는 이 경우 GET으로 부르고(아래), 그 응답은 CDN이 하루 동안 내준다 — 방문마다 서버 함수가
 // 돌지 않고, DB도 몇 시간에 한 번만 깬다(예전엔 POST라 방문마다 함수가 돌고, 15분마다 DB를 깨웠다).
-const COLD_START_SECONDS = 60 * 60 * 6;
+const COLD_START_SECONDS = 60 * 60 * 24;
 const getColdStartRecommendations = unstable_cache(
   (genre: string | null, target: number) =>
     buildRecommendations([], [], genre ? GENRE_KEYWORDS[genre] : null, target, `cold|${genre ?? ""}|${target}`, { llm: false }),
@@ -893,7 +893,7 @@ export async function GET(request: NextRequest) {
   try {
     const payload = await getColdStartRecommendations(genre, target);
     return NextResponse.json(payload, {
-      headers: { "Cache-Control": `public, s-maxage=${COLD_START_SECONDS}, stale-while-revalidate=${COLD_START_SECONDS * 4}` },
+      headers: { "Cache-Control": `public, s-maxage=${COLD_START_SECONDS}, stale-while-revalidate=${COLD_START_SECONDS}` },
     });
   } catch (error) {
     console.warn("[recommendations] 기본 추천 계산 실패:", error);

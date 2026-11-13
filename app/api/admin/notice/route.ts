@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "../../../../auth";
+import { revalidateTag } from "next/cache";
 import { db } from "../../../_lib/db";
+import { NOTICES_TAG } from "../../../_lib/notices";
 
 const NOTICE_TYPES = ["업데이트", "신규 기능", "점검 안내", "공지"] as const;
 
@@ -56,6 +58,7 @@ export async function POST(request: Request) {
     select: { id: true },
   });
 
+  revalidateTag(NOTICES_TAG, { expire: 0 });
   return NextResponse.json({ id: notice.id }, { status: 201 });
 }
 
@@ -70,5 +73,6 @@ export async function DELETE(request: Request) {
   // 이미 지워진 공지를 다시 지우면 delete가 예외를 던지므로 deleteMany로 처리한다.
   const { count } = await db.notice.deleteMany({ where: { id } });
   if (count === 0) return NextResponse.json({ error: "공지를 찾을 수 없습니다." }, { status: 404 });
+  revalidateTag(NOTICES_TAG, { expire: 0 });
   return NextResponse.json({ ok: true });
 }

@@ -21,6 +21,6 @@ export async function GET(request: Request): Promise<NextResponse<RowMovie[]>> {
   // 평균 별점은 최신 값으로 덮어쓰고, CDN 캐시는 1분만 둔다(평점을 남기면 "더 보기" 카드에도 곧 반영되게).
   const movies = await withFreshRatings(await getGenreRow(genre, offset, pageSize));
   return NextResponse.json(movies, {
-    headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=600" },
+    headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
   });
 }

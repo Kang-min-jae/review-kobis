@@ -1,15 +1,15 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "./_lib/site";
-import { BLOCKED_BOTS } from "./_lib/bots";
+import { ROBOTS_DISALLOWED_BOTS } from "./_lib/bots";
 
 // /robots.txt — 공개 페이지는 모두 허용하고, 로그인·내 정보·API만 막는다.
 // 아이콘(/favicon.ico, /icon-*.png, /apple-touch-icon.png)과 공유 이미지는 막지 않는다 — Googlebot·Googlebot-Image가
 // 검색 결과의 사이트 아이콘으로 읽어 간다.
-// 막을 봇(AI 수집봇·SEO 도구봇)은 app/_lib/bots.ts 한 곳에 모아 둔다 — next.config.ts가 같은 목록의 요청을 403으로 돌려보낸다.
+// 막을 봇(AI 수집봇·SEO 도구봇)은 app/_lib/bots.ts 한 곳에 모아 둔다 — 규칙을 무시하는 봇은 미들웨어(proxy.ts)가 403으로 돌려보낸다.
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      { userAgent: BLOCKED_BOTS, disallow: "/" },
+      { userAgent: ROBOTS_DISALLOWED_BOTS, disallow: "/" },
       {
         userAgent: "*",
         allow: "/",
@@ -31,6 +31,10 @@ export default function robots(): MetadataRoute.Robots {
           // /movies/<id>/rate("전체")만 수집하게 한다(사이트맵·canonical도 그 주소다).
           "/movies/*/rate/category/",
           "/series/*/rate/category/",
+          // 홈의 탭·장르 주소(/?category=…&genre=…)는 정식 주소(canonical)가 홈 하나다 — 조합마다 따로 만들어
+          // 저장하는 페이지라, 검색봇이 훑으면 검색에는 도움이 안 되고 서버·DB·캐시 쓰기만 늘린다.
+          "/*?*category=",
+          "/*?*genre=",
         ],
       },
     ],
