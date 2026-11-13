@@ -16,7 +16,7 @@ import { cache } from "react";
 import { after } from "next/server";
 import { db } from "./db";
 import { withoutDataCache } from "./data-cache-scope";
-import { isSeriesCd } from "./rating-input";
+import { isRatableMovieId, isSeriesCd } from "./rating-input";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -519,6 +519,9 @@ export async function getMovieMetas(movieCds: string[]): Promise<Map<string, Car
 // 예전에 감독·출연진 없이 저장된 영화는 상세 페이지에서 한 번 TMDB 크레딧으로 채운다(backfillCredits).
 // 외부 조회 결과는 CachedMovie(DB)에 저장하므로 데이터 캐시에는 한 번 더 쓰지 않는다(data-cache-scope.ts).
 async function resolveMovieRateInfoUncached(id: string): Promise<ResolvedMovieInfo | null> {
+  // 주소 형식부터 본다 — kobis-숫자, tmdb-숫자, kmdb-…, wikidata-Q숫자가 아니면 DB·외부 API를 부르지 않고 바로
+  // "없는 영화"로 끝낸다. 봇이 지어낸 주소(kobis-abc 등)마다 잠든 DB를 깨우고 KOBIS 하루 이용량을 쓰던 것을 막는다.
+  if (!isRatableMovieId(id) || isSeriesCd(id)) return null;
   return withoutDataCache(() => resolveMovieRateInfoScoped(id));
 }
 

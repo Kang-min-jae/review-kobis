@@ -83,7 +83,8 @@ export const resolveSeriesRateInfo = cache(resolveSeriesRateInfoUncached);
 async function resolveSeriesRateInfoUncached(id: string): Promise<ResolvedSeriesInfo | null> {
   if (!isSeriesCd(id)) return null;
   const tmdbId = id.slice("tmdb-tv-".length);
-  if (!tmdbId) return null;
+  // 숫자가 아니면 DB·TMDB를 부르지 않고 바로 "없는 시리즈"로 끝낸다(봇이 지어낸 주소가 잠든 DB를 깨우지 않게).
+  if (!/^\d{1,12}$/.test(tmdbId)) return null;
 
   const cached = await db.cachedSeries.findUnique({ where: { tmdbId } });
   const isStale = !cached || Date.now() - cached.updatedAt.getTime() > CACHE_TTL_MS;
