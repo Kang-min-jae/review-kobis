@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/cron/movie-similarity",
-      "schedule": "0 19 * * *"
+      "schedule": "0 1 * * *"
     }
   ]
 }

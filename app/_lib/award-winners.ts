@@ -209,7 +209,7 @@ export function ceremonyLabel(festival: FestivalType, rows: AwardMovieRow[]): st
 
 // 수상작 조회는 Wikidata + TMDB API를 여러 번 직렬 호출하므로 최초 응답이 수 초
 // 걸릴 수 있다. 결과를 12시간 캐싱해 반복 요청은 즉시 반환하고 서버 부하를 낮춘다.
-const AWARD_CACHE_TTL = 60 * 60 * 24; // 하루 — 관리자 도구가 바꾸면 태그로 바로 지운다
+const AWARD_CACHE_TTL = 60 * 60 * 24 * 7; // 7일 — 관리자 도구가 바꾸면 태그로 바로 지운다
 
 export const getLatestAcademyWinnerRows = unstable_cache(
   async (): Promise<AwardMovieRow[]> => {

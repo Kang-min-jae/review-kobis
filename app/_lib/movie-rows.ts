@@ -69,10 +69,11 @@ export function genreFields(genreAlt: string | null | undefined): { genre: strin
 // KMDb에도 없으면(오래되거나 마이너한 작품) 이 그라디언트로 대체된다.
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
-// 홈 행 목록 캐시 수명(6시간). 이 값이 홈 공용 페이지를 다시 만드는 주기도 정한다 — 페이지 안에서 쓰는 데이터 캐시 중
-// 가장 짧은 수명이 페이지 주기가 된다. 예전엔 15분~1시간이라 홈이 사실상 10분마다 다시 만들어지며 ISR 캐시를 썼다.
-// 박스오피스는 하루 한 번 바뀌고, 카드의 평균 별점은 평점이 바뀔 때 바로 갱신된다(fresh-ratings.ts, 캐시 태그).
-export const ROW_REVALIDATE_SECONDS = 60 * 60 * 6;
+// 홈 행 목록 캐시 수명(하루). 이 값이 홈 공용 페이지를 다시 만드는 주기도 정한다 — 페이지 안에서 쓰는 데이터 캐시 중
+// 가장 짧은 수명이 페이지 주기가 된다. 예전엔 15분~1시간이라 홈이 사실상 10분마다 다시 만들어지며 ISR 캐시를 쓰고
+// 그때마다 DB(Neon)를 깨웠다. 박스오피스는 하루 한 번 바뀌므로, 매일 새벽 예약 작업(api/cron/movie-similarity)이
+// "movie-rows" 태그를 지워 하루 한 번만 새로 계산한다. 카드의 평균 별점은 평점이 바뀔 때 바로 갱신된다(fresh-ratings.ts).
+export const ROW_REVALIDATE_SECONDS = 60 * 60 * 24;
 
 // 개봉일로부터 이 기간(일) 안이면 "현재 상영중"으로 본다 — 실제 상영 스케줄 API가
 // 없어서 쓰는 근사치. 국내 극장 개봉작은 대체로 이 기간 안에 주요 상영관에서 빠진다.

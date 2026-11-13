@@ -635,7 +635,8 @@ async function fetchBoxOfficeList(kind: BoxOfficeKind, targetDt: string): Promis
 
 // 캐시 키에 날짜(targetDt)가 들어가므로, 한 날짜의 박스오피스는 하루에 한 번만 KOBIS에 묻는다(예전 6시간 → 하루 4번).
 // 지난 날짜의 순위는 바뀌지 않는다. 빈 목록(집계 전)·실패는 캐시하지 않아 다음 요청 때 다시 묻는다.
-const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 24 });
+// 수명은 7일 — 캐시 키에 날짜가 있어 지난 날짜의 순위가 바뀔 일이 없고, 짧으면 이 값이 상세 페이지를 다시 만드는 주기까지 줄인다.
+const cachedBoxOfficeList = unstable_cache(fetchBoxOfficeList, ["kobis-box-office-v1"], { revalidate: 60 * 60 * 24 * 7 });
 
 // 실패 직후 잠깐은 KOBIS를 다시 부르지 않는다 — 상세 페이지·검색마다 10초 타임아웃을
 // 기다리거나, 장애 중에 호출을 더 쌓지 않게(서버 인스턴스 단위, kobisGetJson이 확인한다).

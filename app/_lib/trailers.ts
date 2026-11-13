@@ -17,6 +17,7 @@
 
 import { cache } from "react";
 import { db } from "./db";
+import { withoutDataCache } from "./data-cache-scope";
 import { getTmdbVideos, type RawTmdbVideo } from "./tmdb";
 
 export type TrailerKind = "movie" | "tv";
@@ -275,7 +276,8 @@ async function getTrailerDataUncached(
   try {
     const [manual, fromTmdb] = await Promise.all([
       loadManualVideos(movieCd),
-      validTmdb ? loadCandidates(kind, tmdbId) : Promise.resolve([] as CachedVideo[]),
+      // 후보 영상은 DB에 저장하므로 TMDB 응답을 데이터 캐시에 한 번 더 쓰지 않는다(data-cache-scope.ts).
+      validTmdb ? withoutDataCache(() => loadCandidates(kind, tmdbId)) : Promise.resolve([] as CachedVideo[]),
     ]);
     const manualKeys = new Set(manual.map((v) => v.key));
     const videos = [...manual, ...fromTmdb.filter((v) => !manualKeys.has(v.key))];

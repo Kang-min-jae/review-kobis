@@ -9,6 +9,9 @@
 // 또는 로컬에서 npx tsx scripts/compute-movie-similarity.mts
 
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
+import { revalidateWorkDetailPages } from "../../../_lib/detail-revalidate";
+import { cdToMovieId } from "../../../_lib/rating-input";
 import { db } from "../../../_lib/db";
 import { isValidAdminSecret } from "../../../_lib/admin-secret";
 import { recomputeMovieSimilarity } from "../../../_lib/movie-similarity-compute";
@@ -27,6 +30,21 @@ function isAuthorized(request: Request): boolean {
   return Boolean(adminSecret && isValidAdminSecret(request.headers.get("x-admin-secret"), adminSecret));
 }
 
+// 하루 한 번 바뀌는 것(박스오피스)을 여기서 새로 고친다 — 공용 페이지의 시간 주기를 길게 두고(홈 하루, 상세 7일)
+// DB(Neon)를 하루 종일 깨우지 않기 위해서다. 홈 행 목록은 태그를 지워 다음 방문 때 새로 계산하게 하고,
+// 박스오피스에 오른 영화의 상세 페이지("박스오피스 N위" 배지)는 그 영화들만 다시 만들게 한다.
+async function refreshDailyPages(): Promise<number> {
+  revalidateTag("movie-rows", { expire: 0 });
+  const rows = await db.rankingSnapshot.findMany({
+    where: { listType: { in: ["now_showing", "weekly_box_office"] } },
+    select: { movieCd: true },
+    take: 100,
+  });
+  const cds = [...new Set(rows.map((r) => r.movieCd).filter(Boolean))];
+  for (const cd of cds) revalidateWorkDetailPages(cdToMovieId(cd));
+  return cds.length;
+}
+
 async function run(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
@@ -36,7 +54,11 @@ async function run(request: Request) {
       console.error("[cf] 야간 계산 실패:", error);
       return { error: "cf failed" };
     });
-    return NextResponse.json({ ok: true, ...result, cf, ms: Date.now() - startedAt });
+    const refreshed = await refreshDailyPages().catch((error) => {
+      console.error("[cron] 홈·상영작 페이지 새로 고침 실패:", error);
+      return 0;
+    });
+    return NextResponse.json({ ok: true, ...result, cf, refreshed, ms: Date.now() - startedAt });
   } catch (error) {
     console.error("[movie-similarity] 재계산 실패:", error);
     return NextResponse.json({ ok: false, error: "recompute failed" }, { status: 500 });

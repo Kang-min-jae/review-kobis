@@ -10,9 +10,9 @@ import { safeDecode } from "../../../../../../_lib/safe-decode";
 // 페이지를 동적으로 바꾸지 않고 캐시 없이 실행만 된다. 이게 없으면 그런 fetch를 만나는 순간
 // "Page changed from static to dynamic at runtime" 오류로 500이 났다(tests/anon-pages.test.ts가 지킨다).
 export const dynamic = "force-static";
-// 시간 주기는 길게(하루) — 리뷰·평점·공감이 바뀌면 서버 액션이 바로 다시 만들게 한다. 다시 만들어도 내용이
+// 시간 주기는 길게(7일 — 다시 만들 때마다 DB(Neon)를 깨운다. 박스오피스 상영작 페이지는 매일 새벽 예약 작업이 새로 고친다) — 리뷰·평점·공감이 바뀌면 서버 액션이 바로 다시 만들게 한다. 다시 만들어도 내용이
 // 같으면(InOrder로 바이트까지 같게 만든다) Vercel이 ISR 캐시를 새로 쓰지 않는다.
-export const revalidate = 86400;
+export const revalidate = 604800;
 export const dynamicParams = true;
 export function generateStaticParams() {
   return [];
