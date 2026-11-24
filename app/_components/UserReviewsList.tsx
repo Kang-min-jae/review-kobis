@@ -27,6 +27,7 @@ export default function UserReviewsList({ reviews }: { reviews: UserReview[] }) 
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <Link prefetch={false}
                     href={`/movies/${r.movieCd}/rate/category/${encodeURIComponent(r.category)}`}
+                    rel="nofollow"
                     className="text-sm font-semibold text-text hover:underline truncate max-w-[70%]"
                   >
                     {r.movieTitle || r.movieCd}
@@ -55,6 +56,7 @@ export default function UserReviewsList({ reviews }: { reviews: UserReview[] }) 
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <Link prefetch={false}
                     href={`/movies/${r.movieCd}/rate/category/${encodeURIComponent(r.category)}`}
+                    rel="nofollow"
                     className="text-sm font-semibold text-text hover:underline truncate max-w-[70%]"
                   >
                     {r.movieTitle || r.movieCd}

@@ -1,5 +1,17 @@
 import type { NextConfig } from "next";
 
+// 로그인 쿠키가 없는 요청(비로그인 방문자·검색봇)을 가리는 조건. (쿠키가 길면 ".0"으로 나뉘어 저장돼 그 이름도 본다.)
+const loggedOut = [
+  { type: "cookie" as const, key: "authjs.session-token" },
+  { type: "cookie" as const, key: "authjs.session-token.0" },
+  { type: "cookie" as const, key: "__Secure-authjs.session-token" },
+  { type: "cookie" as const, key: "__Secure-authjs.session-token.0" },
+];
+
+// 항목별 평점 페이지(비로그인)의 CDN 캐시 — 1시간 동안은 CDN이 바로 내주고, 그 뒤 하루까지는 저장본을 내주면서
+// 뒤에서 새로 만든다. ISR(페이지 캐시)에는 저장하지 않는다(app/anon/*/[id]/rate/item/[category]/page.tsx).
+const CATEGORY_PAGE_CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
+
 // 포스터/스틸컷 이미지는 KMDb(한국영상자료원)에서 가져온다 — KOBIS 자체는 이미지를 제공하지 않는다.
 const nextConfig: NextConfig = {
   // /movies/:id/rate, /series/:id/rate는 "전체" 항목 페이지로 보내기만 하는 페이지라,
@@ -9,12 +21,6 @@ const nextConfig: NextConfig = {
     // 로그인 정보를 읽지 않는 페이지라 한 번 만들어 둔 것을 CDN이 바로 내준다 — 예전엔 모든 요청이 서버
     // 함수를 새로 돌렸다. 주소창에는 원래 주소가 그대로 보인다. 로그인 쿠키가 있으면 아래 규칙은 건너뛰고
     // 지금까지처럼 사람마다 다른 페이지를 만든다. (쿠키가 길면 ".0"으로 나뉘어 저장돼 그 이름도 본다.)
-    const loggedOut = [
-      { type: "cookie" as const, key: "authjs.session-token" },
-      { type: "cookie" as const, key: "authjs.session-token.0" },
-      { type: "cookie" as const, key: "__Secure-authjs.session-token" },
-      { type: "cookie" as const, key: "__Secure-authjs.session-token.0" },
-    ];
     const ALL = "%EC%A0%84%EC%B2%B4"; // "전체"
     const MOVIE = "%EC%98%81%ED%99%94"; // "영화"
     // 인물 페이지(/people/<이름>?role=…&pid=…&tmdbId=…)는 쿼리 값을 경로 조각으로 옮긴다(없는 값은 "-") —
@@ -45,9 +51,10 @@ const nextConfig: NextConfig = {
         { source: "/", has: [{ type: "query", key: "genre", value: "(?<genre>.+)" }], missing: loggedOut, destination: `/anon/home/${MOVIE}/:genre` },
         { source: "/", missing: loggedOut, destination: `/anon/home/${MOVIE}/${ALL}` },
         { source: "/movies/:id/rate", missing: loggedOut, destination: `/anon/movies/:id/rate/category/${ALL}` },
-        { source: "/movies/:id/rate/category/:category", missing: loggedOut, destination: "/anon/movies/:id/rate/category/:category" },
+        // 항목별 페이지는 ISR에 저장하지 않는 경로(…/rate/item/<항목>)로 보낸다 — 아래 headers()가 CDN에만 캐시되게 한다.
+        { source: "/movies/:id/rate/category/:category", missing: loggedOut, destination: "/anon/movies/:id/rate/item/:category" },
         { source: "/series/:id/rate", missing: loggedOut, destination: `/anon/series/:id/rate/category/${ALL}` },
-        { source: "/series/:id/rate/category/:category", missing: loggedOut, destination: "/anon/series/:id/rate/category/:category" },
+        { source: "/series/:id/rate/category/:category", missing: loggedOut, destination: "/anon/series/:id/rate/item/:category" },
         ...personRules,
         { source: "/movies/:id/rate", destination: "/movies/:id/rate/category/%EC%A0%84%EC%B2%B4" },
         { source: "/series/:id/rate", destination: "/series/:id/rate/category/%EC%A0%84%EC%B2%B4" },
@@ -55,6 +62,15 @@ const nextConfig: NextConfig = {
       afterFiles: [],
       fallback: [],
     };
+  },
+  // 비로그인 항목별 평점 페이지에만 CDN 캐시 헤더를 붙인다. 로그인 쿠키가 있으면 붙이지 않아 지금처럼
+  // private, no-store(사람마다 다른 페이지)로 나간다. Next는 동적 페이지에 Cache-Control이 미리 있으면 덮어쓰지 않는다.
+  async headers() {
+    return ["/movies/:id/rate/category/:category", "/series/:id/rate/category/:category"].map((source) => ({
+      source,
+      missing: loggedOut,
+      headers: [{ key: "Cache-Control", value: CATEGORY_PAGE_CACHE_CONTROL }],
+    }));
   },
   // 이미지 최적화(/_next/image)는 무료 플랜 한도(월 5천 건 변환)를 넘겨 사이트가 멈춘 원인이었다.
   // 모든 next/image가 poster-loader.ts로 주소를 만든다 — TMDB는 크기별 원본 주소, 그 밖은 원본 그대로라

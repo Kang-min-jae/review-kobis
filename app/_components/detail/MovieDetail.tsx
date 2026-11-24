@@ -32,7 +32,8 @@ import { cdToMovieId, isSeriesCd } from "../../_lib/rating-input";
 // 영화 상세(평점) 페이지 — 로그인한 사람용 페이지(app/movies/…/page.tsx)와 로그인 쿠키 없는 요청용 공용 캐시
 // 페이지(app/anon/movies/…/page.tsx)가 같이 쓴다. anonymous면 로그인 정보를 읽지 않아 모든 방문자에게 같은
 // 화면이 되고, 그래서 캐시(ISR)할 수 있다(내 리뷰·관리자 도구·내가 본 영화 빼기는 로그인한 사람 페이지에서만).
-export async function movieDetailMetadata(id: string, categoryParam: string): Promise<Metadata> {
+// categoryPage: 비로그인 /…/rate/category/<항목> 주소로 열린 경우 — 항목이 "전체"여도 검색에서 뺀다(대표 주소는 /rate).
+export async function movieDetailMetadata(id: string, categoryParam: string, { categoryPage = false }: { categoryPage?: boolean } = {}): Promise<Metadata> {
   if (isSeriesCd(id)) return {}; // 페이지가 /series로 보낸다
   // 외부 API를 잠깐 쓸 수 없어 정보가 없으면 본문이 일시 중단 안내로 보낸다(로그도 거기서 한 번만 남긴다).
   const info = await resolveMovieRateInfo(id).catch((error) => {
@@ -50,7 +51,7 @@ export async function movieDetailMetadata(id: string, categoryParam: string): Pr
     description,
     alternates: { canonical },
     // 항목별(연출·연기 등) 페이지는 대표 주소("전체")만 검색에 남긴다 — robots.txt도 수집을 막는다.
-    ...(category !== "전체" ? { robots: { index: false, follow: true } } : {}),
+    ...(categoryPage || category !== "전체" ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       ...BASE_OPEN_GRAPH,
       url: canonical,

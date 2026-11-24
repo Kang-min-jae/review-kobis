@@ -40,6 +40,7 @@ export default function ProfileView({ authorId }: { authorId: string }) {
                 <div className="flex items-center justify-between gap-2">
                   <Link prefetch={false}
                     href={`/movies/${review.movieId}/rate/category/${encodeURIComponent(category)}`}
+                    rel="nofollow"
                     className="truncate text-sm font-semibold text-text hover:underline"
                   >
                     {review.movieTitle}

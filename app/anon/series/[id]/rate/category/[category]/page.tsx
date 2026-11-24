@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import SeriesDetail, { seriesDetailMetadata } from "../../../../../../_components/detail/SeriesDetail";
 
+// (지금은 대표 페이지 /series/<id>/rate("전체")만 여기로 온다 — 항목별 주소는 ISR에 저장하지 않는 ../item/[category]로 간다.)
 // 로그인 쿠키가 없는 요청의 시리즈 상세 — next.config.ts의 rewrite가 /series/<id>/rate(…)를 이 경로로 보낸다.
 // 로그인 정보를 읽지 않아 모든 방문자에게 같은 화면이라 캐시(ISR)해 두고 CDN이 바로 응답한다.
 // 리뷰·평점·공감이 바뀌면 바로 다시 만들고(review-actions.ts), 그 밖의 정보는 7일마다.

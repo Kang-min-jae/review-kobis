@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import MovieDetail, { movieDetailMetadata } from "../../../../../../_components/detail/MovieDetail";
 
+// (지금은 대표 페이지 /movies/<id>/rate("전체")만 여기로 온다 — 항목별 주소는 ISR에 저장하지 않는 ../item/[category]로 간다.)
 // 로그인 쿠키가 없는 요청의 영화 상세 — next.config.ts의 rewrite가 /movies/<id>/rate(…)를 이 경로로 보낸다
 // (주소창에는 원래 주소가 보인다). 로그인 정보를 읽지 않아 모든 방문자에게 같은 화면이라 캐시(ISR)해 두고
 // CDN이 바로 응답한다. 리뷰·평점이 바뀌면 서버 액션이 이 경로도 다시 만들게 한다(review-actions.ts).

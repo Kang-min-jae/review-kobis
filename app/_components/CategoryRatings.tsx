@@ -27,6 +27,7 @@ export default function CategoryRatings({
           <Link prefetch={false}
             key={category}
             href={`${base}/${encodeURIComponent(category)}`}
+            rel="nofollow"
             className={`flex items-center justify-between rounded-lg px-1.5 py-1 text-xs transition-colors ${
               category === activeCategory
                 ? "bg-brand/20 text-brand"

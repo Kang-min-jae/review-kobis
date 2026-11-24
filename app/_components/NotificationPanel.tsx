@@ -106,6 +106,7 @@ function NotificationPanelBody({ onClose }: { onClose: () => void }) {
                         <p className="text-xs text-text">
                           <Link prefetch={false}
                             href={`${rateCategoryBase(cdToMovieId(n.movieCd))}/${encodeURIComponent(n.category)}`}
+                            rel="nofollow"
                             onClick={onClose}
                             className="text-brand hover:underline"
                           >
