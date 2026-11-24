@@ -156,6 +156,7 @@ async function filmographyFromKmdb(
           rereleaseDate: null,
           runtimeMinutes: movie.runtimeMinutes,
           genreAlt: movie.genre,
+          watchGrade: movie.watchGrade ?? null,
           tmdbId: null,
           source: "kmdb",
           directorName: movie.director?.name ?? null,

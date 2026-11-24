@@ -2,8 +2,10 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { unstable_cache } from "next/cache";
 import { db } from "../../_lib/db";
 import { getBulkMovieRatingAverages } from "../../_lib/review-data";
-import { getCachedMovieMetas, WIKIDATA_VERIFIED } from "../../_lib/movie-rate-info";
-import { isAdultContent, NOT_ADULT_GENRE_WHERE } from "../../_lib/adult-content";
+import { getCachedMovieMetas, WIKIDATA_VERIFIED, type CardMeta } from "../../_lib/movie-rate-info";
+import { Prisma } from "../../generated/prisma/client";
+import { isListableMovie, meetsRecommendationQuality } from "../../_lib/adult-content";
+import { getExcludedMovieCds, getExcludedMovieSet, getTmdbVoteCounts, listableMovieConditions, listableMovieSql } from "../../_lib/movie-moderation";
 import { genreFields, GENRE_KEYWORDS } from "../../_lib/movie-rows";
 import type { RowMovie } from "../../_lib/movie-rows";
 import { genreQueryKeywords } from "../../_lib/genre-canon";
@@ -36,10 +38,13 @@ const FALLBACK_GRADIENT_VAL = "from-neutral-800 via-neutral-600 to-neutral-400";
 
 // 수상작 항목(wikidata-*) 중 TMDB 연결 검증 전인 것은 다른 영화의 포스터·장르가 붙어
 // 있을 수 있어 추천 후보에서 뺀다(평점 페이지 조회 시 검증되면 다시 포함된다).
-const EXCLUDE_UNVERIFIED_AWARD = {
-  NOT: { movieCd: { startsWith: "wikidata-" }, source: { not: WIKIDATA_VERIFIED } },
-  AND: [NOT_ADULT_GENRE_WHERE], // 에로·성인 장르는 추천하지 않는다
-};
+// 성인물(장르·제한상영가)과 관리자 숨김·성인물로 판정된 작품도 쿼리 안에서 뺀다(movie-moderation.ts).
+async function recWhere() {
+  return {
+    NOT: { movieCd: { startsWith: "wikidata-" }, source: { not: WIKIDATA_VERIFIED } },
+    AND: listableMovieConditions(await getExcludedMovieCds()),
+  };
+}
 
 const MOVIE_SELECT = {
   movieCd: true,
@@ -237,7 +242,7 @@ async function fetchByGenreDirector(profile: UserProfile, isRated: IsRated): Pro
   ];
   if (conditions.length === 0) return [];
   const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, OR: conditions },
+    where: { posterUrl: { not: null }, ...(await recWhere()), OR: conditions },
     orderBy: { updatedAt: "desc" },
     take: 150,
     select: MOVIE_SELECT,
@@ -255,7 +260,7 @@ async function fetchByActors(topActors: string[], isRated: IsRated): Promise<DbM
     FROM "CachedMovie"
     WHERE "posterUrl" IS NOT NULL
       AND NOT ("movieCd" LIKE 'wikidata-%' AND "source" <> ${WIKIDATA_VERIFIED})
-      AND ("genreAlt" IS NULL OR ("genreAlt" NOT LIKE '%에로%' AND "genreAlt" NOT LIKE '%성인%'))
+      ${listableMovieSql(Prisma.raw('"CachedMovie"'), await getExcludedMovieCds())}
       AND EXISTS (
         SELECT 1 FROM unnest(${topActors}::text[]) AS actor(name)
         WHERE "cast" @> jsonb_build_array(jsonb_build_object('name', actor.name))
@@ -287,7 +292,7 @@ async function fetchByCategory(profile: UserProfile, isRated: IsRated): Promise<
   const bestCds = best.map((g) => g.movieCd);
   const byRating = bestCds.length > 0
     ? (await db.cachedMovie.findMany({
-        where: { movieCd: { in: bestCds }, posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD },
+        where: { movieCd: { in: bestCds }, posterUrl: { not: null }, ...(await recWhere()) },
         select: MOVIE_SELECT,
       })).filter((m) => !isRated(m))
     : [];
@@ -302,7 +307,7 @@ async function fetchByCategory(profile: UserProfile, isRated: IsRated): Promise<
   };
   const keywords = [...new Set((genreMap[topCategory] ?? ["드라마"]).flatMap(genreQueryKeywords))];
   const byGenre = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
+    where: { posterUrl: { not: null }, ...(await recWhere()), OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
     orderBy: { updatedAt: "desc" },
     take: 80,
     select: MOVIE_SELECT,
@@ -315,7 +320,7 @@ async function fetchByCategory(profile: UserProfile, isRated: IsRated): Promise<
 async function fetchTrending(isRated: IsRated): Promise<DbMovie[]> {
   const twoYearsAgo = new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const rows = await db.cachedMovie.findMany({
-    where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, releaseDate: { gte: twoYearsAgo } },
+    where: { posterUrl: { not: null }, ...(await recWhere()), releaseDate: { gte: twoYearsAgo } },
     orderBy: { updatedAt: "desc" },
     take: 60,
     select: MOVIE_SELECT,
@@ -331,7 +336,7 @@ async function fetchGenrePool(keywords: string[], isRated: IsRated): Promise<DbM
       posterUrl: { not: null },
       NOT: { movieCd: { startsWith: "wikidata-" } },
       OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })),
-      AND: [NOT_ADULT_GENRE_WHERE],
+      AND: listableMovieConditions(await getExcludedMovieCds()),
     },
     orderBy: { updatedAt: "desc" },
     take: 200,
@@ -452,7 +457,7 @@ async function getCandidates(
   // Cold start: 최신 영화 20편 + 품질 점수
   if (profile.coldStart && !options.keywords) {
     const recent = await db.cachedMovie.findMany({
-      where: { posterUrl: { not: null }, ...EXCLUDE_UNVERIFIED_AWARD, releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
+      where: { posterUrl: { not: null }, ...(await recWhere()), releaseDate: { gte: new Date(Date.now() - 365 * 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) } },
       orderBy: { updatedAt: "desc" },
       take: 25,
       select: MOVIE_SELECT,
@@ -639,16 +644,16 @@ async function fetchFallbackCandidates(
   const rows = await db.cachedMovie.findMany({
     where: {
       posterUrl: { not: null },
-      ...EXCLUDE_UNVERIFIED_AWARD,
+      ...(await recWhere()),
       ...(keywords ? { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) } : {}),
     },
     orderBy: { updatedAt: "desc" },
-    take: needed * 5 + excludeMovieCds.size,
+    take: needed * 8 + excludeMovieCds.size,
     select: MOVIE_SELECT,
   });
   const fallback = (await withCastNames(rows
     .filter((m) => !excludeMovieCds.has(m.movieCd) && !isRated(m))
-    .slice(0, needed * 2)))
+    .slice(0, needed * 4)))
     .map(toCandidate);
   await withQuality(fallback); // 추천도 배지를 다른 카드와 같은 재료로 계산하기 위해
   return fallback;
@@ -714,6 +719,13 @@ function blendAndMMR(
 // POST /api/recommendations
 // ─────────────────────────────────────────────────────
 
+// 추천 최소 품질(adult-content.ts의 기준값) — TMDB 투표가 일정 수 이상이거나 우리 사이트 평점이 1개 이상인 영화만.
+// TMDB 투표 수를 아직 모르는 영화(판정 전)는 통과시킨다.
+async function keepQualityCandidates(candidates: CandidateMovie[]): Promise<CandidateMovie[]> {
+  const votes = await getTmdbVoteCounts(candidates.map((c) => c.movieCd));
+  return candidates.filter((c) => meetsRecommendationQuality(votes.get(c.movieCd), c.quality.overallCount));
+}
+
 async function buildRecommendations(
   myRatings: RatingInput[],
   myCategoryRatings: CategoryRatingInput[],
@@ -730,7 +742,7 @@ async function buildRecommendations(
   // TMDB id로 함께 거른다(예전엔 다른 항목으로 저장된 같은 영화가 다시 추천됐다).
   const isRated: IsRated = (m) => taste.ratedCds.has(m.movieCd) || (m.tmdbId !== null && taste.ratedTmdbIds.has(m.tmdbId));
   const profile = buildUserProfile(myRatings, taste);
-  const candidates = await getCandidates(profile, isRated, { keywords, poolSize: Math.max(20, target * 2) });
+  const candidates = await keepQualityCandidates(await getCandidates(profile, isRated, { keywords, poolSize: Math.max(20, target * 2) }));
   if (candidates.length === 0) return { results: [] };
 
   const cachedLlm = llmCache.get(cacheKey);
@@ -778,21 +790,27 @@ async function buildRecommendations(
       ...(reason ? { recommendReason: reason } : {}),
     };
   };
-  const isShowable = (r: RowMovie) => r.posterUrl !== null && !isAdultContent({ title: r.title, genreAlt: r.allGenres });
+  // 성인물·포스터 없음·이름 없는 청불·관리자 숨김을 같은 규칙(adult-content.ts)으로 한 번 더 본다.
+  const excluded = await getExcludedMovieSet();
+  const isShowable = (c: CandidateMovie, meta: CardMeta | undefined) =>
+    isListableMovie(
+      { movieCd: c.movieCd, title: c.title, genreAlt: meta?.genreAlt ?? c.genreAlt, watchGrade: meta?.watchGrade, posterUrl: meta?.posterUrl ?? c.posterUrl },
+      excluded,
+    );
 
   const results: RowMovie[] = final
+    .filter(({ candidate: c }) => isShowable(c, metas.get(c.movieCd)))
     .map(({ candidate: c, reason }) => {
       const meta = metas.get(c.movieCd);
       return toRow(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt, reason);
-    })
-    .filter(isShowable);
+    });
 
   // Fallback fill: MMR 다양성 제약 또는 포스터 없는 영화 제거로 목표 편수 미만이 되면
   // 후보 풀 밖의 최신 영화로 채운다.
   if (results.length < target) {
     const needed = target - results.length;
     const excludeMovieCds = new Set(candidates.map((c) => c.movieCd));
-    const fallback = await fetchFallbackCandidates(isRated, excludeMovieCds, needed, keywords);
+    const fallback = await keepQualityCandidates(await fetchFallbackCandidates(isRated, excludeMovieCds, needed, keywords));
     if (fallback.length > 0) {
       const [fallbackMetas] = await Promise.all([
         getCachedMovieMetas(fallback.map((c) => c.movieCd)),
@@ -800,8 +818,8 @@ async function buildRecommendations(
       ]);
       for (const c of fallback) {
         const meta = fallbackMetas.get(c.movieCd);
+        if (!isShowable(c, meta)) continue;
         const row = toRow(c, meta?.posterUrl ?? c.posterUrl, meta?.genreAlt ?? c.genreAlt);
-        if (!isShowable(row)) continue;
         results.push(row);
         if (results.length >= target) break;
       }
@@ -833,8 +851,9 @@ const COLD_START_SECONDS = 60 * 60 * 24;
 const getColdStartRecommendations = unstable_cache(
   (genre: string | null, target: number) =>
     buildRecommendations([], [], genre ? GENRE_KEYWORDS[genre] : null, target, `cold|${genre ?? ""}|${target}`, { llm: false }),
-  ["recommendations-cold-start-v1"],
-  { revalidate: COLD_START_SECONDS },
+  ["recommendations-cold-start-v2"],
+  // 관리자가 작품을 숨기면 이 태그로 기본 추천만 다시 계산한다(movie-moderation-actions.ts).
+  { revalidate: COLD_START_SECONDS, tags: ["recommendations"] },
 );
 
 function readGenreAndTarget(genreValue: unknown, limitValue: unknown) {

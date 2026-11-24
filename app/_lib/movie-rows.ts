@@ -12,7 +12,8 @@ import { Prisma } from "../generated/prisma/client";
 import { getMovieMetas, getCachedMovieMetas, rowToCardMeta, type CardMeta } from "./movie-rate-info";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
-import { isAdultContent, isAdultGenre, NOT_ADULT_GENRE_WHERE } from "./adult-content";
+import { isListableMovie } from "./adult-content";
+import { getExcludedMovieCds, getExcludedMovieSet, listableMovieConditions, listableMovieSql } from "./movie-moderation";
 
 export type RowMovie = {
   id: string;
@@ -68,6 +69,21 @@ export function genreFields(genreAlt: string | null | undefined): { genre: strin
 // KOBIS 카탈로그에서 온 영화는 로컬 그라디언트가 없다. 포스터는 KMDb에서 가져오고,
 // KMDb에도 없으면(오래되거나 마이너한 작품) 이 그라디언트로 대체된다.
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
+
+// 메인 카드로 보여도 되는지 — 성인물 판정·포스터 없음·이름 없는 청불·관리자 숨김을 모두 본다(adult-content.ts 한 곳의 규칙).
+// extraGenre: 목록 API(KOBIS)가 준 장르 — 저장된 장르가 TMDB 장르로 덮였어도 "성인물(에로)"를 놓치지 않게 함께 본다.
+function isListableCard(
+  movieCd: string,
+  title: string,
+  meta: { posterUrl: string | null; genreAlt: string | null; watchGrade?: string | null } | null | undefined,
+  excluded: ReadonlySet<string>,
+  extraGenre?: string | null,
+): boolean {
+  return isListableMovie(
+    { movieCd, title, genreAlt: meta?.genreAlt, genres: [extraGenre], watchGrade: meta?.watchGrade, posterUrl: meta?.posterUrl },
+    excluded,
+  );
+}
 
 // 홈 행 목록 캐시 수명(하루). 이 값이 홈 공용 페이지를 다시 만드는 주기도 정한다 — 페이지 안에서 쓰는 데이터 캐시 중
 // 가장 짧은 수명이 페이지 주기가 된다. 예전엔 15분~1시간이라 홈이 사실상 10분마다 다시 만들어지며 ISR 캐시를 쓰고
@@ -205,12 +221,13 @@ async function findAwardWinnerMovieCds(movieCds: string[]): Promise<Map<string, 
 // 편수만큼 DB 왕복이 생기지 않게 한다.
 async function toRowMovies(summaries: KobisMovieSummary[]): Promise<RowMovie[]> {
   const movieCds = summaries.map((s) => s.movieCd);
-  const [metas, awardMap, avgMap] = await Promise.all([
+  const [metas, awardMap, avgMap, excluded] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
     getBulkMovieRatingAverages(movieCds),
+    getExcludedMovieSet(),
   ]);
-  const rows = summaries.filter((s) => !isAdultContent({ title: s.title, genreAlt: metas.get(s.movieCd)?.genreAlt })).map((s) => {
+  const rows = summaries.filter((s) => isListableCard(s.movieCd, s.title, metas.get(s.movieCd), excluded, s.genreAlt)).map((s) => {
     const awards = awardMap.get(s.movieCd);
     const avgs = avgMap.get(s.movieCd);
     return {
@@ -318,15 +335,16 @@ async function classificationsToRows(
   rows: RereleaseClassificationRow[]
 ): Promise<{ row: RereleaseClassificationRow; movie: RowMovie }[]> {
   const movieCds = rows.map((r) => r.movieCd);
-  const [metas, awardCds, avgMap] = await Promise.all([
+  const [metas, awardCds, avgMap, excluded] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
     getBulkMovieRatingAverages(movieCds),
+    getExcludedMovieSet(),
   ]);
   const result: { row: RereleaseClassificationRow; movie: RowMovie }[] = [];
   rows.forEach((r) => {
     const meta = metas.get(r.movieCd) ?? null;
-    if (!meta?.posterUrl || isAdultGenre(meta.genreAlt)) return;
+    if (!meta?.posterUrl || !isListableCard(r.movieCd, r.movieTitle, meta, excluded)) return;
     const badge = r.originalYear && r.rereleaseDate
       ? `원작 ${r.originalYear} · 재개봉 ${monthDay(r.rereleaseDate)}`
       : r.rereleaseDate
@@ -479,12 +497,13 @@ async function loadRanking(listType: string, fetchFresh: () => Promise<RankingEn
 async function rankingRowsToCards(rankingEntries: RankingEntry[], badgeOf: (e: RankingEntry) => string) {
   const entries = dedupeRanking(rankingEntries);
   const movieCds = entries.map((e) => e.movieCd);
-  const [metas, awardCds, avgMap] = await Promise.all([
+  const [metas, awardCds, avgMap, excluded] = await Promise.all([
     getMovieMetas(movieCds),
     findAwardWinnerMovieCds(movieCds),
     getBulkMovieRatingAverages(movieCds),
+    getExcludedMovieSet(),
   ]);
-  return entries.filter((e) => !isAdultGenre(metas.get(e.movieCd)?.genreAlt)).map((entry) => {
+  return entries.filter((e) => isListableCard(e.movieCd, e.movieTitle, metas.get(e.movieCd), excluded)).map((entry) => {
     const meta = metas.get(entry.movieCd) ?? null;
     const avgs = avgMap.get(entry.movieCd);
     return {
@@ -532,11 +551,12 @@ export const getRecentMoviesRow = unstable_cache(
     const now = new Date();
     const threeMonthsAgo = new Date(now);
     threeMonthsAgo.setDate(now.getDate() - 90);
-    const results = await fetchOpenedBetween(isoDate(threeMonthsAgo), isoDate(now), 30);
+    // 성인물·포스터 없는 영화를 거른 뒤에도 15편이 남도록 넉넉히 받는다(국내 개봉작엔 에로 VOD가 많다).
+    const results = await fetchOpenedBetween(isoDate(threeMonthsAgo), isoDate(now), 45);
     const rows = await toRowMovies(results);
     return rows.slice(0, 15);
   },
-  ["recent-movies-row-v3"],
+  ["recent-movies-row-v4"],
   { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
@@ -572,8 +592,9 @@ async function fetchMonthlyBestRanking(limit: number): Promise<RankingEntry[]> {
 }
 
 async function _getMonthlyBestRow(limit = 10): Promise<RowMovie[]> {
-  const ranking = await loadRanking("monthly_best", () => fetchMonthlyBestRanking(limit));
-  return rankingRowsToCards(ranking, () => "");
+  // 걸러진 뒤에도 limit편이 남도록 넉넉히 받고 자른다.
+  const ranking = await loadRanking("monthly_best", () => fetchMonthlyBestRanking(limit + 10));
+  return (await rankingRowsToCards(ranking, () => "")).slice(0, limit);
 }
 export const getMonthlyBestRow = unstable_cache(
   _getMonthlyBestRow,
@@ -592,24 +613,28 @@ type RatedMovie = { cd: string; meta: CardMeta; avg: number; count: number };
 async function loadRatedMovies(
   { range = null, keywords = null, max }: { range?: { gte: string; lte: string } | null; keywords?: string[] | null; max: number },
 ): Promise<RatedMovie[]> {
+  const excluded = await getExcludedMovieCds();
   const rows = await db.$queryRaw<{
-    movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null; avg: number; count: number;
+    movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null; watchGrade: string | null; avg: number; count: number;
   }[]>`
-    SELECT m."movieCd", m."title", m."posterUrl", m."releaseDate", m."genreAlt", m."tmdbId",
+    SELECT m."movieCd", m."title", m."posterUrl", m."releaseDate", m."genreAlt", m."tmdbId", m."watchGrade",
            AVG(r."score")::float8 AS "avg", COUNT(*)::int AS "count"
     FROM "CategoryRating" r
     JOIN "CachedMovie" m ON m."movieCd" = r."movieCd"
     WHERE r."category" = '전체'
       AND r."movieCd" ~ '^[0-9]+$'
+      AND m."posterUrl" IS NOT NULL
+      ${listableMovieSql(Prisma.raw("m"), excluded)}
       ${range ? Prisma.sql`AND m."releaseDate" >= ${range.gte} AND m."releaseDate" <= ${range.lte}` : Prisma.empty}
       ${keywords ? Prisma.sql`AND m."genreAlt" LIKE ANY (${keywords.map((kw) => `%${kw}%`)}::text[])` : Prisma.empty}
     GROUP BY m."movieCd"
     ORDER BY "avg" DESC, "count" DESC, m."movieCd"
     LIMIT ${max}
   `;
+  const excludedSet = new Set(excluded);
   return rows
     .map((r) => ({ cd: r.movieCd, meta: rowToCardMeta(r), avg: r.avg, count: r.count }))
-    .filter(({ meta }) => !isAdultContent({ title: meta.movieTitle, genreAlt: meta.genreAlt }));
+    .filter(({ cd, meta }) => isListableCard(cd, meta.movieTitle, meta, excludedSet));
 }
 
 // 성인물을 거른 뒤에도 limit편이 남도록 넉넉히 받는다.
@@ -645,8 +670,9 @@ async function fillWithUnrated(
 ): Promise<RowMovie[]> {
   const unseen = pool.filter((m) => !exclude.has(m.movieCd));
   if (needed <= 0 || unseen.length === 0) return [];
-  const cached = await getCachedMovieMetas(unseen.map((m) => m.movieCd));
-  const candidates = unseen.filter((m) => !isAdultGenre(cached.get(m.movieCd)?.genreAlt));
+  const [cached, excluded] = await Promise.all([getCachedMovieMetas(unseen.map((m) => m.movieCd)), getExcludedMovieSet()]);
+  // 아직 저장되지 않은 영화는 아래 toRowMovies가 정보를 받아 온 뒤 같은 규칙으로 거른다.
+  const candidates = unseen.filter((m) => !cached.has(m.movieCd) || isListableCard(m.movieCd, m.title, cached.get(m.movieCd), excluded, m.genreAlt));
   const withPoster = candidates.filter((m) => cached.get(m.movieCd)?.posterUrl).slice(0, needed);
   const rows = withPoster.map((m) => summaryToRowMovie(m, cached.get(m.movieCd) ?? null));
   if (rows.length >= needed) return rows;
@@ -670,24 +696,26 @@ async function fillFromCachedGenre(
   needed: number,
 ): Promise<RowMovie[]> {
   if (needed <= 0) return [];
+  const excluded = await getExcludedMovieCds();
   const rows = await db.cachedMovie.findMany({
     where: {
       posterUrl: { not: null },
       NOT: { movieCd: { startsWith: "wikidata-" } },
       AND: [
         { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
-        NOT_ADULT_GENRE_WHERE,
+        ...listableMovieConditions(excluded),
         range
           ? { releaseDate: { gte: range.gte, lte: range.lte } }
           : { OR: [{ releaseDate: null }, { releaseDate: { lte: isoDate(new Date()) } }] },
       ],
     },
     orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
-    take: needed + exclude.size,
-    select: { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true },
+    take: needed * 2 + exclude.size,
+    select: { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true, watchGrade: true },
   });
+  const excludedSet = new Set(excluded);
   return rows
-    .filter((m) => !exclude.has(m.movieCd))
+    .filter((m) => !exclude.has(m.movieCd) && isListableCard(m.movieCd, m.title, m, excludedSet))
     .slice(0, needed)
     .map((m) => ({
       id: /^\d+$/.test(m.movieCd) ? `kobis-${m.movieCd}` : m.movieCd,
@@ -822,12 +850,11 @@ export const getGenrePopularRow = unstable_cache(
 // 해외 Best: 외국 영화(repNationCd=F) 중 최신순 10편.
 export const getInternationalBestRow = unstable_cache(
   async (): Promise<RowMovie[]> => {
-    const results = await searchMovieCatalog({ repNationCd: "F" }, 10);
-    const rows = await toRowMovies(results);
-    if (rows.length > 0) return rows;
-    return results.slice(0, 10).map((s) => summaryToRowMovie(s, null));
+    // 포스터 없는 카드·성인물은 보이지 않는다(예전엔 포스터를 못 구하면 정보 없는 카드로 채웠다).
+    const results = await searchMovieCatalog({ repNationCd: "F" }, 20);
+    return (await toRowMovies(results)).slice(0, 10);
   },
-  ["international-best-row"],
+  ["international-best-row-v2"],
   { revalidate: ROW_REVALIDATE_SECONDS, tags: ["movie-rows"] },
 );
 
@@ -864,7 +891,7 @@ export function filterRowsByGenre<T extends { allGenres?: string[] }>(movies: T[
 // 받아왔는데, 편수가 적은 장르(공포 등)는 거의 걸리지 않았고 매번 외부 조회를 기다리다
 // 실패하면 행 자체가 사라졌다. 이제 이미 캐시된 영화(포스터·장르가 있는 CachedMovie)를
 // 최신 개봉순으로 먼저 채우고, 모자랄 때만 KOBIS 카탈로그로 보충한다(외부 조회 없음).
-const genreRowSelect = { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true } as const;
+const genreRowSelect = { movieCd: true, title: true, posterUrl: true, releaseDate: true, genreAlt: true, watchGrade: true } as const;
 
 async function _getGenreRow(
   genreLabel: string,
@@ -875,21 +902,25 @@ async function _getGenreRow(
   if (!keywords) return [];
   const want = offset + pageSize;
   const today = isoDate(new Date());
+  const excludedCds = await getExcludedMovieCds();
+  const excluded = new Set(excludedCds);
 
-  const cached = await db.cachedMovie.findMany({
+  const cachedRows = await db.cachedMovie.findMany({
     where: {
       posterUrl: { not: null },
       NOT: { movieCd: { startsWith: "wikidata-" } }, // 수상작 전용 사본 — KOBIS 영화와 중복된다
       AND: [
         { OR: keywords.map((kw) => ({ genreAlt: { contains: kw } })) },
-        NOT_ADULT_GENRE_WHERE,
+        ...listableMovieConditions(excludedCds),
         { OR: [{ releaseDate: null }, { releaseDate: { lte: today } }] },
       ],
     },
     orderBy: { releaseDate: { sort: "desc", nulls: "last" } },
-    take: want,
+    take: want + 10,
     select: genreRowSelect,
   });
+  // 제목·이름 없는 청불 규칙은 쿼리로 다 못 거르므로 같은 규칙으로 한 번 더 본다(넉넉히 받아 둔 만큼 자리는 찬다).
+  const cached = cachedRows.filter((m) => isListableCard(m.movieCd, m.title, m, excluded)).slice(0, want);
   const rows: RowMovie[] = cached.map((m) => ({
     id: /^\d+$/.test(m.movieCd) ? `kobis-${m.movieCd}` : m.movieCd,
     title: m.title,
@@ -910,7 +941,7 @@ async function _getGenreRow(
       .slice(0, want - rows.length);
     const metas = await getCachedMovieMetas(extra.map((m) => m.movieCd));
     rows.push(...extra
-      .filter((m) => !isAdultGenre(metas.get(m.movieCd)?.genreAlt))
+      .filter((m) => isListableCard(m.movieCd, m.title, metas.get(m.movieCd), excluded, m.genreAlt))
       .map((m) => summaryToRowMovie(m, metas.get(m.movieCd) ?? null)));
   }
 
@@ -951,16 +982,17 @@ async function _getUserPopularMoviesRow(
 
   // 장르 탭에선 후보가 200편이라 getMovieMetas를 쓰면 만료된 영화마다 외부 API 재조회가
   // 줄을 선다. 평점이 달린 영화는 이미 DB에 캐시돼 있으니 DB만 읽는다.
-  const [metas, avgMap] = await Promise.all([
+  const [metas, avgMap, excluded] = await Promise.all([
     getCachedMovieMetas(movieCds),
     getBulkMovieRatingAverages(movieCds),
+    getExcludedMovieSet(),
   ]);
 
   const rows: RowMovie[] = [];
   for (const cd of movieCds) {
     const meta = metas.get(cd) ?? null;
     if (!meta?.posterUrl) continue;
-    if (isAdultGenre(meta.genreAlt)) continue;
+    if (!isListableCard(cd, meta.movieTitle, meta, excluded)) continue;
 
     // 장르 필터: genreFilter가 있으면 GENRE_KEYWORDS 기준으로 걸러낸다
     if (genreFilter) {

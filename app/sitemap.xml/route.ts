@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { SITE_URL, movieDetailPath } from "../_lib/site";
 import { db } from "../_lib/db";
 import { isAdultContent } from "../_lib/adult-content";
+import { getExcludedMovieSet } from "../_lib/movie-moderation";
 import { cdToMovieId, isSeriesCd } from "../_lib/rating-input";
 import { WIKIDATA_VERIFIED } from "../_lib/movie-rate-info";
 
@@ -99,10 +100,13 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   }
 
   // 상세 페이지를 바로 그릴 수 있는(DB에 정보가 있는) 영화만 넣는다.
-  const infos = await db.cachedMovie.findMany({
-    where: { movieCd: { in: ordered.slice(0, limit * 2) } },
-    select: { movieCd: true, title: true, genreAlt: true, source: true, updatedAt: true },
-  });
+  const [infos, excluded] = await Promise.all([
+    db.cachedMovie.findMany({
+      where: { movieCd: { in: ordered.slice(0, limit * 2) } },
+      select: { movieCd: true, title: true, genreAlt: true, watchGrade: true, source: true, updatedAt: true },
+    }),
+    getExcludedMovieSet(), // 관리자가 숨겼거나 성인물로 판정된 작품은 사이트맵에도 넣지 않는다
+  ]);
   const infoByCd = new Map(infos.map((m) => [m.movieCd, m]));
   const boxOfficeSet = new Set(boxOfficeCds);
 
@@ -110,7 +114,7 @@ async function loadSitemapMovies(): Promise<MovieEntry[]> {
   for (const cd of ordered) {
     if (result.length >= limit) break;
     const info = infoByCd.get(cd);
-    if (!info || isAdultContent(info)) continue;
+    if (!info || isAdultContent(info) || excluded.has(cd)) continue;
     if (cd.startsWith("wikidata-") && info.source !== WIKIDATA_VERIFIED) continue;
     const last = Math.max(activity.get(cd) ?? 0, info.updatedAt.getTime());
     result.push({ movieId: cdToMovieId(cd), lastModified: new Date(last).toISOString(), boxOffice: boxOfficeSet.has(cd) });

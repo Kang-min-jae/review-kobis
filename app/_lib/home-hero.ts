@@ -14,7 +14,8 @@ import { cdToMovieId } from "./rating-input";
 import { formatPosterUrl } from "./formatPosterUrl";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { getKoficBoxOfficeByTitle } from "./kobis";
-import { isAdultContent } from "./adult-content";
+import { isAdultContent, isListableMovie } from "./adult-content";
+import { getExcludedMovieSet } from "./movie-moderation";
 import { getBadge } from "./tier";
 import { ROW_REVALIDATE_SECONDS } from "./movie-rows";
 
@@ -110,15 +111,18 @@ async function topReviews(movieCd: string): Promise<HeroReview[]> {
 async function toHeroMovies(sorted: RecentStat[]): Promise<HeroMovie[]> {
   const candidates = sorted.slice(0, HERO_MOVIE_COUNT * 4);
   if (candidates.length === 0) return [];
-  const cached = await db.cachedMovie.findMany({
-    where: { movieCd: { in: candidates.map((c) => c.movieCd) } },
-    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true },
-  });
+  const [cached, excluded] = await Promise.all([
+    db.cachedMovie.findMany({
+      where: { movieCd: { in: candidates.map((c) => c.movieCd) } },
+      select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, watchGrade: true },
+    }),
+    getExcludedMovieSet(),
+  ]);
   const byCd = new Map(cached.map((m) => [m.movieCd, m]));
   const picked = candidates
     .filter((c) => {
       const m = byCd.get(c.movieCd);
-      return m && !isAdultContent(m);
+      return m && isListableMovie(m, excluded);
     })
     .slice(0, HERO_MOVIE_COUNT);
 
@@ -181,10 +185,13 @@ async function loadTodayReviews(): Promise<HeroTodayReview[]> {
     where: { id: { in: orderedIds } },
     include: { user: { select: { nickname: true, name: true, totalLikes: true } } },
   });
-  const movies = await db.cachedMovie.findMany({
-    where: { movieCd: { in: [...new Set(rows.map((r) => r.movieCd))] } },
-    select: { movieCd: true, title: true, posterUrl: true, genreAlt: true },
-  });
+  const [movies, excluded] = await Promise.all([
+    db.cachedMovie.findMany({
+      where: { movieCd: { in: [...new Set(rows.map((r) => r.movieCd))] } },
+      select: { movieCd: true, title: true, posterUrl: true, genreAlt: true, watchGrade: true },
+    }),
+    getExcludedMovieSet(),
+  ]);
   const movieByCd = new Map(movies.map((m) => [m.movieCd, m]));
   const rowById = new Map(rows.map((r) => [r.id, r]));
 
@@ -193,7 +200,7 @@ async function loadTodayReviews(): Promise<HeroTodayReview[]> {
     if (result.length >= HERO_MOVIE_COUNT) break;
     const r = rowById.get(id);
     const m = r ? movieByCd.get(r.movieCd) : undefined;
-    if (!r || !m || isAdultContent(m)) continue;
+    if (!r || !m || isAdultContent(m) || excluded.has(m.movieCd)) continue;
     result.push({
       id: r.id,
       content: r.content,

@@ -5,6 +5,7 @@ import { getMovieMetas } from "../../_lib/movie-rate-info";
 import { formatPosterUrl } from "../../_lib/formatPosterUrl";
 import { searchTmdbMulti, searchTmdbPerson, type TmdbMultiHit } from "../../_lib/tmdb";
 import { isAdultContent } from "../../_lib/adult-content";
+import { getExcludedMovieSet } from "../../_lib/movie-moderation";
 import { db } from "../../_lib/db";
 import { koreanSimilarity, FUZZY_THRESHOLD } from "../../_lib/fuzzySearch";
 import { FILMOGRAPHY_VALID_SINCE, warmPersonFilmography } from "../../_lib/person-filmography";
@@ -775,6 +776,28 @@ async function handleGet(request: Request) {
 // 검색 결과는 사람마다 같다 — 같은 검색어는 CDN이 10분 동안 바로 돌려준다(서버 함수·외부 API·AI 호출 없음).
 export async function GET(request: Request) {
   const res = await handleGet(request);
-  if (res.status === 200) res.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
-  return res;
+  if (res.status !== 200) return res;
+  const filtered = NextResponse.json(await withoutAdultMovies(await res.json()));
+  filtered.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=3600");
+  return filtered;
+}
+
+// 검색 결과의 영화 중 성인물(adult-content.ts 한 곳의 규칙)과 관리자가 숨긴·성인물로 판정된 작품을 뺀다.
+// 결과가 어느 경로(DB·KOBIS·TMDB·AI 교정)로 만들어졌든 여기 한 곳에서 거른다. 저장된 장르·등급도 함께 본다.
+async function withoutAdultMovies<T extends { movies?: MovieHit[] }>(payload: T): Promise<T> {
+  const movies = payload.movies;
+  if (!Array.isArray(movies) || movies.length === 0) return payload;
+  const [stored, excluded] = await Promise.all([
+    db.cachedMovie
+      .findMany({ where: { movieCd: { in: movies.map((m) => m.movieCd) } }, select: { movieCd: true, genreAlt: true, watchGrade: true } })
+      .catch(() => []),
+    getExcludedMovieSet(),
+  ]);
+  const byCd = new Map(stored.map((m) => [m.movieCd, m]));
+  const kept = movies.filter((m) => {
+    if (excluded.has(m.movieCd)) return false;
+    const row = byCd.get(m.movieCd);
+    return !isAdultContent({ title: m.title, genres: [m.genre, row?.genreAlt], watchGrade: row?.watchGrade });
+  });
+  return { ...payload, movies: kept };
 }

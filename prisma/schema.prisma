@@ -558,3 +558,24 @@ model TrailerChannelRule {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// 작품 노출 관리 — 성인물 자동 판정 결과와 관리자의 숨김 처리. 메인·추천·목록·검색은 여기서 "숨김"이거나
+// "성인물"로 표시된 작품을 뺀다(movie-moderation.ts). 영화 테이블(CachedMovie)에 칸을 더하지 않고 따로 둔다 —
+// 이 테이블이 아직 없어도(마이그레이션 전 배포) 사이트는 "표시된 작품 없음"으로 정상 동작한다.
+model MovieModeration {
+  movieCd       String    @id // 리뷰 DB의 작품 키(kobis 숫자, tmdb-*, kmdb-*, wikidata-*)
+  // 관리자 숨김
+  hidden        Boolean   @default(false)
+  reason        String? // 숨긴 사유(관리자 입력)
+  moderatedBy   String? // 처리한 관리자 user id
+  moderatedAt   DateTime?
+  // 자동 판정(adult-content.ts의 judgeAdultContent)
+  adult         Boolean   @default(false)
+  adultReason   String? // 예: "tmdb-adult", "genre:성인물(에로)", "keyword:softcore", "company:Marc Dorcel"
+  tmdbVoteCount Int? // TMDB 투표 수(모르면 null) — 청소년관람불가 저품질 판정·추천 최소 품질에 쓴다
+  checkedAt     DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@index([hidden])
+  @@index([adult])
+}

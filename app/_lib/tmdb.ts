@@ -155,7 +155,15 @@ type RawTmdbMovieDetails = {
   overview?: string;
   runtime?: number | null;
   genres?: RawTmdbGenre[];
+  // 성인물 판정용(adult-content.ts) — 상세 요청에 keywords를 함께 받아(append_to_response) 요청 수는 그대로다.
+  adult?: boolean;
+  vote_count?: number;
+  production_companies?: { name?: string }[];
+  keywords?: { keywords?: { name?: string }[] };
 };
+
+// 상세 조회 한 번에 키워드까지 받는다(TMDB append_to_response — 별도 요청이 생기지 않는다).
+const DETAIL_PARAMS = { append_to_response: "keywords" } as const;
 
 export type TmdbMovieDetails = {
   tmdbId: string;
@@ -166,7 +174,24 @@ export type TmdbMovieDetails = {
   releaseDate: string | null;
   runtimeMinutes: number | null;
   genre: string | null; // 콤마 구분 — KMDb/KOBIS의 genreAlt 형식과 맞춘다
+  // 성인물 판정 재료(adult-content.ts). 상세를 못 받았으면 비어 있다(detailsLoaded=false).
+  adult: boolean | null;
+  voteCount: number | null;
+  keywords: string[];
+  companies: string[];
+  detailsLoaded: boolean;
 };
+
+function adultFields(details: RawTmdbMovieDetails | null): Pick<TmdbMovieDetails, "adult" | "voteCount" | "keywords" | "companies" | "detailsLoaded"> {
+  if (!details) return { adult: null, voteCount: null, keywords: [], companies: [], detailsLoaded: false };
+  return {
+    adult: typeof details.adult === "boolean" ? details.adult : null,
+    voteCount: typeof details.vote_count === "number" ? details.vote_count : null,
+    keywords: (details.keywords?.keywords ?? []).map((k) => k.name?.trim() ?? "").filter(Boolean),
+    companies: (details.production_companies ?? []).map((c) => c.name?.trim() ?? "").filter(Boolean),
+    detailsLoaded: true,
+  };
+}
 
 // 검색 결과 중 제목(한국어/원어 둘 다 대조)이 정확히 일치하는 후보만 추리고,
 // 연도 힌트가 있으면 그것까지 맞는 쪽을 우선한다 — 다른 소스들과 같은 원칙으로,
@@ -226,18 +251,18 @@ export async function searchTmdbMovie(
   const acceptableTitles = new Set([normalizeTitle(title)]);
   if (titleEn) acceptableTitles.add(normalizeTitle(titleEn));
 
-  const data = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title });
+  const data = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title, include_adult: "false" });
   let best = pickBestMovieMatch(data?.results ?? [], acceptableTitles, yearHint);
 
   // 한글 제목으로 못 찾으면 영문 제목으로 재시도한다 — 외화는 TMDB 한국어 등록
   // 표기가 KOBIS/KMDb와 다른 경우가 흔하다.
   if (!best && titleEn) {
-    const dataEn = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleEn });
+    const dataEn = await tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleEn, include_adult: "false" });
     best = pickBestMovieMatch(dataEn?.results ?? [], acceptableTitles, yearHint);
   }
   if (!best) return null;
 
-  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${best.id}`);
+  const details = await tmdbFetch<RawTmdbMovieDetails>(`/movie/${best.id}`, DETAIL_PARAMS);
   if (!details) {
     return {
       tmdbId: String(best.id),
@@ -248,6 +273,7 @@ export async function searchTmdbMovie(
       releaseDate: best.release_date?.trim() || null,
       runtimeMinutes: null,
       genre: null,
+      ...adultFields(null),
     };
   }
 
@@ -260,6 +286,7 @@ export async function searchTmdbMovie(
     releaseDate: details.release_date?.trim() || null,
     runtimeMinutes: details.runtime ?? null,
     genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
+    ...adultFields(details),
   };
 }
 
@@ -274,12 +301,12 @@ export async function getTmdbMoviePosterById(tmdbId: string): Promise<string | n
 // 텍스트 검색 없이 바로 개요·런타임·장르·개봉일을 채우는 데 쓴다.
 // lang 파라미터: 제목 검증용으로 "en-US"를 쓰면 영문 title + original_title을 돌려준다.
 export async function getTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
-  return toMovieDetails(await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang));
+  return toMovieDetails(await tmdbFetch<RawTmdbMovieDetails>(`/movie/${tmdbId}`, DETAIL_PARAMS, lang));
 }
 
 // 없는 영화면 null, TMDB를 지금 쓸 수 없으면 TmdbUnavailableError — 영화 상세 페이지용.
 export async function fetchTmdbMovieDetailsById(tmdbId: string, lang = "ko-KR"): Promise<TmdbMovieDetails | null> {
-  return toMovieDetails(await tmdbFetchStrict<RawTmdbMovieDetails>(`/movie/${tmdbId}`, {}, lang));
+  return toMovieDetails(await tmdbFetchStrict<RawTmdbMovieDetails>(`/movie/${tmdbId}`, DETAIL_PARAMS, lang));
 }
 
 function toMovieDetails(details: RawTmdbMovieDetails | null): TmdbMovieDetails | null {
@@ -293,6 +320,7 @@ function toMovieDetails(details: RawTmdbMovieDetails | null): TmdbMovieDetails |
     releaseDate: details.release_date?.trim() || null,
     runtimeMinutes: details.runtime ?? null,
     genre: details.genres && details.genres.length > 0 ? details.genres.map((g) => g.name).join(",") : null,
+    ...adultFields(details),
   };
 }
 
@@ -330,13 +358,13 @@ export async function searchTmdbMoviePosterLoose(
   for (const year of [releaseYear, releaseYear - 1, releaseYear + 1]) {
     const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
       tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
-        "/search/movie", { query: title, primary_release_year: String(year) }, "en-US"
+        "/search/movie", { query: title, primary_release_year: String(year), include_adult: "false" }, "en-US"
       ),
     ];
     if (titleAlt) {
       queries.push(
         tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>(
-          "/search/movie", { query: titleAlt, primary_release_year: String(year) }, "ko-KR"
+          "/search/movie", { query: titleAlt, primary_release_year: String(year), include_adult: "false" }, "ko-KR"
         )
       );
     }
@@ -348,11 +376,11 @@ export async function searchTmdbMoviePosterLoose(
 
   // 연도 제약 없는 마지막 시도 — 더 엄격한 제목 매칭 적용
   const queries: Promise<{ results?: RawTmdbMovieSearchResult[] } | null>[] = [
-    tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title }, "en-US"),
+    tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: title, include_adult: "false" }, "en-US"),
   ];
   if (titleAlt) {
     queries.push(
-      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleAlt }, "ko-KR")
+      tmdbFetch<{ results?: RawTmdbMovieSearchResult[] }>("/search/movie", { query: titleAlt, include_adult: "false" }, "ko-KR")
     );
   }
   const datasets = await Promise.all(queries);
@@ -645,6 +673,7 @@ type RawTmdbCreditMovie = {
   release_date?: string;
   poster_path?: string | null;
   job?: string; // crew 항목에만 있음(예: "Director")
+  adult?: boolean;
 };
 
 export type TmdbCreditMovie = {
@@ -677,6 +706,7 @@ export async function getTmdbPersonMovieCredits(
 
   const deduped = new Map<number, RawTmdbCreditMovie>();
   for (const c of raw) {
+    if (c.adult === true) continue; // 성인물(TMDB adult)은 필모그래피에 넣지 않는다
     if (c.title && !deduped.has(c.id)) deduped.set(c.id, c);
   }
 
@@ -780,7 +810,7 @@ export async function getTmdbMovieCredits(tmdbId: string, castLimit = 6): Promis
 // GET /movie/{movie_id}/recommendations — "비슷한 영화" 폴백에 쓰는 TMDB 추천작 ID 목록(1페이지).
 export async function getTmdbMovieRecommendationIds(tmdbId: string): Promise<string[]> {
   if (!/^\d{1,12}$/.test(tmdbId)) return [];
-  const data = await tmdbFetch<{ results?: { id?: number }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });
+  const data = await tmdbFetch<{ results?: { id?: number; adult?: boolean }[] }>(`/movie/${tmdbId}/recommendations`, { page: "1" });
   if (!data || !Array.isArray(data.results)) return [];
-  return data.results.map((r) => (typeof r.id === "number" ? String(r.id) : null)).filter((id): id is string => id !== null);
+  return data.results.map((r) => (typeof r.id === "number" && r.adult !== true ? String(r.id) : null)).filter((id): id is string => id !== null);
 }

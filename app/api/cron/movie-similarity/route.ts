@@ -8,6 +8,7 @@
 // 수동 실행: curl -X POST https://<도메인>/api/cron/movie-similarity -H "x-admin-secret: <ADMIN_SECRET>"
 // 또는 로컬에서 npx tsx scripts/compute-movie-similarity.mts
 
+import { MOVIE_MODERATION_TAG } from "../../../_lib/movie-moderation";
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { revalidateWorkDetailPages } from "../../../_lib/detail-revalidate";
@@ -34,7 +35,10 @@ function isAuthorized(request: Request): boolean {
 // DB(Neon)를 하루 종일 깨우지 않기 위해서다. 홈 행 목록은 태그를 지워 다음 방문 때 새로 계산하게 하고,
 // 박스오피스에 오른 영화의 상세 페이지("박스오피스 N위" 배지)는 그 영화들만 다시 만들게 한다.
 async function refreshDailyPages(): Promise<number> {
+  // 하루 동안 상세 정보를 처음 불러오며 새로 성인물로 판정된 영화도 메인·추천에서 빠지게, 뺄 작품 목록부터 새로 읽는다.
+  revalidateTag(MOVIE_MODERATION_TAG, { expire: 0 });
   revalidateTag("movie-rows", { expire: 0 });
+  revalidateTag("recommendations", { expire: 0 });
   const rows = await db.rankingSnapshot.findMany({
     where: { listType: { in: ["now_showing", "weekly_box_office"] } },
     select: { movieCd: true },

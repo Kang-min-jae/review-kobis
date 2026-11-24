@@ -6,6 +6,9 @@ import SiteHeader from "../SiteHeader";
 import BackBar from "../BackBar";
 import FilmographyGrid from "../FilmographyGrid";
 import { getPersonFilmography, getPersonTmdbId } from "../../_lib/person-filmography";
+import { isAdultContent } from "../../_lib/adult-content";
+import { getExcludedMovieSet } from "../../_lib/movie-moderation";
+import { movieIdToCd } from "../../_lib/rating-input";
 import { findNamesakeCandidates } from "../../_lib/kmdb";
 import { getTmdbPersonBirthday } from "../../_lib/tmdb";
 import { db } from "../../_lib/db";
@@ -97,7 +100,12 @@ async function Filmography({
   tmdbIdHint: string | null;
   anonymous: boolean;
 }) {
-  const { movies, partial } = await getPersonFilmography(name, personId, role, tmdbIdHint);
+  const [filmography, excluded] = await Promise.all([getPersonFilmography(name, personId, role, tmdbIdHint), getExcludedMovieSet()]);
+  const { partial } = filmography;
+  // 성인물(adult-content.ts)과 관리자가 숨겼거나 성인물로 판정된 작품은 참여작 목록에서도 뺀다.
+  const movies = filmography.movies.filter(
+    (m) => !excluded.has(movieIdToCd(m.id) ?? m.id) && !isAdultContent({ title: m.title, genreAlt: m.allGenres }),
+  );
   // 일부만 계산됐거나, 외부 조회가 잠깐 실패해 하나도 못 찾았으면 공용 캐시에 오래 두지 않는다.
   if (anonymous && (partial || movies.length === 0)) await shortenCacheLife();
   return (

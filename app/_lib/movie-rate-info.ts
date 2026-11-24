@@ -17,6 +17,7 @@ import { after } from "next/server";
 import { db } from "./db";
 import { withoutDataCache } from "./data-cache-scope";
 import { isRatableMovieId, isSeriesCd } from "./rating-input";
+import { saveAdultJudgment } from "./movie-moderation";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 
@@ -110,6 +111,7 @@ export type MovieMeta = {
   rereleaseDate: string | null;
   runtimeMinutes: number | null;
   genreAlt: string | null;
+  watchGrade?: string | null; // 관람 등급(KOBIS·KMDb) — 성인물·청불 거르기용
   director: PersonRef | null;
   cast: PersonRef[];
   tmdbId: string | null;
@@ -228,6 +230,7 @@ function rowToMeta(row: CachedMovieRow): MovieMeta {
     rereleaseDate: row.rereleaseDate,
     runtimeMinutes: row.runtimeMinutes,
     genreAlt: row.genreAlt,
+    watchGrade: row.watchGrade,
     director: row.directorName ? { name: row.directorName, kmdbId: row.directorKmdbId, tmdbId: row.directorTmdbId } : null,
     cast: row.cast as PersonRef[],
     tmdbId: row.tmdbId,
@@ -341,8 +344,12 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     }
   }
 
+  // 관람 등급(KOBIS 우선, 없으면 KMDb) — 성인물 판정(제한상영가)과 이름 없는 청불 영화 거르기에 쓴다.
+  const watchGrade = info.watchGrade ?? kmdbInfo?.watchGrade ?? null;
+  meta.watchGrade = watchGrade;
   const data = {
     title: meta.movieTitle,
+    watchGrade,
     posterUrl: meta.posterUrl,
     overview: meta.description,
     releaseDate: meta.releaseDate,
@@ -362,6 +369,22 @@ async function fetchAndCacheMovieMeta(movieCd: string): Promise<MovieMeta | null
     create: { movieCd, ...data },
     update: data,
   });
+  // 성인물 판정 — 저장된 장르는 TMDB 장르로 덮여 KOBIS의 "성인물(에로)"가 사라지므로 출처별 장르를 모두 넘긴다.
+  // 이미 받은 정보만 쓴다(외부 API를 더 부르지 않는다).
+  await saveAdultJudgment(
+    movieCd,
+    {
+      title: info.title,
+      titleEn: meta.movieTitleEn,
+      genres: [info.genreAlt, kmdbInfo?.genre, tmdbInfo?.genre],
+      watchGrade,
+      tmdbAdult: tmdbInfo?.adult,
+      keywords: tmdbInfo?.keywords,
+      companies: tmdbInfo?.companies,
+      tmdbVoteCount: tmdbInfo?.voteCount,
+    },
+    { complete: tmdbInfo?.detailsLoaded === true },
+  );
 
   return meta;
 }
@@ -436,7 +459,8 @@ export async function getMovieMeta(movieCd: string): Promise<MovieMeta | null> {
 // 카드(포스터 한 장)에 필요한 정보만. 목록 화면은 이것만 쓴다 — 줄거리·출연진 JSON까지
 // 행 전체를 읽으면 영화 한 편에 수 KB씩, 목록 하나에 수 MB가 DB에서 빠져나간다
 // (Neon 무료 플랜은 DB 밖으로 나가는 전송량이 월 5GB로 제한돼 있다).
-export type CardMeta = Pick<MovieMeta, "movieCd" | "movieTitle" | "posterUrl" | "releaseDate" | "genreAlt" | "tmdbId">;
+// watchGrade는 성인물·이름 없는 청불 영화 거르기(adult-content.ts의 isListableMovie)에 쓴다.
+export type CardMeta = Pick<MovieMeta, "movieCd" | "movieTitle" | "posterUrl" | "releaseDate" | "genreAlt" | "tmdbId"> & { watchGrade?: string | null };
 
 export const CARD_SELECT = {
   movieCd: true,
@@ -445,9 +469,10 @@ export const CARD_SELECT = {
   releaseDate: true,
   genreAlt: true,
   tmdbId: true,
+  watchGrade: true,
 } as const;
 
-export function rowToCardMeta(row: { movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null }): CardMeta {
+export function rowToCardMeta(row: { movieCd: string; title: string; posterUrl: string | null; releaseDate: string | null; genreAlt: string | null; tmdbId: string | null; watchGrade?: string | null }): CardMeta {
   return {
     movieCd: row.movieCd,
     movieTitle: row.title,
@@ -455,6 +480,7 @@ export function rowToCardMeta(row: { movieCd: string; title: string; posterUrl: 
     releaseDate: row.releaseDate,
     genreAlt: row.genreAlt,
     tmdbId: row.tmdbId,
+    watchGrade: row.watchGrade ?? null,
   };
 }
 
@@ -614,6 +640,20 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
         source: tmdb ? WIKIDATA_VERIFIED : "tmdb",
       };
       await db.cachedMovie.update({ where: { movieCd }, data: update , select: { movieCd: true } }).catch(() => null);
+      await saveAdultJudgment(
+        movieCd,
+        {
+          title: cached.title,
+          titleEn: update.titleEn,
+          genres: [tmdb?.genre, kmdb?.genre, base.genreAlt],
+          watchGrade: kmdb?.watchGrade ?? cached.watchGrade,
+          tmdbAdult: tmdb?.adult,
+          keywords: tmdb?.keywords,
+          companies: tmdb?.companies,
+          tmdbVoteCount: tmdb?.voteCount,
+        },
+        { complete: tmdb?.detailsLoaded === true },
+      );
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
     }
 
@@ -668,6 +708,19 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
       create: { movieCd: id, ...data },
       update: data,
     });
+    await saveAdultJudgment(
+      id,
+      {
+        title: details.title,
+        titleEn: details.originalTitle,
+        genreAlt: details.genre,
+        tmdbAdult: details.adult,
+        keywords: details.keywords,
+        companies: details.companies,
+        tmdbVoteCount: details.voteCount,
+      },
+      { complete: details.detailsLoaded },
+    );
 
     const meta: MovieMeta = {
       movieCd: id,
@@ -712,6 +765,20 @@ async function resolveMovieRateInfoBase(id: string): Promise<ResolvedMovieInfo |
         tmdbId: tmdb.tmdbId ?? cached.tmdbId,
       };
       await db.cachedMovie.update({ where: { movieCd: id }, data: update , select: { movieCd: true } }).catch(() => null);
+      await saveAdultJudgment(
+        id,
+        {
+          title: cached.title,
+          titleEn: update.titleEn,
+          genres: [cached.genreAlt, tmdb.genre],
+          watchGrade: cached.watchGrade,
+          tmdbAdult: tmdb.adult,
+          keywords: tmdb.keywords,
+          companies: tmdb.companies,
+          tmdbVoteCount: tmdb.voteCount,
+        },
+        { complete: tmdb.detailsLoaded },
+      );
       return { movieId: id, ...rowToMeta({ ...cached, ...update }), boxOffice: null };
     }
 

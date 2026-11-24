@@ -17,7 +17,8 @@ import { genreFields, splitGenres, type RowMovie } from "./movie-rows";
 import { getBulkMovieRatingAverages } from "./review-data";
 import { getTmdbMovieRecommendationIds } from "./tmdb";
 import { withoutDataCache } from "./data-cache-scope";
-import { isAdultContent, NOT_ADULT_GENRE_WHERE } from "./adult-content";
+import { isListableMovie, NOT_ADULT_GENRE_WHERE } from "./adult-content";
+import { getExcludedMovieSet } from "./movie-moderation";
 
 const FALLBACK_GRADIENT = "from-neutral-800 via-neutral-600 to-neutral-400";
 // 화면에 10개씩 두 줄로 보여준다.
@@ -28,8 +29,8 @@ const GENRE_FALLBACK_MIN_AVG = 7;
 export const CF_SECTION_TITLE = "이 영화를 좋아한 사람들이 본";
 export const FALLBACK_SECTION_TITLE = "비슷한 영화";
 
-type CachedRow = { movieCd: string; title: string; posterUrl: string | null; genreAlt: string | null };
-const ROW_SELECT = { movieCd: true, title: true, posterUrl: true, genreAlt: true } as const;
+type CachedRow = { movieCd: string; title: string; posterUrl: string | null; genreAlt: string | null; watchGrade: string | null };
+const ROW_SELECT = { movieCd: true, title: true, posterUrl: true, genreAlt: true, watchGrade: true } as const;
 
 export async function getExcludedMovieCds(userId: string | null): Promise<Set<string>> {
   if (!userId) return new Set();
@@ -85,15 +86,15 @@ async function fromSameGenreTopRated(genreAlt: string | null): Promise<CachedRow
   const genre = splitGenres(genreAlt)[0];
   if (!genre) return [];
   return db.$queryRaw<CachedRow[]>`
-    SELECT m."movieCd", m."title", m."posterUrl", m."genreAlt"
+    SELECT m."movieCd", m."title", m."posterUrl", m."genreAlt", m."watchGrade"
     FROM (
-      SELECT "movieCd", "title", "posterUrl", "genreAlt", "updatedAt" FROM "CachedMovie"
+      SELECT "movieCd", "title", "posterUrl", "genreAlt", "watchGrade", "updatedAt" FROM "CachedMovie"
       WHERE "genreAlt" LIKE ${`%${genre}%`} AND "genreAlt" NOT LIKE '%에로%' AND "genreAlt" NOT LIKE '%성인%'
       ORDER BY "updatedAt" DESC
       LIMIT 200
     ) m
     JOIN "Review" r ON r."movieCd" = m."movieCd" AND r."category" = '전체' AND r."type" = 'SHORT'
-    GROUP BY m."movieCd", m."title", m."posterUrl", m."genreAlt", m."updatedAt"
+    GROUP BY m."movieCd", m."title", m."posterUrl", m."genreAlt", m."watchGrade", m."updatedAt"
     HAVING AVG(r."rating") >= ${GENRE_FALLBACK_MIN_AVG}
     ORDER BY AVG(r."rating") DESC, m."updatedAt" DESC
     LIMIT ${SIMILAR_MOVIE_COUNT + 10}
@@ -139,7 +140,7 @@ export async function getSimilarMovies(input: {
   genreAlt: string | null;
   userId: string | null;
 }): Promise<{ title: string; movies: RowMovie[] }> {
-  const excluded = await getExcludedMovieCds(input.userId);
+  const [excluded, moderated] = await Promise.all([getExcludedMovieCds(input.userId), getExcludedMovieSet()]);
   excluded.add(input.movieCd);
 
   const picked: CachedRow[] = [];
@@ -147,7 +148,9 @@ export async function getSimilarMovies(input: {
   const take = (rows: CachedRow[]) => {
     for (const r of rows) {
       if (picked.length >= SIMILAR_MOVIE_COUNT) return;
-      if (excluded.has(r.movieCd) || pickedCds.has(r.movieCd) || r.title === input.movieTitle || isAdultContent(r)) continue;
+      if (excluded.has(r.movieCd) || pickedCds.has(r.movieCd) || r.title === input.movieTitle) continue;
+      // 성인물·포스터 없음·이름 없는 청불·관리자 숨김(adult-content.ts 한 곳의 규칙)
+      if (!isListableMovie(r, moderated)) continue;
       // KOBIS 영화와 같은 작품의 tmdb-* 행이 둘 다 있을 수 있어 제목으로도 한 번 더 거른다.
       if (picked.some((p) => p.title === r.title)) continue;
       picked.push(r);

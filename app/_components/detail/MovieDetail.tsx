@@ -28,6 +28,8 @@ import {
 } from "../DetailReviews";
 import { BASE_OPEN_GRAPH, BASE_TWITTER, movieDetailPath } from "../../_lib/site";
 import { cdToMovieId, isSeriesCd } from "../../_lib/rating-input";
+import { getMovieModeration } from "../../_lib/movie-moderation";
+import MovieModerationButton from "../MovieModerationButton";
 
 // 영화 상세(평점) 페이지 — 로그인한 사람용 페이지(app/movies/…/page.tsx)와 로그인 쿠키 없는 요청용 공용 캐시
 // 페이지(app/anon/movies/…/page.tsx)가 같이 쓴다. anonymous면 로그인 정보를 읽지 않아 모든 방문자에게 같은
@@ -41,6 +43,9 @@ export async function movieDetailMetadata(id: string, categoryParam: string, { c
     throw error;
   });
   if (!info) return {};
+  // 관리자가 숨긴 영화는 제목·포스터를 내보내지 않고 검색에서도 뺀다. 성인물로 판정된 영화도 검색에서 뺀다.
+  const moderation = await getMovieModeration(info.movieCd);
+  if (moderation?.hidden) return { title: "표시할 수 없는 영화", robots: { index: false, follow: false } };
   const title = info.movieTitle;
   const description = `${title} 평점과 리뷰 — 연출, 연기, 각본, 음악, 편집 항목별 평가를 남겨보세요.`;
   // 정식 주소 — 같은 영화가 다른 ID 표기(예: 숫자만, kobis-숫자)로 열려도 하나의 주소로 모은다.
@@ -51,7 +56,7 @@ export async function movieDetailMetadata(id: string, categoryParam: string, { c
     description,
     alternates: { canonical },
     // 항목별(연출·연기 등) 페이지는 대표 주소("전체")만 검색에 남긴다 — robots.txt도 수집을 막는다.
-    ...(categoryPage || category !== "전체" ? { robots: { index: false, follow: true } } : {}),
+    ...(categoryPage || category !== "전체" || moderation?.adult ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       ...BASE_OPEN_GRAPH,
       url: canonical,
@@ -113,6 +118,34 @@ async function SimilarMoviesWithSession(
   return <SimilarMoviesSection {...rest} userId={session?.user?.id ?? null} />;
 }
 
+// 관리자에게만 숨기기/숨김 해제 버튼을 보여 준다(그 밖의 사람에겐 아무것도 그리지 않아 화면이 그대로다).
+async function AdminModerationControl(props: { sessionPromise: Promise<Session | null>; movieCd: string; hidden: boolean }) {
+  const session = await props.sessionPromise;
+  if (session?.user?.role !== "ADMIN") return null;
+  return <MovieModerationButton movieCd={props.movieCd} hidden={props.hidden} />;
+}
+
+// 관리자가 숨긴 영화의 상세 주소로 직접 들어왔을 때 — 404 대신 안내를 보여 준다(검색 제외는 metadata의 noindex).
+function HiddenMovieNotice(props: { anonymous: boolean; sessionPromise: Promise<Session | null>; movieCd: string }) {
+  return (
+    <main>
+      <SiteHeader anonymous={props.anonymous} />
+      <div className="px-4 py-5 sm:px-5 sm:py-6">
+        <BackBar />
+        <section className="mx-auto mt-10 max-w-md rounded-2xl border border-neutral-800 bg-surface p-6 text-center">
+          <h1 className="text-base font-bold text-text">표시할 수 없는 영화</h1>
+          <p className="mt-2 text-sm text-muted">이 영화는 운영 정책에 따라 STILL THEATER에서 보여 드리지 않아요.</p>
+          {!props.anonymous && (
+            <Suspense fallback={null}>
+              <AdminModerationControl sessionPromise={props.sessionPromise} movieCd={props.movieCd} hidden />
+            </Suspense>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function isRatingCategory(value: string): value is RatingCategory {
   return (RATING_CATEGORIES as readonly string[]).includes(value);
 }
@@ -154,6 +187,10 @@ export default async function MovieDetail({
   }
   if (!info) {
     notFound();
+  }
+  const moderation = await getMovieModeration(info.movieCd);
+  if (moderation?.hidden) {
+    return <HiddenMovieNotice anonymous={anonymous} sessionPromise={sessionPromise} movieCd={info.movieCd} />;
   }
   const averages = await getAllCategoryAverages(info.movieCd);
   const overall = averages.find((a) => a.category === "전체");
@@ -198,6 +235,12 @@ export default async function MovieDetail({
         >
           <CategoryRatings movieId={info.movieId} averages={averages} activeCategory={category} />
         </MovieHero>
+
+        {!anonymous && (
+          <Suspense fallback={null}>
+            <AdminModerationControl sessionPromise={sessionPromise} movieCd={info.movieCd} hidden={false} />
+          </Suspense>
+        )}
 
         {/* 모바일(1열): 예고편·예매 → 평점(항목별 평점·리뷰) → 별점 분포 → 비슷한 영화 순서.
             넓은 화면(2열): 왼쪽에 평점, 오른쪽에 예고편·예매 / 별점 분포 / 비슷한 영화. 같은 요소를 grid 위치로만 옮긴다. */}
